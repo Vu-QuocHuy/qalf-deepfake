@@ -1,0 +1,38 @@
+{
+  "seed": 42,
+  "data": {
+    "train_manifest": "data/manifests/ffpp_train_landmarks.jsonl",
+    "val_manifest": "data/manifests/ffpp_val_landmarks.jsonl",
+    "train_frame_root": "/path/to/ffpp_extracted",
+    "train_landmark_root": "/path/to/landmarks",
+    "num_frames": 32,
+    "texture_frames": 4,
+    "image_size": 128,
+    "geometry_mode": "aligned_motion",
+    "texture_mode": "canonical_skin",
+    "eval_clips_per_video": 2,
+    "video_aggregation": "mean",
+    "top_k": 1
+  },
+  "model": {
+    "geometry_hidden": 96,
+    "geometry_layers": 3,
+    "embedding_dim": 128,
+    "dropout": 0.2,
+    "texture_pretrained": true,
+    "fusion_mode": "quality"
+  },
+  "training": {
+    "epochs": 25,
+    "batch_size": 8,
+    "num_workers": 4,
+    "learning_rate": 0.0003,
+    "weight_decay": 0.0001,
+    "geometry_loss_weight": 0.25,
+    "texture_loss_weight": 0.25,
+    "balanced_sampler": true,
+    "amp": true,
+    "early_stop_patience": 6
+  },
+  "output_dir": "outputs/qalf_ffpp"
+}

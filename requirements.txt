@@ -1,0 +1,11 @@
+# Install the CUDA build of PyTorch separately when training on a GPU.
+torch>=2.2,<3.0
+torchvision>=0.17,<1.0
+numpy>=1.24,<2.0
+opencv-python>=4.8,<5.0
+Pillow>=10.0,<12.0
+facenet-pytorch>=2.6,<3.0
+mediapipe>=0.10.14,<0.11
+scikit-learn>=1.3,<2.0
+tqdm>=4.66,<5.0
+jupyter>=1.0,<2.0
