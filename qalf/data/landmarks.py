@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import urllib.request
 from pathlib import Path
 
 import cv2
@@ -14,6 +15,18 @@ from .manifest import VideoRecord, load_manifest, write_manifest
 
 LANDMARK_IMPLEMENTATION = "mediapipe_tasks_face_landmarker_first_468_v2"
 SUPPORTED_RUNNING_MODES = {"image", "video"}
+FACE_LANDMARKER_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
+    "face_landmarker/float16/1/face_landmarker.task"
+)
+FACE_LANDMARKER_MODEL_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+
+
+def is_landmark_qc_exclusion(error: dict[str, str] | str) -> bool:
+    """Return whether an error is the configured minimum-detection-ratio exclusion."""
+
+    message = str(error.get("error", "")) if isinstance(error, dict) else str(error)
+    return message.startswith("Face Landmarker detected only ") and "required ratio=" in message
 
 
 def file_sha256(path: str | Path) -> str:
@@ -22,6 +35,34 @@ def file_sha256(path: str | Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def ensure_face_landmarker_model(
+    path: str | Path,
+    download: bool = True,
+) -> Path:
+    """Validate the canonical Face Landmarker model, downloading it when requested."""
+
+    target = Path(path)
+    if target.is_file() and file_sha256(target) == FACE_LANDMARKER_MODEL_SHA256:
+        return target
+    if target.exists():
+        if not download:
+            raise RuntimeError(f"Face Landmarker model SHA-256 mismatch: {target}")
+        target.unlink()
+    elif not download:
+        raise FileNotFoundError(f"Face Landmarker model not found: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(target.suffix + ".download")
+    try:
+        urllib.request.urlretrieve(FACE_LANDMARKER_MODEL_URL, temporary)
+        digest = file_sha256(temporary)
+        if digest != FACE_LANDMARKER_MODEL_SHA256:
+            raise RuntimeError(f"Downloaded Face Landmarker SHA-256 mismatch: {digest}")
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return target
 
 
 def _landmark_fingerprint(

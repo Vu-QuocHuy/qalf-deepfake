@@ -1,11 +1,19 @@
-# Install the CUDA build of PyTorch separately when training on a GPU.
-torch>=2.2,<3.0
-torchvision>=0.17,<1.0
-numpy>=1.24,<2.0
-opencv-python>=4.8,<5.0
-Pillow>=10.0,<12.0
-facenet-pytorch>=2.6,<3.0
-mediapipe>=0.10.14,<0.11
-scikit-learn>=1.3,<2.0
-tqdm>=4.66,<5.0
-jupyter>=1.0,<2.0
+# Runtime dependencies for landmark extraction, training, and evaluation.
+# On Windows, the pinned CUDA 12.8 wheels support RTX 50-series GPUs.
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+numpy>=2.0,<3
+opencv-contrib-python>=4.11,<5
+Pillow>=10.2,<11
+requests>=2,<3
+mediapipe==1.0.0
+scikit-learn>=1.3,<2
+torch==2.7.1+cu128; sys_platform == "win32"
+torchvision==0.22.1+cu128; sys_platform == "win32"
+torch>=2.7,<3; sys_platform != "win32"
+torchvision>=0.22,<1; sys_platform != "win32"
+tqdm>=4.66,<5
+
+# Training does not use facenet-pytorch. It is needed only when re-extracting
+# frames with scripts/extract_frames.py; install it afterward with --no-deps so
+# its obsolete torch<2.3 package metadata cannot replace the CUDA build above.

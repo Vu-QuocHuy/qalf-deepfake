@@ -35,7 +35,7 @@ def _seed_everything(seed: int) -> None:
 
 
 def _make_grad_scaler(enabled: bool):
-    """Use the current AMP API while retaining the declared PyTorch 2.2 minimum."""
+    """Use the current AMP API with a fallback for older development environments."""
 
     grad_scaler = getattr(torch.amp, "GradScaler", None)
     if grad_scaler is not None:

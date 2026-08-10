@@ -16,6 +16,28 @@ import numpy as np
 from .manifest import VideoRecord, load_manifest, manifest_summary, write_manifest
 
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv"}
+DEFAULT_FFPP_METHODS = (
+    "Deepfakes",
+    "Face2Face",
+    "FaceShifter",
+    "FaceSwap",
+    "NeuralTextures",
+)
+FRAME_QC_ERROR_PREFIXES = (
+    "Only ",
+    "Missing face run ",
+    "No face was detected in the sampled sequence",
+    "Face crop is too small: ",
+)
+
+
+def is_frame_qc_exclusion(error: dict[str, str] | str) -> bool:
+    """Return whether an extraction error is a configured face-quality exclusion."""
+
+    message = str(error.get("error", "")) if isinstance(error, dict) else str(error)
+    if message.startswith("Only "):
+        return "frames have direct detections" in message
+    return message.startswith(FRAME_QC_ERROR_PREFIXES[1:])
 
 
 @dataclass(frozen=True)
@@ -104,7 +126,7 @@ def _load_ffpp_pairs(path: Path) -> list[tuple[str, str]]:
 def build_ffpp_specs(
     dataset_root: str | Path,
     split_root: str | Path,
-    methods: Sequence[str] = ("Deepfakes", "Face2Face", "FaceSwap", "NeuralTextures"),
+    methods: Sequence[str] = DEFAULT_FFPP_METHODS,
     compression: str = "c23",
 ) -> dict[str, list[VideoSpec]]:
     """Build official FF++ train/val/test records.
@@ -125,7 +147,12 @@ def build_ffpp_specs(
     original_candidates = [
         dataset_root / "original",
         dataset_root / "original_sequences" / "youtube" / compression / "videos",
-        dataset_root / "FaceForensics++" / "original_sequences" / "youtube" / compression / "videos",
+        dataset_root
+        / "FaceForensics++"
+        / "original_sequences"
+        / "youtube"
+        / compression
+        / "videos",
     ]
     original_dir = next((path for path in original_candidates if path.is_dir()), None)
     if original_dir is None:
@@ -137,7 +164,12 @@ def build_ffpp_specs(
         candidates = [
             dataset_root / method,
             dataset_root / "manipulated_sequences" / method / compression / "videos",
-            dataset_root / "FaceForensics++" / "manipulated_sequences" / method / compression / "videos",
+            dataset_root
+            / "FaceForensics++"
+            / "manipulated_sequences"
+            / method
+            / compression
+            / "videos",
         ]
         method_dir = next((path for path in candidates if path.is_dir()), None)
         if method_dir is None:
@@ -164,8 +196,12 @@ def build_ffpp_specs(
         for video_id in sorted(original_ids):
             if video_id not in original_index:
                 raise FileNotFoundError(f"Missing FF++ original video: {video_id}")
-            specs.append(VideoSpec("ffpp", split, video_id, 0, "original", original_index[video_id]))
-        directed_ids = [item for left, right in pairs for item in (f"{left}_{right}", f"{right}_{left}")]
+            specs.append(
+                VideoSpec("ffpp", split, video_id, 0, "original", original_index[video_id])
+            )
+        directed_ids = [
+            item for left, right in pairs for item in (f"{left}_{right}", f"{right}_{left}")
+        ]
         for method in methods:
             for video_id in directed_ids:
                 if video_id not in method_indices[method]:
@@ -178,7 +214,9 @@ def build_ffpp_specs(
     for left, right in (("train", "val"), ("train", "test"), ("val", "test")):
         overlap = original_ids_by_split[left] & original_ids_by_split[right]
         if overlap:
-            raise RuntimeError(f"FF++ identity leakage between {left}/{right}: {sorted(overlap)[:8]}")
+            raise RuntimeError(
+                f"FF++ identity leakage between {left}/{right}: {sorted(overlap)[:8]}"
+            )
     return specs_by_split
 
 
@@ -382,7 +420,14 @@ def _square_crop(frame: np.ndarray, box: np.ndarray, margin: float, min_side: in
 
 class MainFaceExtractor:
     def __init__(self, config: ExtractionConfig, device: str = "cpu") -> None:
-        from facenet_pytorch import MTCNN
+        try:
+            from facenet_pytorch import MTCNN
+        except ImportError as error:
+            raise RuntimeError(
+                "facenet-pytorch is required for local frame extraction; "
+                "install requirements.txt, then run "
+                "'python -m pip install facenet-pytorch==2.6.0 --no-deps'"
+            ) from error
 
         self.config = config
         self.detector = MTCNN(
@@ -413,7 +458,9 @@ class MainFaceExtractor:
         all_boxes: list[np.ndarray | None] = []
         all_probs: list[np.ndarray | None] = []
         for start in range(0, len(frames), self.config.mtcnn_batch_size):
-            boxes, probabilities = self.detector.detect(frames[start : start + self.config.mtcnn_batch_size])
+            boxes, probabilities = self.detector.detect(
+                frames[start : start + self.config.mtcnn_batch_size]
+            )
             all_boxes.extend(list(boxes))
             all_probs.extend(list(probabilities))
         tracked, multi_face_frames = _track_main_face(
@@ -428,8 +475,18 @@ class MainFaceExtractor:
         boxes, interpolated_count = _interpolate_boxes(tracked)
 
         class_name = "real" if spec.label == 0 else "fake"
-        video_dir = output_root / "frames" / spec.dataset / spec.split / class_name / spec.method / spec.video_id
-        temporary = output_root / "_temporary" / spec.dataset / spec.split / spec.method / spec.video_id
+        video_dir = (
+            output_root
+            / "frames"
+            / spec.dataset
+            / spec.split
+            / class_name
+            / spec.method
+            / spec.video_id
+        )
+        temporary = (
+            output_root / "_temporary" / spec.dataset / spec.split / spec.method / spec.video_id
+        )
         if temporary.exists():
             shutil.rmtree(temporary)
         temporary.mkdir(parents=True, exist_ok=True)
@@ -541,7 +598,9 @@ def extract_specs(
                 and all((output_root / frame).is_file() for frame in record.frames)
             ):
                 records.append(record)
-    completed = {(record.dataset, record.split, record.method, record.video_id) for record in records}
+    completed = {
+        (record.dataset, record.split, record.method, record.video_id) for record in records
+    }
     pending = [
         spec
         for spec in specs
