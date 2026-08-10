@@ -90,22 +90,37 @@ def predict(
     model: nn.Module,
     loader: Iterable[dict[str, object]],
     device: torch.device,
+    texture_flip_tta: bool = False,
 ) -> dict[str, object]:
     model.eval()
     result: defaultdict[str, list] = defaultdict(list)
     for batch in tqdm(loader, desc="evaluate", leave=False):
         batch = move_batch(batch, device)
         outputs = model(batch)
+        scores = torch.sigmoid(outputs["logit"])
+        geometry_scores = torch.sigmoid(outputs["geometry_logit"])
+        texture_scores = torch.sigmoid(outputs["texture_logit"])
+        fusion_weights = outputs["fusion_weights"]
+        if texture_flip_tta:
+            flipped_batch = {
+                **batch,
+                "texture": torch.flip(batch["texture"], dims=(-1,)),
+            }
+            flipped_outputs = model(flipped_batch)
+            scores = 0.5 * (scores + torch.sigmoid(flipped_outputs["logit"]))
+            geometry_scores = 0.5 * (
+                geometry_scores + torch.sigmoid(flipped_outputs["geometry_logit"])
+            )
+            texture_scores = 0.5 * (
+                texture_scores + torch.sigmoid(flipped_outputs["texture_logit"])
+            )
+            fusion_weights = 0.5 * (fusion_weights + flipped_outputs["fusion_weights"])
         result["label"].extend(batch["label"].detach().cpu().numpy().tolist())
-        result["score"].extend(torch.sigmoid(outputs["logit"]).cpu().numpy().tolist())
-        result["geometry_score"].extend(
-            torch.sigmoid(outputs["geometry_logit"]).cpu().numpy().tolist()
-        )
-        result["texture_score"].extend(
-            torch.sigmoid(outputs["texture_logit"]).cpu().numpy().tolist()
-        )
-        result["geometry_weight"].extend(outputs["fusion_weights"][:, 0].cpu().numpy().tolist())
-        result["texture_weight"].extend(outputs["fusion_weights"][:, 1].cpu().numpy().tolist())
+        result["score"].extend(scores.cpu().numpy().tolist())
+        result["geometry_score"].extend(geometry_scores.cpu().numpy().tolist())
+        result["texture_score"].extend(texture_scores.cpu().numpy().tolist())
+        result["geometry_weight"].extend(fusion_weights[:, 0].cpu().numpy().tolist())
+        result["texture_weight"].extend(fusion_weights[:, 1].cpu().numpy().tolist())
         result["clip_index"].extend(batch["clip_index"].detach().cpu().numpy().tolist())
         for key in ("video_id", "method", "dataset"):
             result[key].extend(batch[key])

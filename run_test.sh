@@ -29,14 +29,25 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 
 DATA_ROOT="$STORAGE_ROOT/data"
-FRAME_ROOT="$DATA_ROOT/extracted/celebdf"
-LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
-LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
-TEST_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
+FFPP_FRAME_ROOT="$DATA_ROOT/extracted/ffpp"
+FFPP_LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
+FFPP_LANDMARK_ROOT="$FFPP_LANDMARK_OUTPUT_ROOT/landmarks"
+FFPP_VAL_MANIFEST="$FFPP_LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
+CELEBDF_FRAME_ROOT="$DATA_ROOT/extracted/celebdf"
+CELEBDF_LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
+CELEBDF_LANDMARK_ROOT="$CELEBDF_LANDMARK_OUTPUT_ROOT/landmarks"
+CELEBDF_TEST_MANIFEST="$CELEBDF_LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
 CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f/best.pt"
-OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_to_celebdf"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_to_celebdf_flip_tta_ffpp_threshold"
 
-for required_path in "$TEST_MANIFEST" "$CHECKPOINT" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
+for required_path in \
+    "$FFPP_VAL_MANIFEST" \
+    "$FFPP_FRAME_ROOT" \
+    "$FFPP_LANDMARK_ROOT" \
+    "$CELEBDF_TEST_MANIFEST" \
+    "$CELEBDF_FRAME_ROOT" \
+    "$CELEBDF_LANDMARK_ROOT" \
+    "$CHECKPOINT"; do
     if [[ ! -e "$required_path" ]]; then
         echo "ERROR: required path does not exist: $required_path" >&2
         exit 1
@@ -46,21 +57,22 @@ done
 echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
 echo "Evaluation output: $OUTPUT_DIR"
-
-"$PYTHON" scripts/audit_manifest.py \
-    --manifest "$TEST_MANIFEST" \
-    --frame-root "$FRAME_ROOT" \
-    --landmark-root "$LANDMARK_ROOT" \
-    --expected-frames 64
+echo "Texture flip TTA: enabled"
+echo "Threshold calibration: $FFPP_VAL_MANIFEST"
 
 "$PYTHON" scripts/evaluate.py \
     --checkpoint "$CHECKPOINT" \
-    --manifest "$TEST_MANIFEST" \
-    --frame-root "$FRAME_ROOT" \
-    --landmark-root "$LANDMARK_ROOT" \
+    --manifest "$CELEBDF_TEST_MANIFEST" \
+    --frame-root "$CELEBDF_FRAME_ROOT" \
+    --landmark-root "$CELEBDF_LANDMARK_ROOT" \
     --output-dir "$OUTPUT_DIR" \
     --batch-size 8 \
     --num-workers 4 \
     --clips-per-video 3 \
     --aggregation mean \
-    --top-k 1
+    --top-k 1 \
+    --texture-flip-tta \
+    --threshold-manifest "$FFPP_VAL_MANIFEST" \
+    --threshold-frame-root "$FFPP_FRAME_ROOT" \
+    --threshold-landmark-root "$FFPP_LANDMARK_ROOT" \
+    --threshold-clips-per-video 3
