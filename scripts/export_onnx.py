@@ -55,7 +55,7 @@ def build_model(checkpoint: dict[str, object]) -> QALFModel:
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
-        texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
+        texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -113,7 +113,7 @@ def main() -> None:
         "output": str(output),
         "texture_backbone": str(
             checkpoint["config"]["model"].get(
-                "texture_backbone", "efficientnet_b0"
+                "texture_backbone", "mobilenet_v3_small"
             )
         ),
         "bytes": output.stat().st_size,

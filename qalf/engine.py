@@ -8,7 +8,6 @@ from typing import Iterable, Protocol
 import numpy as np
 import torch
 from torch import nn
-from torch.nn import functional as F
 from tqdm.auto import tqdm
 
 
@@ -60,15 +59,8 @@ def train_epoch(
     scaler: GradScalerProtocol,
     geometry_weight: float,
     texture_weight: float,
-    self_blend_weight: float = 0.0,
-    method_discriminator: nn.Module | None = None,
-    method_to_index: dict[str, int] | None = None,
-    method_adversarial_weight: float = 0.0,
-    method_grl_strength: float = 1.0,
 ) -> dict[str, float]:
     model.train()
-    if method_discriminator is not None:
-        method_discriminator.train()
     totals: defaultdict[str, float] = defaultdict(float)
     samples = 0
     for batch in tqdm(loader, desc="train", leave=False):
@@ -78,54 +70,9 @@ def train_epoch(
         with torch.autocast(device_type=device.type, enabled=scaler.is_enabled()):
             outputs = model(batch)
             loss, parts = qalf_loss(outputs, labels, criterion, geometry_weight, texture_weight)
-            if self_blend_weight > 0.0 and "self_blend_valid" in batch:
-                valid = batch["self_blend_valid"].bool()
-                if bool(valid.any()):
-                    _, self_blend_logits = model.forward_texture(batch["self_blend_texture"][valid])
-                    self_blend_loss = criterion(
-                        self_blend_logits,
-                        torch.ones_like(self_blend_logits),
-                    )
-                    loss = loss + self_blend_weight * self_blend_loss
-                    parts["self_blend"] = float(self_blend_loss.detach())
-                else:
-                    parts["self_blend"] = 0.0
-            if (
-                method_discriminator is not None
-                and method_to_index
-                and method_adversarial_weight > 0.0
-            ):
-                method_pairs = [
-                    (index, method_to_index[method])
-                    for index, method in enumerate(batch["method"])
-                    if method in method_to_index
-                ]
-                if method_pairs:
-                    method_indices = torch.tensor(
-                        [pair[0] for pair in method_pairs],
-                        dtype=torch.long,
-                        device=device,
-                    )
-                    method_targets = torch.tensor(
-                        [pair[1] for pair in method_pairs],
-                        dtype=torch.long,
-                        device=device,
-                    )
-                    method_logits = method_discriminator(
-                        outputs["texture_embedding"].index_select(0, method_indices),
-                        method_grl_strength,
-                    )
-                    method_loss = F.cross_entropy(method_logits, method_targets)
-                    loss = loss + method_adversarial_weight * method_loss
-                    parts["method_adversarial"] = float(method_loss.detach())
-                else:
-                    parts["method_adversarial"] = 0.0
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
-        parameters = list(model.parameters())
-        if method_discriminator is not None:
-            parameters.extend(method_discriminator.parameters())
-        torch.nn.utils.clip_grad_norm_(parameters, max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         scaler.step(optimizer)
         scaler.update()
         batch_size = int(labels.shape[0])

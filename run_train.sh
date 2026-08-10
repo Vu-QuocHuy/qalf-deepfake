@@ -34,7 +34,7 @@ LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
 VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
-OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_clean_160_8f"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f"
 
 for required_path in "$TRAIN_MANIFEST" "$VAL_MANIFEST" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
     if [[ ! -e "$required_path" ]]; then
@@ -46,6 +46,13 @@ done
 echo "Python: $PYTHON"
 echo "Training output: $OUTPUT_DIR"
 "$PYTHON" -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NOT AVAILABLE')"
+
+"$PYTHON" scripts/audit_manifest.py \
+    --manifest "$TRAIN_MANIFEST" "$VAL_MANIFEST" \
+    --frame-root "$FRAME_ROOT" \
+    --landmark-root "$LANDMARK_ROOT" \
+    --expected-frames 64 \
+    --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures
 
 "$PYTHON" scripts/train.py \
     --config configs/ffpp_to_celebdf.json \
@@ -67,15 +74,12 @@ echo "Training output: $OUTPUT_DIR"
     --image-size 160 \
     --eval-clips-per-video 3 \
     --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
+    --texture-backbone efficientnet_b0 \
     --geometry-hidden 128 \
     --geometry-layers 3 \
     --embedding-dim 192 \
     --dropout 0.3 \
-    --texture-backbone efficientnet_b0 \
     --geometry-mode aligned_motion_3d \
     --fusion-mode quality \
     --geometry-loss-weight 0.25 \
-    --texture-loss-weight 0.25 \
-    --self-blend-loss-weight 0 \
-    --method-adversarial-weight 0 \
-    --method-grl-strength 1.0
+    --texture-loss-weight 0.25

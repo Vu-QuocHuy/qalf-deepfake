@@ -1,28 +1,39 @@
-"""EfficientNet encoders for landmark-aligned skin maps."""
+"""Lightweight pretrained encoders for landmark-aligned skin maps."""
 
 from __future__ import annotations
 
 import torch
 from torch import nn
 
-SUPPORTED_TEXTURE_BACKBONES = ("efficientnet_b0", "efficientnet_b1")
+SUPPORTED_TEXTURE_BACKBONES = {
+    "mobilenet_v3_small",
+    "mobilenet_v3_large",
+    "efficientnet_b0",
+}
 
 
-def _build_backbone(name: str, pretrained: bool) -> nn.Module:
-    if name == "efficientnet_b0":
+def _build_backbone(name: str, pretrained: bool) -> tuple[nn.Module, nn.Module, int]:
+    if name == "mobilenet_v3_small":
+        from torchvision.models import MobileNet_V3_Small_Weights, mobilenet_v3_small
+
+        weights = MobileNet_V3_Small_Weights.DEFAULT if pretrained else None
+        model = mobilenet_v3_small(weights=weights)
+        feature_dim = int(model.classifier[0].in_features)
+    elif name == "mobilenet_v3_large":
+        from torchvision.models import MobileNet_V3_Large_Weights, mobilenet_v3_large
+
+        weights = MobileNet_V3_Large_Weights.DEFAULT if pretrained else None
+        model = mobilenet_v3_large(weights=weights)
+        feature_dim = int(model.classifier[0].in_features)
+    elif name == "efficientnet_b0":
         from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
 
         weights = EfficientNet_B0_Weights.DEFAULT if pretrained else None
-        return efficientnet_b0(weights=weights)
-    if name == "efficientnet_b1":
-        from torchvision.models import EfficientNet_B1_Weights, efficientnet_b1
-
-        weights = EfficientNet_B1_Weights.DEFAULT if pretrained else None
-        return efficientnet_b1(weights=weights)
-    raise ValueError(
-        f"Unsupported texture backbone: {name}; "
-        f"expected one of {SUPPORTED_TEXTURE_BACKBONES}"
-    )
+        model = efficientnet_b0(weights=weights)
+        feature_dim = int(model.classifier[-1].in_features)
+    else:
+        raise ValueError(f"Unsupported texture backbone: {name}")
+    return model.features, model.avgpool, feature_dim
 
 
 class TextureEncoder(nn.Module):
@@ -31,14 +42,13 @@ class TextureEncoder(nn.Module):
         embedding_dim: int = 128,
         dropout: float = 0.2,
         pretrained: bool = True,
-        backbone_name: str = "efficientnet_b0",
+        backbone: str = "mobilenet_v3_small",
     ) -> None:
         super().__init__()
-        backbone = _build_backbone(backbone_name, pretrained)
-        self.backbone_name = backbone_name
-        self.features = backbone.features
-        self.pool = backbone.avgpool
-        feature_dim = int(backbone.classifier[-1].in_features)
+        if backbone not in SUPPORTED_TEXTURE_BACKBONES:
+            raise ValueError(f"Unsupported texture backbone: {backbone}")
+        self.backbone_name = backbone
+        self.features, self.pool, feature_dim = _build_backbone(backbone, pretrained)
         self.projection = nn.Sequential(
             nn.Linear(feature_dim, embedding_dim),
             nn.LayerNorm(embedding_dim),

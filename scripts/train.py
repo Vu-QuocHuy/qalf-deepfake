@@ -24,7 +24,7 @@ from qalf.data.dataset import QALFVideoDataset
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import MethodDiscriminator, QALFModel, SUPPORTED_TEXTURE_BACKBONES
+from qalf.models import QALFModel, SUPPORTED_TEXTURE_BACKBONES
 
 
 def _seed_everything(seed: int) -> None:
@@ -96,7 +96,6 @@ def _optimizer_groups(
     model: QALFModel,
     learning_rate: float,
     backbone_learning_rate: float,
-    auxiliary_module: nn.Module | None = None,
 ) -> list[dict[str, object]]:
     backbone_parameters: list[nn.Parameter] = []
     if model.texture_encoder is not None:
@@ -107,10 +106,6 @@ def _optimizer_groups(
         for parameter in model.parameters()
         if parameter.requires_grad and id(parameter) not in backbone_ids
     ]
-    if auxiliary_module is not None:
-        head_parameters.extend(
-            parameter for parameter in auxiliary_module.parameters() if parameter.requires_grad
-        )
     groups: list[dict[str, object]] = []
     if head_parameters:
         groups.append({"params": head_parameters, "lr": learning_rate, "name": "head"})
@@ -137,21 +132,11 @@ def _epoch_message(
         for index, group in enumerate(optimizer.param_groups)
     }
     rate_text = " ".join(f"{name}_lr={rate:.4e}" for name, rate in learning_rates.items())
-    auxiliary_text = ""
-    if "self_blend" in train_metrics:
-        auxiliary_text += f" self_blend={train_metrics['self_blend']:.4f}"
-    if "method_adversarial" in train_metrics:
-        auxiliary_text += f" method_adv={train_metrics['method_adversarial']:.4f}"
     return (
         f"epoch={epoch:03d}/{epochs:03d} {rate_text} | "
         f"train loss={train_metrics['loss']:.4f} fused={train_metrics['fused']:.4f} "
-        f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f}"
-        f"{auxiliary_text} | "
+        f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f} | "
         f"val auc={validation_metrics['auc']:.4f} ap={validation_metrics['average_precision']:.4f} "
-        f"geometry_auc={validation_metrics['geometry_auc']:.4f} "
-        f"texture_auc={validation_metrics['texture_auc']:.4f} "
-        f"geometry_weight={validation_metrics['mean_geometry_weight']:.4f} "
-        f"texture_weight={validation_metrics['mean_texture_weight']:.4f} "
         f"balanced_acc={validation_metrics['balanced_accuracy']:.4f} "
         f"accuracy={validation_metrics['accuracy']:.4f} f1={validation_metrics['f1']:.4f} "
         f"eer={validation_metrics['eer']:.4f} threshold={validation_metrics['threshold']:.4f}"
@@ -179,28 +164,15 @@ def main() -> None:
     parser.add_argument("--weight-decay", type=float)
     parser.add_argument("--geometry-loss-weight", type=float)
     parser.add_argument("--texture-loss-weight", type=float)
-    parser.add_argument("--self-blend-loss-weight", type=float)
-    parser.add_argument("--method-adversarial-weight", type=float)
-    parser.add_argument("--method-grl-strength", type=float)
     parser.add_argument("--early-stop-patience", type=int)
     parser.add_argument("--geometry-hidden", type=int)
     parser.add_argument("--geometry-layers", type=int)
     parser.add_argument("--embedding-dim", type=int)
     parser.add_argument("--dropout", type=float)
     parser.add_argument(
-        "--texture-backbone",
-        choices=SUPPORTED_TEXTURE_BACKBONES,
-        help="Texture encoder; EfficientNet-B0 remains the default lightweight model.",
-    )
-    parser.add_argument(
         "--fake-methods",
         nargs="+",
         help="FF++ fake methods to retain; real/original records are always retained.",
-    )
-    parser.add_argument(
-        "--val-fake-methods",
-        nargs="+",
-        help="Optional FF++ validation fake methods for leave-one-manipulation-out runs.",
     )
     parser.add_argument(
         "--geometry-mode",
@@ -218,9 +190,12 @@ def main() -> None:
             "quality",
         ),
     )
+    parser.add_argument(
+        "--texture-backbone",
+        choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES)),
+    )
     parser.add_argument("--no-geometry-augmentation", action="store_true")
     parser.add_argument("--no-texture-augmentation", action="store_true")
-    parser.add_argument("--no-self-blend", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--no-balanced-sampler", action="store_true")
     args = parser.parse_args()
@@ -233,12 +208,13 @@ def main() -> None:
         data["geometry_mode"] = args.geometry_mode
     if args.fusion_mode:
         model_config["fusion_mode"] = args.fusion_mode
+    if args.texture_backbone:
+        model_config["texture_backbone"] = args.texture_backbone
     model_overrides = {
         "geometry_hidden": args.geometry_hidden,
         "geometry_layers": args.geometry_layers,
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
-        "texture_backbone": args.texture_backbone,
     }
     model_config.update(
         {key: value for key, value in model_overrides.items() if value is not None}
@@ -247,12 +223,8 @@ def main() -> None:
         data["geometry_augmentation"] = {}
     if args.no_texture_augmentation:
         data["texture_augmentation"] = {}
-    if args.no_self_blend:
-        data["self_blend_augmentation"] = {}
     if args.fake_methods is not None:
         data["fake_methods"] = args.fake_methods
-    if args.val_fake_methods is not None:
-        data["val_fake_methods"] = args.val_fake_methods
     data_overrides = {
         "num_frames": args.num_frames,
         "texture_frames": args.texture_frames,
@@ -268,9 +240,6 @@ def main() -> None:
         "weight_decay": args.weight_decay,
         "geometry_loss_weight": args.geometry_loss_weight,
         "texture_loss_weight": args.texture_loss_weight,
-        "self_blend_loss_weight": args.self_blend_loss_weight,
-        "method_adversarial_weight": args.method_adversarial_weight,
-        "method_grl_strength": args.method_grl_strength,
         "early_stop_patience": args.early_stop_patience,
     }
     data.update({key: value for key, value in data_overrides.items() if value is not None})
@@ -305,14 +274,7 @@ def main() -> None:
         parser.error("training.learning_rate must be positive")
     if float(training.get("backbone_learning_rate", training["learning_rate"])) <= 0:
         parser.error("training.backbone_learning_rate must be positive")
-    for name in (
-        "weight_decay",
-        "geometry_loss_weight",
-        "texture_loss_weight",
-        "self_blend_loss_weight",
-        "method_adversarial_weight",
-        "method_grl_strength",
-    ):
+    for name in ("weight_decay", "geometry_loss_weight", "texture_loss_weight"):
         if float(training.get(name, 0.0)) < 0:
             parser.error(f"training.{name} cannot be negative")
     if int(training.get("early_stop_patience", 0)) < 0:
@@ -330,7 +292,7 @@ def main() -> None:
     landmark_root = args.landmark_root or data["train_landmark_root"]
     output_dir = Path(args.output_dir or config.get("output_dir", "outputs/qalf"))
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger = _create_logger(output_dir / "train_log.txt")
+    logger = _create_logger(output_dir / "train.log")
     data["train_manifest"] = str(train_manifest)
     data["val_manifest"] = str(val_manifest)
     data["train_frame_root"] = str(frame_root)
@@ -351,26 +313,15 @@ def main() -> None:
         "texture_mode": str(data.get("texture_mode", "canonical_skin")),
         "geometry_augmentation": data.get("geometry_augmentation", {}),
         "texture_augmentation": data.get("texture_augmentation"),
+        "fake_methods": data.get("fake_methods"),
     }
-    self_blend_augmentation = (
-        data.get("self_blend_augmentation")
-        if float(training.get("self_blend_loss_weight", 0.0)) > 0.0
-        and str(model_config.get("fusion_mode", "quality")) != "geometry"
-        else None
-    )
     train_dataset = QALFVideoDataset(
-        train_manifest,
-        training=True,
-        clips_per_video=1,
-        fake_methods=data.get("fake_methods"),
-        self_blend_augmentation=self_blend_augmentation,
-        **dataset_args,
+        train_manifest, training=True, clips_per_video=1, **dataset_args
     )
     val_dataset = QALFVideoDataset(
         val_manifest,
         training=False,
         clips_per_video=int(data["eval_clips_per_video"]),
-        fake_methods=data.get("val_fake_methods", data.get("fake_methods")),
         **dataset_args,
     )
     train_protocol = (
@@ -396,10 +347,7 @@ def main() -> None:
         json.dumps(
             {
                 "protocol": "FF++ filtered training protocol",
-                "train_fake_methods": data.get("fake_methods", "all"),
-                "validation_fake_methods": data.get(
-                    "val_fake_methods", data.get("fake_methods", "all")
-                ),
+                "fake_methods": data.get("fake_methods", "all"),
                 "train": _dataset_summary(train_dataset),
                 "validation": _dataset_summary(val_dataset),
             },
@@ -426,46 +374,11 @@ def main() -> None:
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
-        texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
+        texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
     ).to(device)
-    geometry_loss_weight = float(training.get("geometry_loss_weight", 0.25))
-    texture_loss_weight = float(training.get("texture_loss_weight", 0.25))
-    self_blend_loss_weight = float(training.get("self_blend_loss_weight", 0.0))
-    method_adversarial_weight = float(training.get("method_adversarial_weight", 0.0))
-    method_grl_strength = float(training.get("method_grl_strength", 1.0))
-    fusion_mode = str(model_config.get("fusion_mode", "quality"))
-    if fusion_mode == "geometry":
-        texture_loss_weight = 0.0
-        self_blend_loss_weight = 0.0
-        method_adversarial_weight = 0.0
-    elif fusion_mode == "texture":
-        geometry_loss_weight = 0.0
-    if self_blend_loss_weight > 0.0 and not train_dataset.self_blend_augmentation:
-        raise ValueError(
-            "training.self_blend_loss_weight is positive but self-blend augmentation is disabled"
-        )
-    fake_method_names = sorted(
-        {record.method for record in train_dataset.records if record.label == 1}
-    )
-    method_to_index = {method: index for index, method in enumerate(fake_method_names)}
-    method_discriminator = None
-    if method_adversarial_weight > 0.0:
-        if model.texture_encoder is None:
-            raise ValueError("Method-adversarial training requires the texture branch")
-        if len(method_to_index) < 2:
-            raise ValueError("Method-adversarial training requires at least two fake methods")
-        method_discriminator = MethodDiscriminator(
-            embedding_dim=int(model_config.get("embedding_dim", 128)),
-            num_methods=len(method_to_index),
-            dropout=float(model_config.get("dropout", 0.2)),
-        ).to(device)
-    model_config["method_adversarial_methods"] = (
-        fake_method_names if method_discriminator is not None else []
-    )
-    save_json(config, output_dir / "config.json")
     optimizer = AdamW(
         _optimizer_groups(
             model,
@@ -476,7 +389,6 @@ def main() -> None:
                     training.get("learning_rate", 3e-4),
                 )
             ),
-            method_discriminator,
         ),
         weight_decay=float(training.get("weight_decay", 1e-4)),
     )
@@ -486,6 +398,13 @@ def main() -> None:
     amp_enabled = bool(training.get("amp", True)) and device.type == "cuda"
     scaler = _make_grad_scaler(amp_enabled)
     criterion = nn.BCEWithLogitsLoss()
+    geometry_loss_weight = float(training.get("geometry_loss_weight", 0.25))
+    texture_loss_weight = float(training.get("texture_loss_weight", 0.25))
+    fusion_mode = str(model_config.get("fusion_mode", "quality"))
+    if fusion_mode == "geometry":
+        texture_loss_weight = 0.0
+    elif fusion_mode == "texture":
+        geometry_loss_weight = 0.0
 
     history: list[dict[str, object]] = []
     best_auc = -float("inf")
@@ -493,20 +412,12 @@ def main() -> None:
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
     logger.info(
-        "device=%s backbone=%s inference_parameters=%d trainable=%d "
-        "training_auxiliary_parameters=%d amp=%s self_blend_weight=%.4f "
-        "method_adversarial_weight=%.4f method_grl_strength=%.4f",
+        "device=%s backbone=%s parameters=%d trainable=%d amp=%s",
         device,
-        model_config.get("texture_backbone", "efficientnet_b0"),
+        model_config.get("texture_backbone", "mobilenet_v3_small"),
         sum(parameter.numel() for parameter in model.parameters()),
         sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
-        sum(parameter.numel() for parameter in method_discriminator.parameters())
-        if method_discriminator is not None
-        else 0,
         amp_enabled,
-        self_blend_loss_weight,
-        method_adversarial_weight,
-        method_grl_strength,
     )
     for epoch in range(1, epochs + 1):
         train_metrics = train_epoch(
@@ -518,11 +429,6 @@ def main() -> None:
             scaler,
             geometry_loss_weight,
             texture_loss_weight,
-            self_blend_loss_weight,
-            method_discriminator,
-            method_to_index,
-            method_adversarial_weight,
-            method_grl_strength,
         )
         validation_clips = predict(model, val_loader, device)
         validation = aggregate_predictions(
@@ -534,18 +440,6 @@ def main() -> None:
         scores = np.asarray(validation["score"], dtype=np.float64)
         threshold = select_threshold(labels, scores)
         val_metrics = compute_metrics(labels, scores, threshold)
-        geometry_scores = np.asarray(validation["geometry_score"], dtype=np.float64)
-        texture_scores = np.asarray(validation["texture_score"], dtype=np.float64)
-        val_metrics["geometry_auc"] = compute_metrics(
-            labels, geometry_scores, threshold
-        )["auc"]
-        val_metrics["texture_auc"] = compute_metrics(
-            labels, texture_scores, threshold
-        )["auc"]
-        val_metrics["mean_geometry_weight"] = float(
-            np.mean(validation["geometry_weight"])
-        )
-        val_metrics["mean_texture_weight"] = float(np.mean(validation["texture_weight"]))
         row = {"epoch": epoch, "train": train_metrics, "validation": val_metrics}
         history.append(row)
         save_json(history, output_dir / "history.json")
@@ -562,14 +456,6 @@ def main() -> None:
             "texture_quality_dim": train_dataset.texture_quality_dim,
             "threshold": threshold,
             "validation_metrics": val_metrics,
-            "training_auxiliary": {
-                "method_to_index": method_to_index,
-                "method_discriminator": (
-                    method_discriminator.state_dict()
-                    if method_discriminator is not None
-                    else None
-                ),
-            },
         }
         torch.save(checkpoint, output_dir / "last.pt")
         if val_metrics["auc"] > best_auc:
