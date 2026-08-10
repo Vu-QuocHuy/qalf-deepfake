@@ -489,7 +489,8 @@ def main() -> None:
     logger.info(
         "device=%s backbone=%s srm=%s parameters=%d trainable=%d amp=%s "
         "label_smoothing=%.3f ema_decay=%.4f scheduler_eta_min=%.4e "
-        "flip_consistency_weight=%.4f validation_texture_flip_tta=%s",
+        "flip_consistency_weight=%.4f validation_texture_flip_tta=%s "
+        "early_stop_patience=%d",
         device,
         model_config.get("texture_backbone", "efficientnet_b0"),
         bool(model_config.get("use_srm", False)),
@@ -501,6 +502,7 @@ def main() -> None:
         scheduler_eta_min,
         flip_consistency_weight,
         bool(training.get("validation_texture_flip_tta", False)),
+        patience,
     )
     for epoch in range(1, epochs + 1):
         train_metrics = train_epoch(
@@ -570,6 +572,14 @@ def main() -> None:
             )
         else:
             stale_epochs += 1
+            if patience > 0:
+                logger.info(
+                    "early_stop_wait stale_epochs=%d/%d best_epoch=%03d best_val_auc=%.4f",
+                    stale_epochs,
+                    patience,
+                    best_epoch,
+                    best_auc,
+                )
             if patience > 0 and stale_epochs >= patience:
                 logger.info("Early stopping after %d epochs", epoch)
                 break

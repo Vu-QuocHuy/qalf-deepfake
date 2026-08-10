@@ -73,7 +73,7 @@ echo "Validation texture flip TTA: enabled"
     --learning-rate 0.0003 \
     --backbone-learning-rate 0.00003 \
     --weight-decay 0.0003 \
-    --early-stop-patience 8 \
+    --early-stop-patience 5 \
     --num-frames 32 \
     --texture-frames 8 \
     --image-size 160 \
