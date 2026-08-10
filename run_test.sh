@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # =========================== EDIT CONFIGURATION HERE ===========================
-WINDOWS_DATA_ROOT='F:/DeepFakedata/outputs_duong_huy'
-WSL_DATA_ROOT='/mnt/f/DeepFakedata/outputs_duong_huy'
+WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
+WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 
 BATCH_SIZE=16
 NUM_WORKERS=4
@@ -19,11 +19,11 @@ cd "$PROJECT_ROOT"
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
         PYTHON="$PROJECT_ROOT/.venv/Scripts/python.exe"
-        DATA_ROOT="$WINDOWS_DATA_ROOT"
+        STORAGE_ROOT="$WINDOWS_PROJECT_ROOT"
         ;;
     Linux*)
         PYTHON="$PROJECT_ROOT/.venv/bin/python"
-        DATA_ROOT="$WSL_DATA_ROOT"
+        STORAGE_ROOT="$WSL_PROJECT_ROOT"
         ;;
     *)
         echo "ERROR: unsupported shell platform: $(uname -s)" >&2
@@ -36,12 +36,13 @@ if [[ ! -x "$PYTHON" ]]; then
     exit 1
 fi
 
-FRAME_ROOT="$DATA_ROOT/data/extracted/celebdf"
-LANDMARK_OUTPUT_ROOT="$DATA_ROOT/data/landmarks/celebdf-landmark"
+DATA_ROOT="$STORAGE_ROOT/data"
+FRAME_ROOT="$DATA_ROOT/extracted/celebdf"
+LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TEST_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
-CHECKPOINT="$DATA_ROOT/experiments/qalf_ffpp/best.pt"
-OUTPUT_DIR="$DATA_ROOT/experiments/qalf_ffpp_to_celebdf"
+CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp/best.pt"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp_to_celebdf"
 
 for required_path in "$TEST_MANIFEST" "$CHECKPOINT" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
     if [[ ! -e "$required_path" ]]; then

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # =========================== EDIT CONFIGURATION HERE ===========================
-WINDOWS_DATA_ROOT='F:/DeepFakedata/outputs_duong_huy'
-WSL_DATA_ROOT='/mnt/f/DeepFakedata/outputs_duong_huy'
+WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
+WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 
 EPOCHS=25
 BATCH_SIZE=16
@@ -34,11 +34,11 @@ cd "$PROJECT_ROOT"
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
         PYTHON="$PROJECT_ROOT/.venv/Scripts/python.exe"
-        DATA_ROOT="$WINDOWS_DATA_ROOT"
+        STORAGE_ROOT="$WINDOWS_PROJECT_ROOT"
         ;;
     Linux*)
         PYTHON="$PROJECT_ROOT/.venv/bin/python"
-        DATA_ROOT="$WSL_DATA_ROOT"
+        STORAGE_ROOT="$WSL_PROJECT_ROOT"
         ;;
     *)
         echo "ERROR: unsupported shell platform: $(uname -s)" >&2
@@ -51,12 +51,13 @@ if [[ ! -x "$PYTHON" ]]; then
     exit 1
 fi
 
-FRAME_ROOT="$DATA_ROOT/data/extracted/ffpp"
-LANDMARK_OUTPUT_ROOT="$DATA_ROOT/data/landmarks/ffpp-landmark"
+DATA_ROOT="$STORAGE_ROOT/data"
+FRAME_ROOT="$DATA_ROOT/extracted/ffpp"
+LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
 VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
-OUTPUT_DIR="$DATA_ROOT/experiments/qalf_ffpp"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp"
 
 for required_path in "$TRAIN_MANIFEST" "$VAL_MANIFEST" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
     if [[ ! -e "$required_path" ]]; then
