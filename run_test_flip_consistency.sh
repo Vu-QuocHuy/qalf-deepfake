@@ -29,6 +29,15 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 
 DATA_ROOT="$STORAGE_ROOT/data"
+TEXTURE_BACKBONE="${QALF_TEXTURE_BACKBONE:-efficientnet_b0}"
+case "$TEXTURE_BACKBONE" in
+    efficientnet_b0) EXPERIMENT_BACKBONE_TAG='effb0' ;;
+    efficientnet_b1) EXPERIMENT_BACKBONE_TAG='effb1' ;;
+    *)
+        echo "ERROR: unsupported texture backbone: $TEXTURE_BACKBONE" >&2
+        exit 1
+        ;;
+esac
 FFPP_FRAME_ROOT="$DATA_ROOT/extracted/ffpp"
 FFPP_LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 FFPP_LANDMARK_ROOT="$FFPP_LANDMARK_OUTPUT_ROOT/landmarks"
@@ -37,8 +46,8 @@ CELEBDF_FRAME_ROOT="$DATA_ROOT/extracted/celebdf"
 CELEBDF_LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
 CELEBDF_LANDMARK_ROOT="$CELEBDF_LANDMARK_OUTPUT_ROOT/landmarks"
 CELEBDF_TEST_MANIFEST="$CELEBDF_LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
-CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_flip_consistency/best.pt"
-OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_flip_consistency_to_celebdf"
+CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_${EXPERIMENT_BACKBONE_TAG}_160_8f_flip_consistency/best.pt"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_${EXPERIMENT_BACKBONE_TAG}_160_8f_flip_consistency_to_celebdf"
 
 for required_path in \
     "$FFPP_VAL_MANIFEST" \
@@ -57,6 +66,7 @@ done
 echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
 echo "Evaluation output: $OUTPUT_DIR"
+echo "Texture backbone: $TEXTURE_BACKBONE"
 echo "Texture flip TTA: enabled"
 echo "Threshold calibration: $FFPP_VAL_MANIFEST"
 

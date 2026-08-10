@@ -29,12 +29,21 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 
 DATA_ROOT="$STORAGE_ROOT/data"
+TEXTURE_BACKBONE="${QALF_TEXTURE_BACKBONE:-efficientnet_b0}"
+case "$TEXTURE_BACKBONE" in
+    efficientnet_b0) EXPERIMENT_BACKBONE_TAG='effb0' ;;
+    efficientnet_b1) EXPERIMENT_BACKBONE_TAG='effb1' ;;
+    *)
+        echo "ERROR: unsupported texture backbone: $TEXTURE_BACKBONE" >&2
+        exit 1
+        ;;
+esac
 FRAME_ROOT="$DATA_ROOT/extracted/ffpp"
 LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
 VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
-OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_flip_consistency"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_${EXPERIMENT_BACKBONE_TAG}_160_8f_flip_consistency"
 
 for required_path in "$TRAIN_MANIFEST" "$VAL_MANIFEST" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
     if [[ ! -e "$required_path" ]]; then
@@ -45,6 +54,7 @@ done
 
 echo "Python: $PYTHON"
 echo "Training output: $OUTPUT_DIR"
+echo "Texture backbone: $TEXTURE_BACKBONE"
 echo "Flip consistency weight: 0.10"
 echo "Validation texture flip TTA: enabled"
 "$PYTHON" -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NOT AVAILABLE')"
@@ -69,7 +79,7 @@ echo "Validation texture flip TTA: enabled"
     --image-size 160 \
     --eval-clips-per-video 3 \
     --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
-    --texture-backbone efficientnet_b0 \
+    --texture-backbone "$TEXTURE_BACKBONE" \
     --geometry-hidden 128 \
     --geometry-layers 3 \
     --embedding-dim 192 \

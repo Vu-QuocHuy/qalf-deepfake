@@ -440,7 +440,7 @@ def main() -> None:
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
-        texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
+        texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -491,7 +491,7 @@ def main() -> None:
         "label_smoothing=%.3f ema_decay=%.4f scheduler_eta_min=%.4e "
         "flip_consistency_weight=%.4f validation_texture_flip_tta=%s",
         device,
-        model_config.get("texture_backbone", "mobilenet_v3_small"),
+        model_config.get("texture_backbone", "efficientnet_b0"),
         bool(model_config.get("use_srm", False)),
         sum(parameter.numel() for parameter in model.parameters()),
         sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),

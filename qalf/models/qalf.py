@@ -19,7 +19,7 @@ class QALFModel(nn.Module):
         embedding_dim: int = 128,
         dropout: float = 0.2,
         texture_pretrained: bool = True,
-        texture_backbone: str = "mobilenet_v3_small",
+        texture_backbone: str = "efficientnet_b0",
         geometry_quality_dim: int = 5,
         texture_quality_dim: int = 5,
         fusion_mode: str = "quality",
