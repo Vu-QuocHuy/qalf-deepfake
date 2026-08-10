@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Evaluation script for v2 model with more temporal clips for better aggregation.
-
+# Evaluate the proven EfficientNet-B0 baseline with texture horizontal-flip TTA.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 
@@ -34,8 +33,8 @@ FRAME_ROOT="$DATA_ROOT/extracted/celebdf"
 LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TEST_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
-CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_v2/best.pt"
-OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_v2_to_celebdf"
+CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f/best.pt"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_to_celebdf_flip_tta"
 
 for required_path in "$TEST_MANIFEST" "$CHECKPOINT" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
     if [[ ! -e "$required_path" ]]; then
@@ -47,6 +46,7 @@ done
 echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
 echo "Evaluation output: $OUTPUT_DIR"
+echo "Texture flip TTA: enabled"
 
 "$PYTHON" scripts/evaluate.py \
     --checkpoint "$CHECKPOINT" \
@@ -56,6 +56,7 @@ echo "Evaluation output: $OUTPUT_DIR"
     --output-dir "$OUTPUT_DIR" \
     --batch-size 8 \
     --num-workers 4 \
-    --clips-per-video 5 \
+    --clips-per-video 3 \
     --aggregation mean \
-    --top-k 1
+    --top-k 1 \
+    --texture-flip-tta

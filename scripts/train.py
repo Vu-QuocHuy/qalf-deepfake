@@ -455,6 +455,9 @@ def main() -> None:
 
     history: list[dict[str, object]] = []
     best_auc = -float("inf")
+    best_epoch = 0
+    best_threshold = float("nan")
+    best_path = output_dir / "best.pt"
     stale_epochs = 0
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
@@ -518,16 +521,31 @@ def main() -> None:
         torch.save(checkpoint, output_dir / "last.pt")
         if val_metrics["auc"] > best_auc:
             best_auc = val_metrics["auc"]
+            best_epoch = epoch
+            best_threshold = threshold
             stale_epochs = 0
-            torch.save(checkpoint, output_dir / "best.pt")
+            torch.save(checkpoint, best_path)
+            logger.info(
+                "best_model_saved epoch=%03d val_auc=%.4f threshold=%.4f "
+                "weights=%s path=%s",
+                best_epoch,
+                best_auc,
+                best_threshold,
+                checkpoint["model_weights"],
+                best_path,
+            )
         else:
             stale_epochs += 1
             if patience > 0 and stale_epochs >= patience:
                 logger.info("Early stopping after %d epochs", epoch)
                 break
     logger.info(
-        "training_complete best_val_auc=%.4f output_dir=%s",
+        "training_complete best_epoch=%03d best_val_auc=%.4f "
+        "best_threshold=%.4f best_model=%s output_dir=%s",
+        best_epoch,
         best_auc,
+        best_threshold,
+        best_path,
         output_dir,
     )
 

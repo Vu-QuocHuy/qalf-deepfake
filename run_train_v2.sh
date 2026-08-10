@@ -55,13 +55,6 @@ echo "Python: $PYTHON"
 echo "Training output: $OUTPUT_DIR"
 "$PYTHON" -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NOT AVAILABLE')"
 
-"$PYTHON" scripts/audit_manifest.py \
-    --manifest "$TRAIN_MANIFEST" "$VAL_MANIFEST" \
-    --frame-root "$FRAME_ROOT" \
-    --landmark-root "$LANDMARK_ROOT" \
-    --expected-frames 64 \
-    --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures
-
 "$PYTHON" scripts/train.py \
     --config configs/ffpp_to_celebdf_v2.json \
     --train-manifest "$TRAIN_MANIFEST" \

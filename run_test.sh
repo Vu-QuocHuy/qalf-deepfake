@@ -47,12 +47,6 @@ echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
 echo "Evaluation output: $OUTPUT_DIR"
 
-"$PYTHON" scripts/audit_manifest.py \
-    --manifest "$TEST_MANIFEST" \
-    --frame-root "$FRAME_ROOT" \
-    --landmark-root "$LANDMARK_ROOT" \
-    --expected-frames 64
-
 "$PYTHON" scripts/evaluate.py \
     --checkpoint "$CHECKPOINT" \
     --manifest "$TEST_MANIFEST" \

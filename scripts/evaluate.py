@@ -42,6 +42,11 @@ def main() -> None:
     parser.add_argument("--aggregation", choices=("mean", "median", "topk"))
     parser.add_argument("--top-k", type=int)
     parser.add_argument(
+        "--texture-flip-tta",
+        action="store_true",
+        help="Average predictions from the original and horizontally flipped texture inputs.",
+    )
+    parser.add_argument(
         "--geometry-corruption-json",
         help="Optional deterministic geometry corruption config for robustness evaluation.",
     )
@@ -101,7 +106,12 @@ def main() -> None:
     model.load_state_dict(checkpoint["model"], strict=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    clip_predictions = predict(model, loader, device)
+    clip_predictions = predict(
+        model,
+        loader,
+        device,
+        texture_flip_tta=args.texture_flip_tta,
+    )
     predictions = aggregate_predictions(
         clip_predictions,
         method=str(args.aggregation or data.get("video_aggregation", "mean")),
@@ -140,6 +150,7 @@ def main() -> None:
                 f"image_size: {int(data['image_size'])}",
                 f"clips_per_video: {dataset.clips_per_video}",
                 f"aggregation: {args.aggregation or data.get('video_aggregation', 'mean')}",
+                f"texture_flip_tta: {args.texture_flip_tta}",
                 f"threshold: {threshold:.4f}",
                 "threshold_selection: FF++ validation",
                 f"geometry_corruption: {json.dumps(geometry_corruption, ensure_ascii=False)}",
