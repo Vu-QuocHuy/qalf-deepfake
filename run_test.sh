@@ -1,17 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# =========================== EDIT CONFIGURATION HERE ===========================
+# Shared storage roots. Evaluation options are edited directly in the command below.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
-
-BATCH_SIZE=16
-NUM_WORKERS=4
-CLIPS_PER_VIDEO=2
-AGGREGATION='mean'
-TOP_K=1
-RUN_DATA_AUDIT=1
-# ==============================================================================
 
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
@@ -55,13 +47,11 @@ echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
 echo "Evaluation output: $OUTPUT_DIR"
 
-if [[ "$RUN_DATA_AUDIT" == '1' ]]; then
-    "$PYTHON" scripts/audit_manifest.py \
-        --manifest "$TEST_MANIFEST" \
-        --frame-root "$FRAME_ROOT" \
-        --landmark-root "$LANDMARK_ROOT" \
-        --expected-frames 64
-fi
+"$PYTHON" scripts/audit_manifest.py \
+    --manifest "$TEST_MANIFEST" \
+    --frame-root "$FRAME_ROOT" \
+    --landmark-root "$LANDMARK_ROOT" \
+    --expected-frames 64
 
 "$PYTHON" scripts/evaluate.py \
     --checkpoint "$CHECKPOINT" \
@@ -69,8 +59,8 @@ fi
     --frame-root "$FRAME_ROOT" \
     --landmark-root "$LANDMARK_ROOT" \
     --output-dir "$OUTPUT_DIR" \
-    --batch-size "$BATCH_SIZE" \
-    --num-workers "$NUM_WORKERS" \
-    --clips-per-video "$CLIPS_PER_VIDEO" \
-    --aggregation "$AGGREGATION" \
-    --top-k "$TOP_K"
+    --batch-size 16 \
+    --num-workers 4 \
+    --clips-per-video 2 \
+    --aggregation mean \
+    --top-k 1
