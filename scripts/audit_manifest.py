@@ -19,15 +19,37 @@ def main() -> None:
     parser.add_argument("--frame-root", required=True)
     parser.add_argument("--landmark-root")
     parser.add_argument("--expected-frames", type=int, default=64)
+    parser.add_argument(
+        "--fake-methods",
+        nargs="+",
+        help="Fake methods to audit; real/original records are always retained.",
+    )
     args = parser.parse_args()
 
     frame_root = Path(args.frame_root)
     landmark_root = Path(args.landmark_root) if args.landmark_root else None
     split_ids: dict[str, set[str]] = {}
-    report: dict[str, object] = {"manifests": {}, "overlap": {}}
+    requested_methods = set(args.fake_methods or [])
+    report: dict[str, object] = {
+        "fake_methods": sorted(requested_methods) if requested_methods else "all",
+        "manifests": {},
+        "overlap": {},
+    }
     failures: list[str] = []
     for manifest in args.manifest:
         records = load_manifest(manifest)
+        if requested_methods:
+            available_methods = {record.method for record in records if record.label == 1}
+            missing_methods = requested_methods - available_methods
+            if missing_methods:
+                failures.append(
+                    f"{manifest}: missing requested fake methods {sorted(missing_methods)}"
+                )
+            records = [
+                record
+                for record in records
+                if record.label == 0 or record.method in requested_methods
+            ]
         split = records[0].split
         split_ids[split] = {record.video_id for record in records}
         frame_histogram = Counter(len(record.frames) for record in records)

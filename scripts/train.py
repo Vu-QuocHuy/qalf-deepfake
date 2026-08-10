@@ -64,6 +64,19 @@ def _loader(dataset, batch_size, workers, training, balanced):
     )
 
 
+def _dataset_summary(dataset: QALFVideoDataset) -> dict[str, object]:
+    methods = sorted({record.method for record in dataset.records})
+    return {
+        "videos": len(dataset.records),
+        "real": sum(record.label == 0 for record in dataset.records),
+        "fake": sum(record.label == 1 for record in dataset.records),
+        "methods": {
+            method: sum(record.method == method for record in dataset.records)
+            for method in methods
+        },
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
@@ -85,6 +98,11 @@ def main() -> None:
     parser.add_argument("--geometry-loss-weight", type=float)
     parser.add_argument("--texture-loss-weight", type=float)
     parser.add_argument("--early-stop-patience", type=int)
+    parser.add_argument(
+        "--fake-methods",
+        nargs="+",
+        help="FF++ fake methods to retain; real/original records are always retained.",
+    )
     parser.add_argument(
         "--geometry-mode",
         choices=tuple(sorted(GEOMETRY_FEATURE_MODES)),
@@ -116,6 +134,8 @@ def main() -> None:
         model_config["fusion_mode"] = args.fusion_mode
     if args.no_geometry_augmentation:
         data["geometry_augmentation"] = {}
+    if args.fake_methods is not None:
+        data["fake_methods"] = args.fake_methods
     data_overrides = {
         "num_frames": args.num_frames,
         "texture_frames": args.texture_frames,
@@ -194,6 +214,7 @@ def main() -> None:
         "geometry_mode": str(data.get("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE)),
         "texture_mode": str(data.get("texture_mode", "canonical_skin")),
         "geometry_augmentation": data.get("geometry_augmentation", {}),
+        "fake_methods": data.get("fake_methods"),
     }
     train_dataset = QALFVideoDataset(
         train_manifest, training=True, clips_per_video=1, **dataset_args
@@ -222,6 +243,18 @@ def main() -> None:
             "Threshold selection is restricted to the official FF++ validation split; "
             f"got datasets={val_protocol[0]}, splits={val_protocol[1]}"
         )
+    print(
+        json.dumps(
+            {
+                "protocol": "FF++ filtered training protocol",
+                "fake_methods": data.get("fake_methods", "all"),
+                "train": _dataset_summary(train_dataset),
+                "validation": _dataset_summary(val_dataset),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     batch_size = int(training["batch_size"])
     workers = int(training.get("num_workers", 4))
     train_loader = _loader(

@@ -8,6 +8,12 @@
     "num_frames": 32,
     "texture_frames": 4,
     "image_size": 128,
+    "fake_methods": [
+      "Deepfakes",
+      "Face2Face",
+      "FaceSwap",
+      "NeuralTextures"
+    ],
     "geometry_mode": "aligned_motion_3d",
     "texture_mode": "canonical_skin",
     "geometry_augmentation": {

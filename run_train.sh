@@ -51,7 +51,8 @@ echo "Training output: $OUTPUT_DIR"
     --manifest "$TRAIN_MANIFEST" "$VAL_MANIFEST" \
     --frame-root "$FRAME_ROOT" \
     --landmark-root "$LANDMARK_ROOT" \
-    --expected-frames 64
+    --expected-frames 64 \
+    --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures
 
 "$PYTHON" scripts/train.py \
     --config configs/ffpp_to_celebdf.json \
@@ -71,6 +72,7 @@ echo "Training output: $OUTPUT_DIR"
     --texture-frames 4 \
     --image-size 128 \
     --eval-clips-per-video 2 \
+    --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
     --geometry-mode aligned_motion_3d \
     --fusion-mode quality \
     --geometry-loss-weight 0.25 \

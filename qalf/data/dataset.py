@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import random
 from pathlib import Path
+from typing import Sequence
 
 import cv2
 import numpy as np
@@ -239,8 +240,30 @@ class QALFVideoDataset(Dataset):
         geometry_augmentation: dict[str, float] | None = None,
         geometry_corruption: dict[str, float] | None = None,
         geometry_corruption_seed: int = 12345,
+        fake_methods: Sequence[str] | None = None,
     ) -> None:
-        self.records = load_manifest(manifest_path)
+        records = load_manifest(manifest_path)
+        self.fake_methods: tuple[str, ...] | None = None
+        if fake_methods is not None:
+            requested_methods = tuple(str(method) for method in fake_methods)
+            if not requested_methods:
+                raise ValueError("fake_methods cannot be empty")
+            if len(set(requested_methods)) != len(requested_methods):
+                raise ValueError("fake_methods contains duplicate names")
+            available_methods = {record.method for record in records if record.label == 1}
+            missing_methods = set(requested_methods) - available_methods
+            if missing_methods:
+                raise ValueError(
+                    f"Manifest does not contain requested fake methods: {sorted(missing_methods)}"
+                )
+            self.fake_methods = requested_methods
+            allowed_methods = set(requested_methods)
+            records = [
+                record
+                for record in records
+                if record.label == 0 or record.method in allowed_methods
+            ]
+        self.records = records
         self.frame_root = Path(frame_root)
         self.landmark_root = Path(landmark_root)
         self.num_frames = int(num_frames)

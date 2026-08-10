@@ -35,6 +35,14 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("Unsupported data.video_aggregation")
     if int(config["data"].get("top_k", 1)) < 1:
         raise ValueError("data.top_k must be >= 1")
+    fake_methods = config["data"].get("fake_methods")
+    if fake_methods is not None:
+        if not isinstance(fake_methods, list) or not fake_methods:
+            raise ValueError("data.fake_methods must be a non-empty list")
+        if not all(isinstance(method, str) and method for method in fake_methods):
+            raise ValueError("data.fake_methods must contain non-empty strings")
+        if len(set(fake_methods)) != len(fake_methods):
+            raise ValueError("data.fake_methods must not contain duplicates")
     return config
 
 
