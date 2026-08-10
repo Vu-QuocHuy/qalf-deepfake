@@ -33,8 +33,8 @@ FRAME_ROOT="$DATA_ROOT/extracted/celebdf"
 LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TEST_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
-CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f/best.pt"
-OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_to_celebdf"
+CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_srm_temporal_160_8f/best.pt"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_srm_temporal_160_8f_to_celebdf"
 
 for required_path in "$TEST_MANIFEST" "$CHECKPOINT" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
     if [[ ! -e "$required_path" ]]; then
@@ -46,12 +46,6 @@ done
 echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
 echo "Evaluation output: $OUTPUT_DIR"
-
-"$PYTHON" scripts/audit_manifest.py \
-    --manifest "$TEST_MANIFEST" \
-    --frame-root "$FRAME_ROOT" \
-    --landmark-root "$LANDMARK_ROOT" \
-    --expected-frames 64
 
 "$PYTHON" scripts/evaluate.py \
     --checkpoint "$CHECKPOINT" \

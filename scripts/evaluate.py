@@ -93,6 +93,10 @@ def main() -> None:
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
         texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
+        texture_temporal_mode=str(model_config.get("texture_temporal_mode", "mean")),
+        srm_enabled=bool(model_config.get("srm_enabled", False)),
+        srm_filters=int(model_config.get("srm_filters", 12)),
+        srm_channels=int(model_config.get("srm_channels", 48)),
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -121,6 +125,7 @@ def main() -> None:
     )["auc"]
     metrics["mean_geometry_weight"] = float(np.mean(predictions["geometry_weight"]))
     metrics["mean_texture_weight"] = float(np.mean(predictions["texture_weight"]))
+    metrics["mean_srm_weight"] = float(np.mean(predictions.get("srm_weight", [0.0])))
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     metrics_text = _format_metrics(metrics)
@@ -132,6 +137,9 @@ def main() -> None:
                 f"checkpoint: {args.checkpoint}",
                 f"manifest: {args.manifest}",
                 f"texture_backbone: {model_config.get('texture_backbone', 'mobilenet_v3_small')}",
+                f"texture_temporal_mode: {model_config.get('texture_temporal_mode', 'mean')}",
+                f"srm_enabled: {bool(model_config.get('srm_enabled', False))}",
+                f"model_weights: {checkpoint.get('model_weights', 'raw')}",
                 f"num_frames: {int(data['num_frames'])}",
                 f"texture_frames: {int(data['texture_frames'])}",
                 f"image_size: {int(data['image_size'])}",

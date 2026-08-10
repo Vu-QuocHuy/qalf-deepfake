@@ -182,37 +182,77 @@ def _resolve_texture_augmentation(config: dict[str, float]) -> dict[str, float]:
     return settings
 
 
-def _augment(image: np.ndarray, settings: dict[str, float]) -> np.ndarray:
+def _sample_texture_augmentation(settings: dict[str, float]) -> dict[str, object]:
+    """Sample clip-level degradation parameters; per-frame noise remains independent."""
+
+    return {
+        "flip": random.random() < settings["flip_probability"],
+        "brightness_contrast": (
+            (random.uniform(0.85, 1.15), random.uniform(-12.0, 12.0))
+            if random.random() < settings["brightness_contrast_probability"]
+            else None
+        ),
+        "gamma": (
+            random.uniform(settings["gamma_min"], settings["gamma_max"])
+            if random.random() < settings["gamma_probability"]
+            else None
+        ),
+        "downsample_scale": (
+            random.uniform(settings["downsample_min_scale"], 0.9)
+            if random.random() < settings["downsample_probability"]
+            else None
+        ),
+        "blur_sigma": (
+            random.uniform(0.1, 1.2)
+            if random.random() < settings["blur_probability"]
+            else None
+        ),
+        "noise": random.random() < settings["noise_probability"],
+        "jpeg_quality": (
+            random.randint(
+                int(settings["jpeg_min_quality"]), int(settings["jpeg_max_quality"])
+            )
+            if random.random() < settings["jpeg_probability"]
+            else None
+        ),
+    }
+
+
+def _augment(
+    image: np.ndarray,
+    settings: dict[str, float],
+    plan: dict[str, object] | None = None,
+) -> np.ndarray:
+    plan = plan or _sample_texture_augmentation(settings)
     output = image.astype(np.float32)
-    if random.random() < settings["flip_probability"]:
+    if bool(plan["flip"]):
         output = np.ascontiguousarray(output[:, ::-1])
-    if random.random() < settings["brightness_contrast_probability"]:
-        alpha = random.uniform(0.85, 1.15)
-        beta = random.uniform(-12.0, 12.0)
+    brightness_contrast = plan["brightness_contrast"]
+    if brightness_contrast is not None:
+        alpha, beta = (float(value) for value in brightness_contrast)
         output = np.clip(output * alpha + beta, 0, 255)
-    if random.random() < settings["gamma_probability"]:
-        gamma = random.uniform(settings["gamma_min"], settings["gamma_max"])
-        output = 255.0 * np.power(np.clip(output / 255.0, 0.0, 1.0), gamma)
-    if random.random() < settings["downsample_probability"]:
+    gamma = plan["gamma"]
+    if gamma is not None:
+        output = 255.0 * np.power(np.clip(output / 255.0, 0.0, 1.0), float(gamma))
+    downsample_scale = plan["downsample_scale"]
+    if downsample_scale is not None:
         height, width = output.shape[:2]
-        scale = random.uniform(settings["downsample_min_scale"], 0.9)
-        small_width = max(16, int(round(width * scale)))
-        small_height = max(16, int(round(height * scale)))
+        small_width = max(16, int(round(width * float(downsample_scale))))
+        small_height = max(16, int(round(height * float(downsample_scale))))
         output = cv2.resize(output, (small_width, small_height), interpolation=cv2.INTER_AREA)
         output = cv2.resize(output, (width, height), interpolation=cv2.INTER_LINEAR)
-    if random.random() < settings["blur_probability"]:
-        output = cv2.GaussianBlur(output, (3, 3), sigmaX=random.uniform(0.1, 1.2))
-    if random.random() < settings["noise_probability"] and settings["noise_std"] > 0:
+    blur_sigma = plan["blur_sigma"]
+    if blur_sigma is not None:
+        output = cv2.GaussianBlur(output, (3, 3), sigmaX=float(blur_sigma))
+    if bool(plan["noise"]) and settings["noise_std"] > 0:
         noise = np.random.normal(0.0, settings["noise_std"], size=output.shape)
         output = np.clip(output + noise, 0, 255)
-    if random.random() < settings["jpeg_probability"]:
-        quality = random.randint(
-            int(settings["jpeg_min_quality"]), int(settings["jpeg_max_quality"])
-        )
+    jpeg_quality = plan["jpeg_quality"]
+    if jpeg_quality is not None:
         ok, encoded = cv2.imencode(
             ".jpg",
             cv2.cvtColor(output.astype(np.uint8), cv2.COLOR_RGB2BGR),
-            [int(cv2.IMWRITE_JPEG_QUALITY), quality],
+            [int(cv2.IMWRITE_JPEG_QUALITY), int(jpeg_quality)],
         )
         if ok:
             decoded = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
@@ -302,6 +342,7 @@ class QALFVideoDataset(Dataset):
         geometry_corruption_seed: int = 12345,
         fake_methods: Sequence[str] | None = None,
         texture_augmentation: dict[str, float] | None = None,
+        clip_consistent_augmentation: bool = False,
     ) -> None:
         records = load_manifest(manifest_path)
         self.fake_methods: tuple[str, ...] | None = None
@@ -352,6 +393,7 @@ class QALFVideoDataset(Dataset):
             self.texture_augmentation = _resolve_texture_augmentation(texture_augmentation)
         else:
             self.texture_augmentation = {}
+        self.clip_consistent_augmentation = bool(clip_consistent_augmentation)
         self.geometry_corruption = dict(geometry_corruption or {})
         self.geometry_corruption_seed = int(geometry_corruption_seed)
         if self.training and self.geometry_corruption:
@@ -428,6 +470,13 @@ class QALFVideoDataset(Dataset):
         )
         texture_tensors: list[np.ndarray] = []
         texture_qualities: list[np.ndarray] = []
+        texture_augmentation_plan = (
+            _sample_texture_augmentation(self.texture_augmentation)
+            if self.training
+            and self.texture_augmentation
+            and self.clip_consistent_augmentation
+            else None
+        )
         for position in texture_positions:
             source_index = int(clip[position])
             image_bgr = cv2.imread(str(self.frame_root / record.frames[source_index]))
@@ -443,7 +492,11 @@ class QALFVideoDataset(Dataset):
             )
             if self.training:
                 if self.texture_augmentation:
-                    canonical = _augment(canonical, self.texture_augmentation)
+                    canonical = _augment(
+                        canonical,
+                        self.texture_augmentation,
+                        texture_augmentation_plan,
+                    )
                 quality = _texture_quality(
                     canonical,
                     image_rgb.shape[1],

@@ -23,6 +23,10 @@ class QALFModel(nn.Module):
         geometry_quality_dim: int = 5,
         texture_quality_dim: int = 5,
         fusion_mode: str = "quality",
+        texture_temporal_mode: str = "mean",
+        srm_enabled: bool = False,
+        srm_filters: int = 12,
+        srm_channels: int = 48,
     ) -> None:
         super().__init__()
         if fusion_mode not in {
@@ -56,6 +60,10 @@ class QALFModel(nn.Module):
                 dropout,
                 texture_pretrained,
                 backbone=texture_backbone,
+                temporal_mode=texture_temporal_mode,
+                srm_enabled=srm_enabled,
+                srm_filters=srm_filters,
+                srm_channels=srm_channels,
             )
         )
         gate_modes = {
@@ -129,6 +137,10 @@ class QALFModel(nn.Module):
         if self.fusion_mode == "texture":
             texture_embedding, texture_logit = self.forward_texture(batch["texture"])
             zeros = torch.zeros_like(texture_embedding)
+            assert self.texture_encoder is not None
+            srm_weight = self.texture_encoder.last_srm_weight
+            if srm_weight is None:
+                raise RuntimeError("Texture encoder did not report its SRM weight")
             return {
                 "logit": texture_logit,
                 "geometry_logit": torch.zeros_like(texture_logit),
@@ -138,6 +150,7 @@ class QALFModel(nn.Module):
                 ),
                 "geometry_embedding": zeros,
                 "texture_embedding": texture_embedding,
+                "srm_weight": srm_weight,
             }
         geometry_embedding, geometry_logit = self.forward_geometry(batch["geometry"])
         if self.fusion_mode == "geometry":
@@ -151,8 +164,13 @@ class QALFModel(nn.Module):
                 ),
                 "geometry_embedding": geometry_embedding,
                 "texture_embedding": zeros,
+                "srm_weight": geometry_logit.new_zeros(geometry_logit.shape[0]),
             }
         texture_embedding, texture_logit = self.forward_texture(batch["texture"])
+        assert self.texture_encoder is not None
+        srm_weight = self.texture_encoder.last_srm_weight
+        if srm_weight is None:
+            raise RuntimeError("Texture encoder did not report its SRM weight")
         fused_logit, weights = self.fuse_precomputed(
             geometry_embedding,
             geometry_logit,
@@ -168,4 +186,5 @@ class QALFModel(nn.Module):
             "fusion_weights": weights,
             "geometry_embedding": geometry_embedding,
             "texture_embedding": texture_embedding,
+            "srm_weight": srm_weight,
         }

@@ -35,20 +35,26 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("Unsupported data.video_aggregation")
     if int(config["data"].get("top_k", 1)) < 1:
         raise ValueError("data.top_k must be >= 1")
-    fake_methods = config["data"].get("fake_methods")
-    if fake_methods is not None:
-        if not isinstance(fake_methods, list) or not fake_methods:
-            raise ValueError("data.fake_methods must be a non-empty list")
-        if not all(isinstance(method, str) and method for method in fake_methods):
-            raise ValueError("data.fake_methods must contain non-empty strings")
-        if len(set(fake_methods)) != len(fake_methods):
-            raise ValueError("data.fake_methods must not contain duplicates")
+    config["data"].setdefault("clip_consistent_augmentation", False)
+    for field in ("fake_methods", "val_fake_methods"):
+        fake_methods = config["data"].get(field)
+        if fake_methods is not None:
+            if not isinstance(fake_methods, list) or not fake_methods:
+                raise ValueError(f"data.{field} must be a non-empty list")
+            if not all(isinstance(method, str) and method for method in fake_methods):
+                raise ValueError(f"data.{field} must contain non-empty strings")
+            if len(set(fake_methods)) != len(fake_methods):
+                raise ValueError(f"data.{field} must not contain duplicates")
     model_defaults = {
         "geometry_hidden": 96,
         "geometry_layers": 3,
         "embedding_dim": 128,
         "dropout": 0.2,
         "texture_backbone": "mobilenet_v3_small",
+        "texture_temporal_mode": "mean",
+        "srm_enabled": False,
+        "srm_filters": 12,
+        "srm_channels": 48,
     }
     for name, default in model_defaults.items():
         config["model"].setdefault(name, default)
@@ -58,11 +64,22 @@ def load_config(path: str | Path) -> dict[str, Any]:
         "efficientnet_b0",
     }:
         raise ValueError("Unsupported model.texture_backbone")
+    if config["model"]["texture_temporal_mode"] not in {"mean", "difference"}:
+        raise ValueError("Unsupported model.texture_temporal_mode")
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(config["model"].get(name, 0)) < 1:
             raise ValueError(f"model.{name} must be >= 1")
     if not 0.0 <= float(config["model"].get("dropout", 0.0)) < 1.0:
         raise ValueError("model.dropout must be in [0, 1)")
+    if int(config["model"].get("srm_filters", 0)) < 1:
+        raise ValueError("model.srm_filters must be >= 1")
+    if int(config["model"].get("srm_channels", 0)) < 8:
+        raise ValueError("model.srm_channels must be >= 8")
+    config["training"].setdefault("ema_decay", 0.0)
+    config["training"].setdefault("freeze_backbone_bn", False)
+    ema_decay = float(config["training"]["ema_decay"])
+    if ema_decay != 0.0 and not 0.0 < ema_decay < 1.0:
+        raise ValueError("training.ema_decay must be zero or in (0, 1)")
     return config
 
 

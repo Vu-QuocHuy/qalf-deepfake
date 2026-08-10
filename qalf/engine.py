@@ -16,6 +16,8 @@ class GradScalerProtocol(Protocol):
 
     def is_enabled(self) -> bool: ...
 
+    def get_scale(self) -> float: ...
+
     def scale(self, outputs: torch.Tensor) -> torch.Tensor: ...
 
     def unscale_(self, optimizer: torch.optim.Optimizer) -> None: ...
@@ -23,6 +25,10 @@ class GradScalerProtocol(Protocol):
     def step(self, optimizer: torch.optim.Optimizer) -> object: ...
 
     def update(self) -> None: ...
+
+
+class EMAProtocol(Protocol):
+    def update(self, model: nn.Module) -> None: ...
 
 
 def move_batch(batch: dict[str, object], device: torch.device) -> dict[str, object]:
@@ -59,8 +65,17 @@ def train_epoch(
     scaler: GradScalerProtocol,
     geometry_weight: float,
     texture_weight: float,
+    ema: EMAProtocol | None = None,
+    freeze_backbone_bn: bool = False,
 ) -> dict[str, float]:
     model.train()
+    if freeze_backbone_bn:
+        texture_encoder = getattr(model, "texture_encoder", None)
+        features = getattr(texture_encoder, "features", None)
+        if features is not None:
+            for module in features.modules():
+                if isinstance(module, nn.modules.batchnorm._BatchNorm):
+                    module.eval()
     totals: defaultdict[str, float] = defaultdict(float)
     samples = 0
     for batch in tqdm(loader, desc="train", leave=False):
@@ -73,8 +88,14 @@ def train_epoch(
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        previous_scale = scaler.get_scale()
         scaler.step(optimizer)
         scaler.update()
+        # GradScaler skips optimizer.step when it finds non-finite gradients.
+        # Do not move EMA toward unchanged weights after a skipped step.
+        optimizer_updated = not scaler.is_enabled() or scaler.get_scale() >= previous_scale
+        if ema is not None and optimizer_updated:
+            ema.update(model)
         batch_size = int(labels.shape[0])
         totals["loss"] += float(loss.detach()) * batch_size
         for name, value in parts.items():
@@ -106,6 +127,8 @@ def predict(
         )
         result["geometry_weight"].extend(outputs["fusion_weights"][:, 0].cpu().numpy().tolist())
         result["texture_weight"].extend(outputs["fusion_weights"][:, 1].cpu().numpy().tolist())
+        if outputs.get("srm_weight") is not None:
+            result["srm_weight"].extend(outputs["srm_weight"].cpu().numpy().tolist())
         result["clip_index"].extend(batch["clip_index"].detach().cpu().numpy().tolist())
         for key in ("video_id", "method", "dataset"):
             result[key].extend(batch[key])
@@ -156,6 +179,8 @@ def aggregate_predictions(
         "geometry_weight",
         "texture_weight",
     )
+    if "srm_weight" in predictions:
+        numeric_fields += ("srm_weight",)
     for (dataset, manipulation, video_id), indices in groups.items():
         labels = {int(round(float(predictions["label"][index]))) for index in indices}
         if len(labels) != 1:

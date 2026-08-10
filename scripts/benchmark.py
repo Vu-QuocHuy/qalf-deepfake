@@ -73,6 +73,10 @@ def main() -> None:
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
         texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
+        texture_temporal_mode=str(model_config.get("texture_temporal_mode", "mean")),
+        srm_enabled=bool(model_config.get("srm_enabled", False)),
+        srm_filters=int(model_config.get("srm_filters", 12)),
+        srm_channels=int(model_config.get("srm_channels", 48)),
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -114,6 +118,10 @@ def main() -> None:
         "texture_backbone": str(
             model_config.get("texture_backbone", "mobilenet_v3_small")
         ),
+        "texture_temporal_mode": str(
+            model_config.get("texture_temporal_mode", "mean")
+        ),
+        "srm_enabled": bool(model_config.get("srm_enabled", False)),
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
         "trainable_parameters": sum(
             parameter.numel() for parameter in model.parameters() if parameter.requires_grad

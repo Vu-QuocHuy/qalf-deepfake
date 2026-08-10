@@ -22,9 +22,14 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from qalf.config import load_config, save_json
 from qalf.data.dataset import QALFVideoDataset
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
+from qalf.ema import ExponentialMovingAverage
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import QALFModel, SUPPORTED_TEXTURE_BACKBONES
+from qalf.models import (
+    QALFModel,
+    SUPPORTED_TEXTURE_BACKBONES,
+    TEXTURE_TEMPORAL_MODES,
+)
 
 
 def _seed_everything(seed: int) -> None:
@@ -139,7 +144,8 @@ def _epoch_message(
         f"val auc={validation_metrics['auc']:.4f} ap={validation_metrics['average_precision']:.4f} "
         f"balanced_acc={validation_metrics['balanced_accuracy']:.4f} "
         f"accuracy={validation_metrics['accuracy']:.4f} f1={validation_metrics['f1']:.4f} "
-        f"eer={validation_metrics['eer']:.4f} threshold={validation_metrics['threshold']:.4f}"
+        f"eer={validation_metrics['eer']:.4f} threshold={validation_metrics['threshold']:.4f} "
+        f"srm_weight={validation_metrics.get('mean_srm_weight', 0.0):.4f}"
     )
 
 
@@ -169,10 +175,18 @@ def main() -> None:
     parser.add_argument("--geometry-layers", type=int)
     parser.add_argument("--embedding-dim", type=int)
     parser.add_argument("--dropout", type=float)
+    parser.add_argument("--srm-filters", type=int)
+    parser.add_argument("--srm-channels", type=int)
+    parser.add_argument("--ema-decay", type=float)
     parser.add_argument(
         "--fake-methods",
         nargs="+",
         help="FF++ fake methods to retain; real/original records are always retained.",
+    )
+    parser.add_argument(
+        "--val-fake-methods",
+        nargs="+",
+        help="Optional held-out FF++ manipulation(s) for LOMO validation.",
     )
     parser.add_argument(
         "--geometry-mode",
@@ -194,6 +208,13 @@ def main() -> None:
         "--texture-backbone",
         choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES)),
     )
+    parser.add_argument(
+        "--texture-temporal-mode",
+        choices=tuple(sorted(TEXTURE_TEMPORAL_MODES)),
+    )
+    parser.add_argument("--enable-srm", action="store_true")
+    parser.add_argument("--freeze-backbone-bn", action="store_true")
+    parser.add_argument("--clip-consistent-augmentation", action="store_true")
     parser.add_argument("--no-geometry-augmentation", action="store_true")
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
@@ -210,11 +231,17 @@ def main() -> None:
         model_config["fusion_mode"] = args.fusion_mode
     if args.texture_backbone:
         model_config["texture_backbone"] = args.texture_backbone
+    if args.texture_temporal_mode:
+        model_config["texture_temporal_mode"] = args.texture_temporal_mode
+    if args.enable_srm:
+        model_config["srm_enabled"] = True
     model_overrides = {
         "geometry_hidden": args.geometry_hidden,
         "geometry_layers": args.geometry_layers,
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
+        "srm_filters": args.srm_filters,
+        "srm_channels": args.srm_channels,
     }
     model_config.update(
         {key: value for key, value in model_overrides.items() if value is not None}
@@ -223,8 +250,12 @@ def main() -> None:
         data["geometry_augmentation"] = {}
     if args.no_texture_augmentation:
         data["texture_augmentation"] = {}
+    if args.clip_consistent_augmentation:
+        data["clip_consistent_augmentation"] = True
     if args.fake_methods is not None:
         data["fake_methods"] = args.fake_methods
+    if args.val_fake_methods is not None:
+        data["val_fake_methods"] = args.val_fake_methods
     data_overrides = {
         "num_frames": args.num_frames,
         "texture_frames": args.texture_frames,
@@ -241,6 +272,7 @@ def main() -> None:
         "geometry_loss_weight": args.geometry_loss_weight,
         "texture_loss_weight": args.texture_loss_weight,
         "early_stop_patience": args.early_stop_patience,
+        "ema_decay": args.ema_decay,
     }
     data.update({key: value for key, value in data_overrides.items() if value is not None})
     training.update(
@@ -252,6 +284,8 @@ def main() -> None:
         training["amp"] = False
     if args.no_balanced_sampler:
         training["balanced_sampler"] = False
+    if args.freeze_backbone_bn:
+        training["freeze_backbone_bn"] = True
 
     positive_integer_fields = {
         "data.num_frames": data["num_frames"],
@@ -284,6 +318,13 @@ def main() -> None:
             parser.error(f"model.{name} must be at least one")
     if not 0.0 <= float(model_config.get("dropout", 0.0)) < 1.0:
         parser.error("model.dropout must be in [0, 1)")
+    if int(model_config.get("srm_filters", 0)) < 1:
+        parser.error("model.srm_filters must be at least one")
+    if int(model_config.get("srm_channels", 0)) < 8:
+        parser.error("model.srm_channels must be at least eight")
+    ema_decay = float(training.get("ema_decay", 0.0))
+    if ema_decay != 0.0 and not 0.0 < ema_decay < 1.0:
+        parser.error("training.ema_decay must be zero or in (0, 1)")
     seed = int(config.get("seed", 42))
     _seed_everything(seed)
     train_manifest = args.train_manifest or data["train_manifest"]
@@ -313,15 +354,22 @@ def main() -> None:
         "texture_mode": str(data.get("texture_mode", "canonical_skin")),
         "geometry_augmentation": data.get("geometry_augmentation", {}),
         "texture_augmentation": data.get("texture_augmentation"),
-        "fake_methods": data.get("fake_methods"),
+        "clip_consistent_augmentation": bool(
+            data.get("clip_consistent_augmentation", False)
+        ),
     }
     train_dataset = QALFVideoDataset(
-        train_manifest, training=True, clips_per_video=1, **dataset_args
+        train_manifest,
+        training=True,
+        clips_per_video=1,
+        fake_methods=data.get("fake_methods"),
+        **dataset_args,
     )
     val_dataset = QALFVideoDataset(
         val_manifest,
         training=False,
         clips_per_video=int(data["eval_clips_per_video"]),
+        fake_methods=data.get("val_fake_methods", data.get("fake_methods")),
         **dataset_args,
     )
     train_protocol = (
@@ -347,7 +395,10 @@ def main() -> None:
         json.dumps(
             {
                 "protocol": "FF++ filtered training protocol",
-                "fake_methods": data.get("fake_methods", "all"),
+                "train_fake_methods": data.get("fake_methods", "all"),
+                "validation_fake_methods": data.get(
+                    "val_fake_methods", data.get("fake_methods", "all")
+                ),
                 "train": _dataset_summary(train_dataset),
                 "validation": _dataset_summary(val_dataset),
             },
@@ -375,6 +426,10 @@ def main() -> None:
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
+        texture_temporal_mode=str(model_config.get("texture_temporal_mode", "mean")),
+        srm_enabled=bool(model_config.get("srm_enabled", False)),
+        srm_filters=int(model_config.get("srm_filters", 12)),
+        srm_channels=int(model_config.get("srm_channels", 48)),
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -397,6 +452,7 @@ def main() -> None:
     )
     amp_enabled = bool(training.get("amp", True)) and device.type == "cuda"
     scaler = _make_grad_scaler(amp_enabled)
+    ema = ExponentialMovingAverage(model, ema_decay) if ema_decay > 0.0 else None
     criterion = nn.BCEWithLogitsLoss()
     geometry_loss_weight = float(training.get("geometry_loss_weight", 0.25))
     texture_loss_weight = float(training.get("texture_loss_weight", 0.25))
@@ -412,12 +468,18 @@ def main() -> None:
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
     logger.info(
-        "device=%s backbone=%s parameters=%d trainable=%d amp=%s",
+        "device=%s backbone=%s temporal=%s srm=%s parameters=%d trainable=%d "
+        "amp=%s ema_decay=%.4f freeze_backbone_bn=%s clip_consistent_aug=%s",
         device,
         model_config.get("texture_backbone", "mobilenet_v3_small"),
+        model_config.get("texture_temporal_mode", "mean"),
+        bool(model_config.get("srm_enabled", False)),
         sum(parameter.numel() for parameter in model.parameters()),
         sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
         amp_enabled,
+        ema_decay,
+        bool(training.get("freeze_backbone_bn", False)),
+        bool(data.get("clip_consistent_augmentation", False)),
     )
     for epoch in range(1, epochs + 1):
         train_metrics = train_epoch(
@@ -429,8 +491,14 @@ def main() -> None:
             scaler,
             geometry_loss_weight,
             texture_loss_weight,
+            ema=ema,
+            freeze_backbone_bn=bool(training.get("freeze_backbone_bn", False)),
         )
-        validation_clips = predict(model, val_loader, device)
+        if ema is not None:
+            with ema.average_parameters(model):
+                validation_clips = predict(model, val_loader, device)
+        else:
+            validation_clips = predict(model, val_loader, device)
         validation = aggregate_predictions(
             validation_clips,
             method=str(data["video_aggregation"]),
@@ -440,15 +508,24 @@ def main() -> None:
         scores = np.asarray(validation["score"], dtype=np.float64)
         threshold = select_threshold(labels, scores)
         val_metrics = compute_metrics(labels, scores, threshold)
+        val_metrics["mean_srm_weight"] = float(
+            np.mean(validation.get("srm_weight", [0.0]))
+        )
         row = {"epoch": epoch, "train": train_metrics, "validation": val_metrics}
         history.append(row)
         save_json(history, output_dir / "history.json")
         logger.info(_epoch_message(epoch, epochs, optimizer, train_metrics, val_metrics))
         scheduler.step()
 
+        validation_model_state = (
+            ema.model_state_dict() if ema is not None else model.state_dict()
+        )
         checkpoint = {
             "epoch": epoch,
-            "model": model.state_dict(),
+            # Validation above used EMA weights when EMA is enabled. Save those
+            # same weights so both last.pt and best.pt reproduce the recorded
+            # threshold and metrics without special loading logic.
+            "model": validation_model_state,
             "optimizer": optimizer.state_dict(),
             "config": config,
             "geometry_input_dim": train_dataset.geometry_input_dim,
@@ -456,6 +533,7 @@ def main() -> None:
             "texture_quality_dim": train_dataset.texture_quality_dim,
             "threshold": threshold,
             "validation_metrics": val_metrics,
+            "model_weights": "ema" if ema is not None else "raw",
         }
         torch.save(checkpoint, output_dir / "last.pt")
         if val_metrics["auc"] > best_auc:
