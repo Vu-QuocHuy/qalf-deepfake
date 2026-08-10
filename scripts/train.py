@@ -292,7 +292,7 @@ def main() -> None:
     landmark_root = args.landmark_root or data["train_landmark_root"]
     output_dir = Path(args.output_dir or config.get("output_dir", "outputs/qalf"))
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger = _create_logger(output_dir / "train.log")
+    logger = _create_logger(output_dir / "train_log.txt")
     data["train_manifest"] = str(train_manifest)
     data["val_manifest"] = str(val_manifest)
     data["train_frame_root"] = str(frame_root)
