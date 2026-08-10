@@ -76,12 +76,12 @@
     "weight_decay": 0.0003,
     "geometry_loss_weight": 0.25,
     "texture_loss_weight": 0.25,
-    "self_blend_loss_weight": 0.25,
-    "method_adversarial_weight": 0.1,
+    "self_blend_loss_weight": 0.0,
+    "method_adversarial_weight": 0.0,
     "method_grl_strength": 1.0,
     "balanced_sampler": true,
     "amp": true,
     "early_stop_patience": 8
   },
-  "output_dir": "outputs/qalf_ffpp4_effb0_dg_160_8f"
+  "output_dir": "outputs/qalf_ffpp4_effb0_clean_160_8f"
 }

@@ -24,7 +24,7 @@ from qalf.data.dataset import QALFVideoDataset
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import MethodDiscriminator, QALFModel
+from qalf.models import MethodDiscriminator, QALFModel, SUPPORTED_TEXTURE_BACKBONES
 
 
 def _seed_everything(seed: int) -> None:
@@ -188,6 +188,11 @@ def main() -> None:
     parser.add_argument("--embedding-dim", type=int)
     parser.add_argument("--dropout", type=float)
     parser.add_argument(
+        "--texture-backbone",
+        choices=SUPPORTED_TEXTURE_BACKBONES,
+        help="Texture encoder; EfficientNet-B0 remains the default lightweight model.",
+    )
+    parser.add_argument(
         "--fake-methods",
         nargs="+",
         help="FF++ fake methods to retain; real/original records are always retained.",
@@ -233,6 +238,7 @@ def main() -> None:
         "geometry_layers": args.geometry_layers,
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
+        "texture_backbone": args.texture_backbone,
     }
     model_config.update(
         {key: value for key, value in model_overrides.items() if value is not None}
@@ -420,6 +426,7 @@ def main() -> None:
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
+        texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
         fusion_mode=str(model_config.get("fusion_mode", "quality")),

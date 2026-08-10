@@ -1,9 +1,28 @@
-"""EfficientNet-B0 encoder for landmark-aligned skin maps."""
+"""EfficientNet encoders for landmark-aligned skin maps."""
 
 from __future__ import annotations
 
 import torch
 from torch import nn
+
+SUPPORTED_TEXTURE_BACKBONES = ("efficientnet_b0", "efficientnet_b1")
+
+
+def _build_backbone(name: str, pretrained: bool) -> nn.Module:
+    if name == "efficientnet_b0":
+        from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
+
+        weights = EfficientNet_B0_Weights.DEFAULT if pretrained else None
+        return efficientnet_b0(weights=weights)
+    if name == "efficientnet_b1":
+        from torchvision.models import EfficientNet_B1_Weights, efficientnet_b1
+
+        weights = EfficientNet_B1_Weights.DEFAULT if pretrained else None
+        return efficientnet_b1(weights=weights)
+    raise ValueError(
+        f"Unsupported texture backbone: {name}; "
+        f"expected one of {SUPPORTED_TEXTURE_BACKBONES}"
+    )
 
 
 class TextureEncoder(nn.Module):
@@ -12,12 +31,11 @@ class TextureEncoder(nn.Module):
         embedding_dim: int = 128,
         dropout: float = 0.2,
         pretrained: bool = True,
+        backbone_name: str = "efficientnet_b0",
     ) -> None:
         super().__init__()
-        from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
-
-        weights = EfficientNet_B0_Weights.DEFAULT if pretrained else None
-        backbone = efficientnet_b0(weights=weights)
+        backbone = _build_backbone(backbone_name, pretrained)
+        self.backbone_name = backbone_name
         self.features = backbone.features
         self.pool = backbone.avgpool
         feature_dim = int(backbone.classifier[-1].in_features)

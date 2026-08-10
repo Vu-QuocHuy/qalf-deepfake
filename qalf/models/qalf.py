@@ -22,6 +22,7 @@ class QALFModel(nn.Module):
         geometry_quality_dim: int = 5,
         texture_quality_dim: int = 5,
         fusion_mode: str = "quality",
+        texture_backbone: str = "efficientnet_b0",
     ) -> None:
         super().__init__()
         if fusion_mode not in {
@@ -50,7 +51,12 @@ class QALFModel(nn.Module):
         self.texture_encoder = (
             None
             if fusion_mode == "geometry"
-            else TextureEncoder(embedding_dim, dropout, texture_pretrained)
+            else TextureEncoder(
+                embedding_dim,
+                dropout,
+                texture_pretrained,
+                texture_backbone,
+            )
         )
         gate_modes = {
             "quality": "full",

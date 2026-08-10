@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
+from qalf.models.texture import SUPPORTED_TEXTURE_BACKBONES
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -53,8 +54,11 @@ def load_config(path: str | Path) -> dict[str, Any]:
     }
     for name, default in model_defaults.items():
         config["model"].setdefault(name, default)
-    if config["model"]["texture_backbone"] != "efficientnet_b0":
-        raise ValueError("model.texture_backbone must be efficientnet_b0")
+    if config["model"]["texture_backbone"] not in SUPPORTED_TEXTURE_BACKBONES:
+        raise ValueError(
+            "model.texture_backbone must be one of "
+            f"{SUPPORTED_TEXTURE_BACKBONES}"
+        )
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(config["model"].get(name, 0)) < 1:
             raise ValueError(f"model.{name} must be >= 1")
