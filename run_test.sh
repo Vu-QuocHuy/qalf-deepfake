@@ -33,8 +33,8 @@ FRAME_ROOT="$DATA_ROOT/extracted/celebdf"
 LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TEST_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
-CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp/best.pt"
-OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp_to_celebdf"
+CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp_4methods/best.pt"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp_4methods_to_celebdf"
 
 for required_path in "$TEST_MANIFEST" "$CHECKPOINT" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
     if [[ ! -e "$required_path" ]]; then
