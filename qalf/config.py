@@ -35,34 +35,40 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("Unsupported data.video_aggregation")
     if int(config["data"].get("top_k", 1)) < 1:
         raise ValueError("data.top_k must be >= 1")
-    fake_methods = config["data"].get("fake_methods")
-    if fake_methods is not None:
-        if not isinstance(fake_methods, list) or not fake_methods:
-            raise ValueError("data.fake_methods must be a non-empty list")
-        if not all(isinstance(method, str) and method for method in fake_methods):
-            raise ValueError("data.fake_methods must contain non-empty strings")
-        if len(set(fake_methods)) != len(fake_methods):
-            raise ValueError("data.fake_methods must not contain duplicates")
+    for field in ("fake_methods", "val_fake_methods"):
+        fake_methods = config["data"].get(field)
+        if fake_methods is not None:
+            if not isinstance(fake_methods, list) or not fake_methods:
+                raise ValueError(f"data.{field} must be a non-empty list")
+            if not all(isinstance(method, str) and method for method in fake_methods):
+                raise ValueError(f"data.{field} must contain non-empty strings")
+            if len(set(fake_methods)) != len(fake_methods):
+                raise ValueError(f"data.{field} must not contain duplicates")
     model_defaults = {
         "geometry_hidden": 96,
         "geometry_layers": 3,
         "embedding_dim": 128,
         "dropout": 0.2,
-        "texture_backbone": "mobilenet_v3_small",
+        "texture_backbone": "efficientnet_b0",
     }
     for name, default in model_defaults.items():
         config["model"].setdefault(name, default)
-    if config["model"]["texture_backbone"] not in {
-        "mobilenet_v3_small",
-        "mobilenet_v3_large",
-        "efficientnet_b0",
-    }:
-        raise ValueError("Unsupported model.texture_backbone")
+    if config["model"]["texture_backbone"] != "efficientnet_b0":
+        raise ValueError("model.texture_backbone must be efficientnet_b0")
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(config["model"].get(name, 0)) < 1:
             raise ValueError(f"model.{name} must be >= 1")
     if not 0.0 <= float(config["model"].get("dropout", 0.0)) < 1.0:
         raise ValueError("model.dropout must be in [0, 1)")
+    training_defaults = {
+        "self_blend_loss_weight": 0.0,
+        "method_adversarial_weight": 0.0,
+        "method_grl_strength": 1.0,
+    }
+    for name, default in training_defaults.items():
+        value = float(config["training"].setdefault(name, default))
+        if value < 0.0:
+            raise ValueError(f"training.{name} must be non-negative")
     return config
 
 

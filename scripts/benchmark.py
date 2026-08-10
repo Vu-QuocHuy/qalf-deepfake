@@ -72,7 +72,6 @@ def main() -> None:
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
-        texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -112,7 +111,7 @@ def main() -> None:
         "device": str(device),
         "fusion_mode": str(model_config.get("fusion_mode", "quality")),
         "texture_backbone": str(
-            model_config.get("texture_backbone", "mobilenet_v3_small")
+            model_config.get("texture_backbone", "efficientnet_b0")
         ),
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
         "trainable_parameters": sum(

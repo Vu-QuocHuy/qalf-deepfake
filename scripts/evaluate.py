@@ -29,6 +29,31 @@ def _format_metrics(metrics: dict[str, float]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _format_source_metrics(predictions: dict[str, object]) -> str:
+    labels = np.asarray(predictions["label"], dtype=np.int64)
+    fused = np.asarray(predictions["score"], dtype=np.float64)
+    geometry = np.asarray(predictions["geometry_score"], dtype=np.float64)
+    texture = np.asarray(predictions["texture_score"], dtype=np.float64)
+    methods = np.asarray(predictions["method"], dtype=object)
+    lines = ["QALF score breakdown by source"]
+    for method in sorted({str(value) for value in methods.tolist()}):
+        selected = methods == method
+        lines.append(
+            f"{method}: videos={int(selected.sum())} "
+            f"fused_mean={float(fused[selected].mean()):.4f} "
+            f"geometry_mean={float(geometry[selected].mean()):.4f} "
+            f"texture_mean={float(texture[selected].mean()):.4f}"
+        )
+    lines.append("")
+    lines.append("AUC against each real source")
+    fake = labels == 1
+    for method in sorted({str(value) for value in methods[labels == 0].tolist()}):
+        selected = fake | ((labels == 0) & (methods == method))
+        auc = compute_metrics(labels[selected], fused[selected], 0.5)["auc"]
+        lines.append(f"{method}: auc={auc:.4f}")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True)
@@ -51,6 +76,7 @@ def main() -> None:
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
     config = checkpoint["config"]
     data, model_config = config["data"], config["model"]
+    training_config = config.get("training", {})
     geometry_corruption = {}
     if args.geometry_corruption_json:
         with Path(args.geometry_corruption_json).open("r", encoding="utf-8") as handle:
@@ -92,7 +118,6 @@ def main() -> None:
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
-        texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -125,16 +150,22 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     metrics_text = _format_metrics(metrics)
     (output_dir / "metrics.txt").write_text(metrics_text, encoding="utf-8")
+    (output_dir / "source_metrics.txt").write_text(
+        _format_source_metrics(predictions), encoding="utf-8"
+    )
     (output_dir / "evaluation_protocol.txt").write_text(
         "\n".join(
             (
                 "QALF evaluation protocol",
                 f"checkpoint: {args.checkpoint}",
                 f"manifest: {args.manifest}",
-                f"texture_backbone: {model_config.get('texture_backbone', 'mobilenet_v3_small')}",
+                f"texture_backbone: {model_config.get('texture_backbone', 'efficientnet_b0')}",
                 f"num_frames: {int(data['num_frames'])}",
                 f"texture_frames: {int(data['texture_frames'])}",
                 f"image_size: {int(data['image_size'])}",
+                f"self_blend_loss_weight: {float(training_config.get('self_blend_loss_weight', 0.0)):.4f}",
+                f"method_adversarial_weight: {float(training_config.get('method_adversarial_weight', 0.0)):.4f}",
+                f"method_grl_strength: {float(training_config.get('method_grl_strength', 0.0)):.4f}",
                 f"clips_per_video: {dataset.clips_per_video}",
                 f"aggregation: {args.aggregation or data.get('video_aggregation', 'mean')}",
                 f"threshold: {threshold:.4f}",

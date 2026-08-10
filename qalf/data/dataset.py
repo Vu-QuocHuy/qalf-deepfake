@@ -49,6 +49,21 @@ DEFAULT_TEXTURE_AUGMENTATION = {
     "jpeg_max_quality": 90.0,
 }
 
+DEFAULT_SELF_BLEND_AUGMENTATION = {
+    "probability": 0.5,
+    "rotation_degrees": 5.0,
+    "scale_min": 0.95,
+    "scale_max": 1.05,
+    "translation_ratio": 0.03,
+    "color_gain_min": 0.85,
+    "color_gain_max": 1.15,
+    "color_bias": 12.0,
+    "mask_erode_min_ratio": 0.04,
+    "mask_erode_max_ratio": 0.10,
+    "mask_blur_ratio": 0.03,
+    "opacity_min": 0.70,
+}
+
 
 def _clip_indices(
     total: int,
@@ -220,6 +235,116 @@ def _augment(image: np.ndarray, settings: dict[str, float]) -> np.ndarray:
     return output.astype(np.uint8)
 
 
+def _resolve_self_blend_augmentation(config: dict[str, float]) -> dict[str, float]:
+    unknown = set(config) - set(DEFAULT_SELF_BLEND_AUGMENTATION)
+    if unknown:
+        raise ValueError(f"Unknown self-blend augmentation keys: {sorted(unknown)}")
+    settings = {**DEFAULT_SELF_BLEND_AUGMENTATION, **config}
+    for name in ("probability", "opacity_min"):
+        if not 0.0 <= settings[name] <= 1.0:
+            raise ValueError(f"Self-blend augmentation {name} must be in [0, 1]")
+    if settings["rotation_degrees"] < 0 or settings["translation_ratio"] < 0:
+        raise ValueError("Self-blend geometric ranges must be non-negative")
+    if not 0.0 < settings["scale_min"] <= settings["scale_max"]:
+        raise ValueError("Self-blend scale range is invalid")
+    if not 0.0 < settings["color_gain_min"] <= settings["color_gain_max"]:
+        raise ValueError("Self-blend color gain range is invalid")
+    if settings["color_bias"] < 0:
+        raise ValueError("Self-blend color_bias cannot be negative")
+    if not 0.0 <= settings["mask_erode_min_ratio"] <= settings["mask_erode_max_ratio"]:
+        raise ValueError("Self-blend mask erosion range is invalid")
+    if settings["mask_blur_ratio"] < 0:
+        raise ValueError("Self-blend mask_blur_ratio cannot be negative")
+    return settings
+
+
+def _sample_self_blend_parameters(settings: dict[str, float]) -> dict[str, object]:
+    return {
+        "rotation": random.uniform(-settings["rotation_degrees"], settings["rotation_degrees"]),
+        "scale": random.uniform(settings["scale_min"], settings["scale_max"]),
+        "translate_x": random.uniform(
+            -settings["translation_ratio"], settings["translation_ratio"]
+        ),
+        "translate_y": random.uniform(
+            -settings["translation_ratio"], settings["translation_ratio"]
+        ),
+        "color_gain": np.asarray(
+            [
+                random.uniform(settings["color_gain_min"], settings["color_gain_max"])
+                for _ in range(3)
+            ],
+            dtype=np.float32,
+        ),
+        "color_bias": np.asarray(
+            [random.uniform(-settings["color_bias"], settings["color_bias"]) for _ in range(3)],
+            dtype=np.float32,
+        ),
+        "erode_ratio": random.uniform(
+            settings["mask_erode_min_ratio"], settings["mask_erode_max_ratio"]
+        ),
+        "blur_ratio": settings["mask_blur_ratio"],
+        "opacity": random.uniform(settings["opacity_min"], 1.0),
+    }
+
+
+def _self_blend_image(
+    image_rgb: np.ndarray,
+    landmarks: np.ndarray,
+    detected: bool,
+    parameters: dict[str, object],
+) -> tuple[np.ndarray, bool]:
+    """Create a temporally consistent pseudo-forgery from one real face frame."""
+
+    if not detected or landmarks.ndim != 2 or landmarks.shape[0] < 3:
+        return image_rgb, False
+    points = landmarks[:, :2]
+    if not np.isfinite(points).all():
+        return image_rgb, False
+    height, width = image_rgb.shape[:2]
+    pixels = points * np.asarray([width, height], dtype=np.float32)
+    hull = cv2.convexHull(np.rint(pixels).astype(np.int32))
+    if hull is None or len(hull) < 3:
+        return image_rgb, False
+
+    mask = np.zeros((height, width), dtype=np.uint8)
+    cv2.fillConvexPoly(mask, hull, 255)
+    erosion = max(3, int(round(min(height, width) * float(parameters["erode_ratio"]))))
+    if erosion % 2 == 0:
+        erosion += 1
+    mask = cv2.erode(mask, np.ones((erosion, erosion), dtype=np.uint8), iterations=1)
+    if not np.any(mask):
+        return image_rgb, False
+    blur = max(3, int(round(min(height, width) * float(parameters["blur_ratio"]))))
+    if blur % 2 == 0:
+        blur += 1
+    mask = cv2.GaussianBlur(mask, (blur, blur), sigmaX=0)
+
+    center = tuple(np.mean(pixels, axis=0).tolist())
+    transform = cv2.getRotationMatrix2D(
+        center,
+        float(parameters["rotation"]),
+        float(parameters["scale"]),
+    )
+    transform[0, 2] += float(parameters["translate_x"]) * width
+    transform[1, 2] += float(parameters["translate_y"]) * height
+    source = cv2.warpAffine(
+        image_rgb,
+        transform,
+        (width, height),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT_101,
+    ).astype(np.float32)
+    source = np.clip(
+        source * np.asarray(parameters["color_gain"], dtype=np.float32)
+        + np.asarray(parameters["color_bias"], dtype=np.float32),
+        0,
+        255,
+    )
+    alpha = (mask.astype(np.float32) / 255.0 * float(parameters["opacity"]))[:, :, None]
+    blended = image_rgb.astype(np.float32) * (1.0 - alpha) + source * alpha
+    return np.clip(blended, 0, 255).astype(np.uint8), True
+
+
 def _augment_geometry_landmarks(
     landmarks: np.ndarray,
     detected: np.ndarray,
@@ -302,6 +427,7 @@ class QALFVideoDataset(Dataset):
         geometry_corruption_seed: int = 12345,
         fake_methods: Sequence[str] | None = None,
         texture_augmentation: dict[str, float] | None = None,
+        self_blend_augmentation: dict[str, float] | None = None,
     ) -> None:
         records = load_manifest(manifest_path)
         self.fake_methods: tuple[str, ...] | None = None
@@ -352,6 +478,11 @@ class QALFVideoDataset(Dataset):
             self.texture_augmentation = _resolve_texture_augmentation(texture_augmentation)
         else:
             self.texture_augmentation = {}
+        self.self_blend_augmentation = (
+            _resolve_self_blend_augmentation(self_blend_augmentation)
+            if self_blend_augmentation
+            else {}
+        )
         self.geometry_corruption = dict(geometry_corruption or {})
         self.geometry_corruption_seed = int(geometry_corruption_seed)
         if self.training and self.geometry_corruption:
@@ -428,6 +559,19 @@ class QALFVideoDataset(Dataset):
         )
         texture_tensors: list[np.ndarray] = []
         texture_qualities: list[np.ndarray] = []
+        self_blend_tensors: list[np.ndarray] = []
+        self_blend_successes = 0
+        use_self_blend = bool(
+            self.training
+            and record.label == 0
+            and self.self_blend_augmentation
+            and random.random() < self.self_blend_augmentation["probability"]
+        )
+        self_blend_parameters = (
+            _sample_self_blend_parameters(self.self_blend_augmentation)
+            if use_self_blend
+            else None
+        )
         for position in texture_positions:
             source_index = int(clip[position])
             image_bgr = cv2.imread(str(self.frame_root / record.frames[source_index]))
@@ -441,9 +585,30 @@ class QALFVideoDataset(Dataset):
                 self.image_size,
                 self.texture_mode,
             )
+            self_blend_canonical = canonical
+            if self_blend_parameters is not None:
+                blended_rgb, success = _self_blend_image(
+                    image_rgb,
+                    landmarks[source_index],
+                    bool(detected[source_index]),
+                    self_blend_parameters,
+                )
+                if success:
+                    self_blend_canonical, _ = _canonical_skin_map(
+                        blended_rgb,
+                        landmarks[source_index],
+                        bool(detected[source_index]),
+                        self.image_size,
+                        self.texture_mode,
+                    )
+                    self_blend_successes += 1
             if self.training:
                 if self.texture_augmentation:
                     canonical = _augment(canonical, self.texture_augmentation)
+                    if self_blend_parameters is not None:
+                        self_blend_canonical = _augment(
+                            self_blend_canonical, self.texture_augmentation
+                        )
                 quality = _texture_quality(
                     canonical,
                     image_rgb.shape[1],
@@ -454,8 +619,12 @@ class QALFVideoDataset(Dataset):
             normalized = (normalized - IMAGE_MEAN) / IMAGE_STD
             texture_tensors.append(normalized.transpose(2, 0, 1))
             texture_qualities.append(quality)
+            if self_blend_parameters is not None:
+                self_blend_normalized = self_blend_canonical.astype(np.float32) / 255.0
+                self_blend_normalized = (self_blend_normalized - IMAGE_MEAN) / IMAGE_STD
+                self_blend_tensors.append(self_blend_normalized.transpose(2, 0, 1))
 
-        return {
+        result = {
             "geometry": torch.from_numpy(geometry),
             "geometry_quality": torch.from_numpy(geometry_quality),
             "texture": torch.from_numpy(np.stack(texture_tensors).astype(np.float32)),
@@ -466,3 +635,16 @@ class QALFVideoDataset(Dataset):
             "dataset": record.dataset,
             "clip_index": torch.tensor(clip_index, dtype=torch.int64),
         }
+        if self.training and self.self_blend_augmentation:
+            texture_shape = result["texture"].shape
+            valid_self_blend = (
+                self_blend_parameters is not None
+                and self_blend_successes * 4 >= self.texture_frames * 3
+            )
+            result["self_blend_texture"] = (
+                torch.from_numpy(np.stack(self_blend_tensors).astype(np.float32))
+                if valid_self_blend
+                else torch.zeros(texture_shape, dtype=torch.float32)
+            )
+            result["self_blend_valid"] = torch.tensor(valid_self_blend, dtype=torch.bool)
+        return result
