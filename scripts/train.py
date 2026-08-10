@@ -132,10 +132,16 @@ def _epoch_message(
         for index, group in enumerate(optimizer.param_groups)
     }
     rate_text = " ".join(f"{name}_lr={rate:.4e}" for name, rate in learning_rates.items())
+    consistency_text = (
+        f" flip_consistency={train_metrics['flip_consistency']:.4f}"
+        if "flip_consistency" in train_metrics
+        else ""
+    )
     return (
         f"epoch={epoch:03d}/{epochs:03d} {rate_text} | "
         f"train loss={train_metrics['loss']:.4f} fused={train_metrics['fused']:.4f} "
-        f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f} | "
+        f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f}"
+        f"{consistency_text} | "
         f"val auc={validation_metrics['auc']:.4f} ap={validation_metrics['average_precision']:.4f} "
         f"balanced_acc={validation_metrics['balanced_accuracy']:.4f} "
         f"accuracy={validation_metrics['accuracy']:.4f} f1={validation_metrics['f1']:.4f} "
@@ -218,6 +224,16 @@ def main() -> None:
         type=float,
         help="Minimum LR for cosine annealing. Default 0.",
     )
+    parser.add_argument(
+        "--flip-consistency-weight",
+        type=float,
+        help="Weight for paired original/flip prediction consistency. Default 0.",
+    )
+    parser.add_argument(
+        "--validation-texture-flip-tta",
+        action="store_true",
+        help="Use texture horizontal-flip TTA for validation and best-checkpoint selection.",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -280,6 +296,10 @@ def main() -> None:
         training["ema_decay"] = args.ema_decay
     if args.scheduler_eta_min is not None:
         training["scheduler_eta_min"] = args.scheduler_eta_min
+    if args.flip_consistency_weight is not None:
+        training["flip_consistency_weight"] = args.flip_consistency_weight
+    if args.validation_texture_flip_tta:
+        training["validation_texture_flip_tta"] = True
 
     positive_integer_fields = {
         "data.num_frames": data["num_frames"],
@@ -307,6 +327,9 @@ def main() -> None:
             parser.error(f"training.{name} cannot be negative")
     if int(training.get("early_stop_patience", 0)) < 0:
         parser.error("training.early_stop_patience cannot be negative")
+    flip_consistency_weight = float(training.get("flip_consistency_weight", 0.0))
+    if flip_consistency_weight < 0.0:
+        parser.error("training.flip_consistency_weight cannot be negative")
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(model_config.get(name, 0)) < 1:
             parser.error(f"model.{name} must be at least one")
@@ -448,6 +471,8 @@ def main() -> None:
     texture_loss_weight = float(training.get("texture_loss_weight", 0.25))
     ema = EMAModel(model, decay=ema_decay) if ema_decay > 0 else None
     fusion_mode = str(model_config.get("fusion_mode", "quality"))
+    if flip_consistency_weight > 0.0 and fusion_mode == "geometry":
+        parser.error("flip consistency requires an enabled texture branch")
     if fusion_mode == "geometry":
         texture_loss_weight = 0.0
     elif fusion_mode == "texture":
@@ -463,7 +488,8 @@ def main() -> None:
     epochs = int(training["epochs"])
     logger.info(
         "device=%s backbone=%s srm=%s parameters=%d trainable=%d amp=%s "
-        "label_smoothing=%.3f ema_decay=%.4f scheduler_eta_min=%.4e",
+        "label_smoothing=%.3f ema_decay=%.4f scheduler_eta_min=%.4e "
+        "flip_consistency_weight=%.4f validation_texture_flip_tta=%s",
         device,
         model_config.get("texture_backbone", "mobilenet_v3_small"),
         bool(model_config.get("use_srm", False)),
@@ -473,6 +499,8 @@ def main() -> None:
         label_smoothing,
         ema_decay,
         scheduler_eta_min,
+        flip_consistency_weight,
+        bool(training.get("validation_texture_flip_tta", False)),
     )
     for epoch in range(1, epochs + 1):
         train_metrics = train_epoch(
@@ -486,10 +514,16 @@ def main() -> None:
             texture_loss_weight,
             label_smoothing,
             ema,
+            flip_consistency_weight,
         )
         # Use EMA model for validation if available (produces more stable metrics)
         eval_model = ema.shadow if ema is not None else model
-        validation_clips = predict(eval_model, val_loader, device)
+        validation_clips = predict(
+            eval_model,
+            val_loader,
+            device,
+            texture_flip_tta=bool(training.get("validation_texture_flip_tta", False)),
+        )
         validation = aggregate_predictions(
             validation_clips,
             method=str(data["video_aggregation"]),

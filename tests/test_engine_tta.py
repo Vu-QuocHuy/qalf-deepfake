@@ -5,7 +5,7 @@ import unittest
 import torch
 from torch import nn
 
-from qalf.engine import predict
+from qalf.engine import flip_consistency_loss, predict
 
 
 class _FlipSensitiveModel(nn.Module):
@@ -26,6 +26,30 @@ class _FlipSensitiveModel(nn.Module):
 
 
 class TextureFlipTTATests(unittest.TestCase):
+    def test_flip_consistency_is_zero_for_matching_logits(self) -> None:
+        outputs = {
+            "logit": torch.tensor([0.5, -1.0]),
+            "texture_logit": torch.tensor([0.25, -0.75]),
+        }
+
+        loss = flip_consistency_loss(outputs, outputs)
+
+        torch.testing.assert_close(loss, torch.tensor(0.0))
+
+    def test_flip_consistency_penalizes_orientation_sensitive_logits(self) -> None:
+        outputs = {
+            "logit": torch.tensor([0.0]),
+            "texture_logit": torch.tensor([0.0]),
+        }
+        flipped_outputs = {
+            "logit": torch.tensor([1.0]),
+            "texture_logit": torch.tensor([-1.0]),
+        }
+
+        loss = flip_consistency_loss(outputs, flipped_outputs)
+
+        self.assertGreater(float(loss), 0.0)
+
     def test_predict_averages_original_and_flipped_probabilities(self) -> None:
         texture = torch.zeros(2, 1, 1, 2, 2)
         texture[:, :, :, :, 0] = 2.0

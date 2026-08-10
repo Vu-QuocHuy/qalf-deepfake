@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Evaluate the proven EfficientNet-B0 baseline with texture horizontal-flip TTA.
+# Evaluate the flip-consistency baseline with flip TTA and an FF++-val threshold.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 
@@ -37,8 +37,8 @@ CELEBDF_FRAME_ROOT="$DATA_ROOT/extracted/celebdf"
 CELEBDF_LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
 CELEBDF_LANDMARK_ROOT="$CELEBDF_LANDMARK_OUTPUT_ROOT/landmarks"
 CELEBDF_TEST_MANIFEST="$CELEBDF_LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
-CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f/best.pt"
-OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_to_celebdf_flip_tta_ffpp_threshold"
+CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_flip_consistency/best.pt"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_flip_consistency_to_celebdf"
 
 for required_path in \
     "$FFPP_VAL_MANIFEST" \

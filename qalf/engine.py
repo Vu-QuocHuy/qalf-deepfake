@@ -9,6 +9,7 @@ from typing import Iterable, Protocol
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 from tqdm.auto import tqdm
 
 
@@ -90,6 +91,20 @@ def qalf_loss(
     }
 
 
+def flip_consistency_loss(
+    outputs: dict[str, torch.Tensor],
+    flipped_outputs: dict[str, torch.Tensor],
+) -> torch.Tensor:
+    """Penalize orientation-sensitive fused and texture logits."""
+
+    fused = F.smooth_l1_loss(outputs["logit"], flipped_outputs["logit"])
+    texture = F.smooth_l1_loss(
+        outputs["texture_logit"],
+        flipped_outputs["texture_logit"],
+    )
+    return 0.5 * (fused + texture)
+
+
 def train_epoch(
     model: nn.Module,
     loader: Iterable[dict[str, object]],
@@ -101,6 +116,7 @@ def train_epoch(
     texture_weight: float,
     label_smoothing: float = 0.0,
     ema: EMAModel | None = None,
+    flip_consistency_weight: float = 0.0,
 ) -> dict[str, float]:
     model.train()
     totals: defaultdict[str, float] = defaultdict(float)
@@ -114,6 +130,27 @@ def train_epoch(
             loss, parts = qalf_loss(
                 outputs, labels, criterion, geometry_weight, texture_weight, label_smoothing
             )
+            if flip_consistency_weight > 0.0:
+                flipped_batch = {
+                    **batch,
+                    "texture": torch.flip(batch["texture"], dims=(-1,)),
+                }
+                flipped_outputs = model(flipped_batch)
+                flipped_loss, flipped_parts = qalf_loss(
+                    flipped_outputs,
+                    labels,
+                    criterion,
+                    geometry_weight,
+                    texture_weight,
+                    label_smoothing,
+                )
+                consistency = flip_consistency_loss(outputs, flipped_outputs)
+                loss = 0.5 * (loss + flipped_loss) + flip_consistency_weight * consistency
+                parts = {
+                    name: 0.5 * (value + flipped_parts[name])
+                    for name, value in parts.items()
+                }
+                parts["flip_consistency"] = float(consistency.detach())
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
