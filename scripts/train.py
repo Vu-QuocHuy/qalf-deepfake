@@ -72,6 +72,19 @@ def main() -> None:
     parser.add_argument("--frame-root")
     parser.add_argument("--landmark-root")
     parser.add_argument("--output-dir")
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--num-frames", type=int)
+    parser.add_argument("--texture-frames", type=int)
+    parser.add_argument("--image-size", type=int)
+    parser.add_argument("--eval-clips-per-video", type=int)
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--num-workers", type=int)
+    parser.add_argument("--learning-rate", type=float)
+    parser.add_argument("--weight-decay", type=float)
+    parser.add_argument("--geometry-loss-weight", type=float)
+    parser.add_argument("--texture-loss-weight", type=float)
+    parser.add_argument("--early-stop-patience", type=int)
     parser.add_argument(
         "--geometry-mode",
         choices=tuple(sorted(GEOMETRY_FEATURE_MODES)),
@@ -89,6 +102,8 @@ def main() -> None:
         ),
     )
     parser.add_argument("--no-geometry-augmentation", action="store_true")
+    parser.add_argument("--no-amp", action="store_true")
+    parser.add_argument("--no-balanced-sampler", action="store_true")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -101,6 +116,57 @@ def main() -> None:
         model_config["fusion_mode"] = args.fusion_mode
     if args.no_geometry_augmentation:
         data["geometry_augmentation"] = {}
+    data_overrides = {
+        "num_frames": args.num_frames,
+        "texture_frames": args.texture_frames,
+        "image_size": args.image_size,
+        "eval_clips_per_video": args.eval_clips_per_video,
+    }
+    training_overrides = {
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "num_workers": args.num_workers,
+        "learning_rate": args.learning_rate,
+        "weight_decay": args.weight_decay,
+        "geometry_loss_weight": args.geometry_loss_weight,
+        "texture_loss_weight": args.texture_loss_weight,
+        "early_stop_patience": args.early_stop_patience,
+    }
+    data.update({key: value for key, value in data_overrides.items() if value is not None})
+    training.update(
+        {key: value for key, value in training_overrides.items() if value is not None}
+    )
+    if args.seed is not None:
+        config["seed"] = args.seed
+    if args.no_amp:
+        training["amp"] = False
+    if args.no_balanced_sampler:
+        training["balanced_sampler"] = False
+
+    positive_integer_fields = {
+        "data.num_frames": data["num_frames"],
+        "data.texture_frames": data["texture_frames"],
+        "data.image_size": data["image_size"],
+        "data.eval_clips_per_video": data.get("eval_clips_per_video", 2),
+        "training.epochs": training["epochs"],
+        "training.batch_size": training["batch_size"],
+    }
+    for name, value in positive_integer_fields.items():
+        if int(value) < 1:
+            parser.error(f"{name} must be at least one")
+    if int(data["num_frames"]) < 2:
+        parser.error("data.num_frames must be at least two")
+    if int(data["texture_frames"]) > int(data["num_frames"]):
+        parser.error("data.texture_frames cannot exceed data.num_frames")
+    if int(training.get("num_workers", 4)) < 0:
+        parser.error("training.num_workers cannot be negative")
+    if float(training.get("learning_rate", 0.0)) <= 0:
+        parser.error("training.learning_rate must be positive")
+    for name in ("weight_decay", "geometry_loss_weight", "texture_loss_weight"):
+        if float(training.get(name, 0.0)) < 0:
+            parser.error(f"training.{name} cannot be negative")
+    if int(training.get("early_stop_patience", 0)) < 0:
+        parser.error("training.early_stop_patience cannot be negative")
     seed = int(config.get("seed", 42))
     _seed_everything(seed)
     train_manifest = args.train_manifest or data["train_manifest"]
