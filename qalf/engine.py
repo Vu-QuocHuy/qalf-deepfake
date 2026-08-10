@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections import defaultdict
 from typing import Iterable, Protocol
 
@@ -11,10 +12,44 @@ from torch import nn
 from tqdm.auto import tqdm
 
 
+class EMAModel:
+    """Exponential Moving Average of model parameters for stable generalization."""
+
+    def __init__(self, model: nn.Module, decay: float = 0.999) -> None:
+        if not 0.0 < decay < 1.0:
+            raise ValueError("EMA decay must be in (0, 1)")
+        self.decay = decay
+        self.shadow = copy.deepcopy(model)
+        self.shadow.eval()
+        for parameter in self.shadow.parameters():
+            parameter.requires_grad_(False)
+
+    @torch.no_grad()
+    def update(self, model: nn.Module) -> None:
+        shadow_state = self.shadow.state_dict()
+        model_state = model.state_dict()
+        if shadow_state.keys() != model_state.keys():
+            raise ValueError("EMA model structure differs from the training model")
+        for name, shadow_value in shadow_state.items():
+            model_value = model_state[name].detach()
+            if torch.is_floating_point(shadow_value):
+                shadow_value.mul_(self.decay).add_(model_value, alpha=1.0 - self.decay)
+            else:
+                shadow_value.copy_(model_value)
+
+    def state_dict(self) -> dict[str, object]:
+        return self.shadow.state_dict()
+
+    def load_state_dict(self, state_dict: dict[str, object]) -> None:
+        self.shadow.load_state_dict(state_dict)
+
+
 class GradScalerProtocol(Protocol):
     """Common interface of the legacy and current PyTorch gradient scalers."""
 
     def is_enabled(self) -> bool: ...
+
+    def get_scale(self) -> float: ...
 
     def scale(self, outputs: torch.Tensor) -> torch.Tensor: ...
 
@@ -38,10 +73,15 @@ def qalf_loss(
     criterion: nn.Module,
     geometry_weight: float,
     texture_weight: float,
+    label_smoothing: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    fused = criterion(outputs["logit"], labels)
-    geometry = criterion(outputs["geometry_logit"], labels)
-    texture = criterion(outputs["texture_logit"], labels)
+    if label_smoothing > 0:
+        smooth = labels * (1.0 - label_smoothing) + label_smoothing * 0.5
+    else:
+        smooth = labels
+    fused = criterion(outputs["logit"], smooth)
+    geometry = criterion(outputs["geometry_logit"], smooth)
+    texture = criterion(outputs["texture_logit"], smooth)
     total = fused + geometry_weight * geometry + texture_weight * texture
     return total, {
         "fused": float(fused.detach()),
@@ -59,6 +99,8 @@ def train_epoch(
     scaler: GradScalerProtocol,
     geometry_weight: float,
     texture_weight: float,
+    label_smoothing: float = 0.0,
+    ema: EMAModel | None = None,
 ) -> dict[str, float]:
     model.train()
     totals: defaultdict[str, float] = defaultdict(float)
@@ -69,12 +111,20 @@ def train_epoch(
         optimizer.zero_grad(set_to_none=True)
         with torch.autocast(device_type=device.type, enabled=scaler.is_enabled()):
             outputs = model(batch)
-            loss, parts = qalf_loss(outputs, labels, criterion, geometry_weight, texture_weight)
+            loss, parts = qalf_loss(
+                outputs, labels, criterion, geometry_weight, texture_weight, label_smoothing
+            )
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        previous_scale = scaler.get_scale()
         scaler.step(optimizer)
         scaler.update()
+        # GradScaler skips optimizer.step when it detects non-finite gradients.
+        # Keep EMA synchronized only with optimizer updates that actually happened.
+        optimizer_updated = not scaler.is_enabled() or scaler.get_scale() >= previous_scale
+        if ema is not None and optimizer_updated:
+            ema.update(model)
         batch_size = int(labels.shape[0])
         totals["loss"] += float(loss.detach()) * batch_size
         for name, value in parts.items():

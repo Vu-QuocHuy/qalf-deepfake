@@ -76,6 +76,7 @@ def main() -> None:
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
+        use_srm=bool(model_config.get("use_srm", False)),
     )
     model.load_state_dict(checkpoint["model"], strict=True)
     if args.device == "cuda" and not torch.cuda.is_available():
@@ -114,6 +115,7 @@ def main() -> None:
         "texture_backbone": str(
             model_config.get("texture_backbone", "mobilenet_v3_small")
         ),
+        "srm_enabled": bool(model_config.get("use_srm", False)),
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
         "trainable_parameters": sum(
             parameter.numel() for parameter in model.parameters() if parameter.requires_grad

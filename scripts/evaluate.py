@@ -96,6 +96,7 @@ def main() -> None:
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
+        use_srm=bool(model_config.get("use_srm", False)),
     )
     model.load_state_dict(checkpoint["model"], strict=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -132,6 +133,8 @@ def main() -> None:
                 f"checkpoint: {args.checkpoint}",
                 f"manifest: {args.manifest}",
                 f"texture_backbone: {model_config.get('texture_backbone', 'mobilenet_v3_small')}",
+                f"srm_enabled: {bool(model_config.get('use_srm', False))}",
+                f"model_weights: {checkpoint.get('model_weights', 'raw')}",
                 f"num_frames: {int(data['num_frames'])}",
                 f"texture_frames: {int(data['texture_frames'])}",
                 f"image_size: {int(data['image_size'])}",

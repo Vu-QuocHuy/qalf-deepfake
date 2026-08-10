@@ -22,7 +22,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from qalf.config import load_config, save_json
 from qalf.data.dataset import QALFVideoDataset
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
-from qalf.engine import aggregate_predictions, predict, train_epoch
+from qalf.engine import EMAModel, aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
 from qalf.models import QALFModel, SUPPORTED_TEXTURE_BACKBONES
 
@@ -198,6 +198,26 @@ def main() -> None:
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--no-balanced-sampler", action="store_true")
+    parser.add_argument(
+        "--use-srm",
+        action="store_true",
+        help="Enable SRM noise-residual filters for cross-dataset robustness.",
+    )
+    parser.add_argument(
+        "--label-smoothing",
+        type=float,
+        help="Label smoothing factor (e.g. 0.1). Default 0 (disabled).",
+    )
+    parser.add_argument(
+        "--ema-decay",
+        type=float,
+        help="EMA decay rate (e.g. 0.999). Default 0 (disabled).",
+    )
+    parser.add_argument(
+        "--scheduler-eta-min",
+        type=float,
+        help="Minimum LR for cosine annealing. Default 0.",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -252,6 +272,14 @@ def main() -> None:
         training["amp"] = False
     if args.no_balanced_sampler:
         training["balanced_sampler"] = False
+    if args.use_srm:
+        model_config["use_srm"] = True
+    if args.label_smoothing is not None:
+        training["label_smoothing"] = args.label_smoothing
+    if args.ema_decay is not None:
+        training["ema_decay"] = args.ema_decay
+    if args.scheduler_eta_min is not None:
+        training["scheduler_eta_min"] = args.scheduler_eta_min
 
     positive_integer_fields = {
         "data.num_frames": data["num_frames"],
@@ -284,6 +312,21 @@ def main() -> None:
             parser.error(f"model.{name} must be at least one")
     if not 0.0 <= float(model_config.get("dropout", 0.0)) < 1.0:
         parser.error("model.dropout must be in [0, 1)")
+    label_smoothing = float(training.get("label_smoothing", 0.0))
+    if not 0.0 <= label_smoothing < 1.0:
+        parser.error("training.label_smoothing must be in [0, 1)")
+    ema_decay = float(training.get("ema_decay", 0.0))
+    if ema_decay != 0.0 and not 0.0 < ema_decay < 1.0:
+        parser.error("training.ema_decay must be zero or in (0, 1)")
+    scheduler_eta_min = float(training.get("scheduler_eta_min", 0.0))
+    minimum_initial_lr = min(
+        float(training.get("learning_rate", 3e-4)),
+        float(training.get("backbone_learning_rate", training.get("learning_rate", 3e-4))),
+    )
+    if not 0.0 <= scheduler_eta_min <= minimum_initial_lr:
+        parser.error(
+            "training.scheduler_eta_min must be between zero and the smallest initial LR"
+        )
     seed = int(config.get("seed", 42))
     _seed_everything(seed)
     train_manifest = args.train_manifest or data["train_manifest"]
@@ -378,6 +421,7 @@ def main() -> None:
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
+        use_srm=bool(model_config.get("use_srm", False)),
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(
@@ -393,13 +437,16 @@ def main() -> None:
         weight_decay=float(training.get("weight_decay", 1e-4)),
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=max(1, int(training["epochs"]))
+        optimizer,
+        T_max=max(1, int(training["epochs"])),
+        eta_min=scheduler_eta_min,
     )
     amp_enabled = bool(training.get("amp", True)) and device.type == "cuda"
     scaler = _make_grad_scaler(amp_enabled)
     criterion = nn.BCEWithLogitsLoss()
     geometry_loss_weight = float(training.get("geometry_loss_weight", 0.25))
     texture_loss_weight = float(training.get("texture_loss_weight", 0.25))
+    ema = EMAModel(model, decay=ema_decay) if ema_decay > 0 else None
     fusion_mode = str(model_config.get("fusion_mode", "quality"))
     if fusion_mode == "geometry":
         texture_loss_weight = 0.0
@@ -412,12 +459,17 @@ def main() -> None:
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
     logger.info(
-        "device=%s backbone=%s parameters=%d trainable=%d amp=%s",
+        "device=%s backbone=%s srm=%s parameters=%d trainable=%d amp=%s "
+        "label_smoothing=%.3f ema_decay=%.4f scheduler_eta_min=%.4e",
         device,
         model_config.get("texture_backbone", "mobilenet_v3_small"),
+        bool(model_config.get("use_srm", False)),
         sum(parameter.numel() for parameter in model.parameters()),
         sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
         amp_enabled,
+        label_smoothing,
+        ema_decay,
+        scheduler_eta_min,
     )
     for epoch in range(1, epochs + 1):
         train_metrics = train_epoch(
@@ -429,8 +481,12 @@ def main() -> None:
             scaler,
             geometry_loss_weight,
             texture_loss_weight,
+            label_smoothing,
+            ema,
         )
-        validation_clips = predict(model, val_loader, device)
+        # Use EMA model for validation if available (produces more stable metrics)
+        eval_model = ema.shadow if ema is not None else model
+        validation_clips = predict(eval_model, val_loader, device)
         validation = aggregate_predictions(
             validation_clips,
             method=str(data["video_aggregation"]),
@@ -448,7 +504,7 @@ def main() -> None:
 
         checkpoint = {
             "epoch": epoch,
-            "model": model.state_dict(),
+            "model": (ema.state_dict() if ema is not None else model.state_dict()),
             "optimizer": optimizer.state_dict(),
             "config": config,
             "geometry_input_dim": train_dataset.geometry_input_dim,
@@ -456,6 +512,8 @@ def main() -> None:
             "texture_quality_dim": train_dataset.texture_quality_dim,
             "threshold": threshold,
             "validation_metrics": val_metrics,
+            "ema_decay": ema_decay if ema is not None else 0.0,
+            "model_weights": "ema" if ema is not None else "raw",
         }
         torch.save(checkpoint, output_dir / "last.pt")
         if val_metrics["auc"] > best_auc:

@@ -5,6 +5,8 @@ from __future__ import annotations
 import torch
 from torch import nn
 
+from .srm import SRMChannelAdapter
+
 SUPPORTED_TEXTURE_BACKBONES = {
     "mobilenet_v3_small",
     "mobilenet_v3_large",
@@ -43,11 +45,14 @@ class TextureEncoder(nn.Module):
         dropout: float = 0.2,
         pretrained: bool = True,
         backbone: str = "mobilenet_v3_small",
+        use_srm: bool = False,
     ) -> None:
         super().__init__()
         if backbone not in SUPPORTED_TEXTURE_BACKBONES:
             raise ValueError(f"Unsupported texture backbone: {backbone}")
         self.backbone_name = backbone
+        self.use_srm = use_srm
+        self.srm_adapter = SRMChannelAdapter() if use_srm else None
         self.features, self.pool, feature_dim = _build_backbone(backbone, pretrained)
         self.projection = nn.Sequential(
             nn.Linear(feature_dim, embedding_dim),
@@ -60,6 +65,8 @@ class TextureEncoder(nn.Module):
     def forward(self, texture: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         batch, frames, channels, height, width = texture.shape
         output = texture.reshape(batch * frames, channels, height, width)
+        if self.srm_adapter is not None:
+            output = self.srm_adapter(output)
         output = self.pool(self.features(output)).flatten(1)
         output = self.projection(output).reshape(batch, frames, -1)
         embedding = output.mean(dim=1)

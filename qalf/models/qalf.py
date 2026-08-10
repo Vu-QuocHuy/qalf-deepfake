@@ -23,6 +23,7 @@ class QALFModel(nn.Module):
         geometry_quality_dim: int = 5,
         texture_quality_dim: int = 5,
         fusion_mode: str = "quality",
+        use_srm: bool = False,
     ) -> None:
         super().__init__()
         if fusion_mode not in {
@@ -56,6 +57,7 @@ class QALFModel(nn.Module):
                 dropout,
                 texture_pretrained,
                 backbone=texture_backbone,
+                use_srm=use_srm,
             )
         )
         gate_modes = {

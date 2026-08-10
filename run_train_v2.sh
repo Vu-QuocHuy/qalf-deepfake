@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Improved training script with cross-dataset generalization enhancements:
+# - SRM noise-residual filters
+# - Label smoothing (0.1)
+# - EMA (decay=0.999)
+# - Stronger augmentations (JPEG 25-95, downsample 0.35)
+# - Reduced geometry loss weight (0.10)
+# - CosineAnnealing with eta_min=1e-6
+# - 5 eval clips per video
+
+WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
+WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
+
+PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+        PYTHON="$PROJECT_ROOT/.venv/Scripts/python.exe"
+        STORAGE_ROOT="$WINDOWS_PROJECT_ROOT"
+        ;;
+    Linux*)
+        PYTHON="$PROJECT_ROOT/.venv/bin/python"
+        STORAGE_ROOT="$WSL_PROJECT_ROOT"
+        ;;
+    *)
+        echo "ERROR: unsupported shell platform: $(uname -s)" >&2
+        exit 1
+        ;;
+esac
+if [[ ! -x "$PYTHON" ]]; then
+    echo "ERROR: virtual-environment Python not found: $PYTHON" >&2
+    echo 'Create a Windows venv for Git Bash or a separate Linux venv for WSL.' >&2
+    exit 1
+fi
+
+DATA_ROOT="$STORAGE_ROOT/data"
+FRAME_ROOT="$DATA_ROOT/extracted/ffpp"
+LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
+LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
+TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
+VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_v2"
+
+for required_path in "$TRAIN_MANIFEST" "$VAL_MANIFEST" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
+    if [[ ! -e "$required_path" ]]; then
+        echo "ERROR: required path does not exist: $required_path" >&2
+        exit 1
+    fi
+done
+
+echo "Python: $PYTHON"
+echo "Training output: $OUTPUT_DIR"
+"$PYTHON" -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NOT AVAILABLE')"
+
+"$PYTHON" scripts/audit_manifest.py \
+    --manifest "$TRAIN_MANIFEST" "$VAL_MANIFEST" \
+    --frame-root "$FRAME_ROOT" \
+    --landmark-root "$LANDMARK_ROOT" \
+    --expected-frames 64 \
+    --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures
+
+"$PYTHON" scripts/train.py \
+    --config configs/ffpp_to_celebdf_v2.json \
+    --train-manifest "$TRAIN_MANIFEST" \
+    --val-manifest "$VAL_MANIFEST" \
+    --frame-root "$FRAME_ROOT" \
+    --landmark-root "$LANDMARK_ROOT" \
+    --output-dir "$OUTPUT_DIR" \
+    --seed 42 \
+    --epochs 40 \
+    --batch-size 8 \
+    --num-workers 4 \
+    --learning-rate 0.0003 \
+    --backbone-learning-rate 0.00003 \
+    --weight-decay 0.0003 \
+    --early-stop-patience 10 \
+    --num-frames 32 \
+    --texture-frames 8 \
+    --image-size 160 \
+    --eval-clips-per-video 5 \
+    --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
+    --texture-backbone efficientnet_b0 \
+    --geometry-hidden 128 \
+    --geometry-layers 3 \
+    --embedding-dim 192 \
+    --dropout 0.3 \
+    --geometry-mode aligned_motion_3d \
+    --fusion-mode quality \
+    --geometry-loss-weight 0.10 \
+    --texture-loss-weight 0.25 \
+    --use-srm \
+    --label-smoothing 0.1 \
+    --ema-decay 0.999 \
+    --scheduler-eta-min 0.000001
