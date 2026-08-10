@@ -24,30 +24,62 @@ class QALFModel(nn.Module):
         fusion_mode: str = "quality",
     ) -> None:
         super().__init__()
-        if fusion_mode not in {"quality", "concat", "average", "geometry", "texture"}:
+        if fusion_mode not in {
+            "quality",
+            "quality_only",
+            "content_gate",
+            "concat",
+            "average",
+            "geometry",
+            "texture",
+        }:
             raise ValueError(f"Unsupported fusion_mode: {fusion_mode}")
         self.fusion_mode = fusion_mode
         self.embedding_dim = embedding_dim
-        self.geometry_encoder = GeometryEncoder(
-            geometry_input_dim,
-            geometry_hidden,
-            embedding_dim,
-            geometry_layers,
-            dropout,
+        self.geometry_encoder = (
+            None
+            if fusion_mode == "texture"
+            else GeometryEncoder(
+                geometry_input_dim,
+                geometry_hidden,
+                embedding_dim,
+                geometry_layers,
+                dropout,
+            )
         )
-        self.texture_encoder = TextureEncoder(embedding_dim, dropout, texture_pretrained)
-        self.fusion = QualityAwareFusion(
-            embedding_dim,
-            geometry_quality_dim,
-            texture_quality_dim,
-            dropout,
+        self.texture_encoder = (
+            None
+            if fusion_mode == "geometry"
+            else TextureEncoder(embedding_dim, dropout, texture_pretrained)
         )
-        self.concat_fusion = ConcatFusion(embedding_dim, dropout)
+        gate_modes = {
+            "quality": "full",
+            "quality_only": "quality",
+            "content_gate": "content",
+        }
+        self.fusion = (
+            QualityAwareFusion(
+                embedding_dim,
+                geometry_quality_dim,
+                texture_quality_dim,
+                dropout,
+                gate_mode=gate_modes[fusion_mode],
+            )
+            if fusion_mode in gate_modes
+            else None
+        )
+        self.concat_fusion = (
+            ConcatFusion(embedding_dim, dropout) if fusion_mode == "concat" else None
+        )
 
     def forward_geometry(self, geometry: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.geometry_encoder is None:
+            raise RuntimeError("Geometry encoder is disabled in texture-only mode")
         return self.geometry_encoder(geometry)
 
     def forward_texture(self, texture: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.texture_encoder is None:
+            raise RuntimeError("Texture encoder is disabled in geometry-only mode")
         return self.texture_encoder(texture)
 
     def fuse_precomputed(
@@ -62,23 +94,22 @@ class QALFModel(nn.Module):
         """Fuse branch outputs, including a cached texture embedding during streaming."""
 
         if self.fusion_mode == "geometry":
-            weights = torch.tensor([1.0, 0.0], device=geometry_logit.device).repeat(
-                len(geometry_logit), 1
-            )
+            weights = geometry_logit.new_tensor([1.0, 0.0]).expand(geometry_logit.shape[0], -1)
             return geometry_logit, weights
         if self.fusion_mode == "texture":
-            weights = torch.tensor([0.0, 1.0], device=texture_logit.device).repeat(
-                len(texture_logit), 1
-            )
+            weights = texture_logit.new_tensor([0.0, 1.0]).expand(texture_logit.shape[0], -1)
             return texture_logit, weights
         if self.fusion_mode == "average":
             fused_logit = 0.5 * (geometry_logit + texture_logit)
-            weights = torch.full((len(fused_logit), 2), 0.5, device=fused_logit.device)
+            weights = fused_logit.new_full((fused_logit.shape[0], 2), 0.5)
             return fused_logit, weights
         if self.fusion_mode == "concat":
+            assert self.concat_fusion is not None
             fused_logit = self.concat_fusion(geometry_embedding, texture_embedding)
-            weights = torch.full((len(fused_logit), 2), 0.5, device=fused_logit.device)
+            weights = fused_logit.new_full((fused_logit.shape[0], 2), 0.5)
             return fused_logit, weights
+        if self.fusion is None:
+            raise RuntimeError(f"No fusion module configured for mode {self.fusion_mode}")
         return self.fusion(
             geometry_embedding,
             texture_embedding,
@@ -96,9 +127,9 @@ class QALFModel(nn.Module):
                 "logit": texture_logit,
                 "geometry_logit": torch.zeros_like(texture_logit),
                 "texture_logit": texture_logit,
-                "fusion_weights": torch.tensor(
-                    [0.0, 1.0], device=texture_logit.device
-                ).repeat(len(texture_logit), 1),
+                "fusion_weights": texture_logit.new_tensor([0.0, 1.0]).expand(
+                    texture_logit.shape[0], -1
+                ),
                 "geometry_embedding": zeros,
                 "texture_embedding": texture_embedding,
             }
@@ -109,7 +140,9 @@ class QALFModel(nn.Module):
                 "logit": geometry_logit,
                 "geometry_logit": geometry_logit,
                 "texture_logit": torch.zeros_like(geometry_logit),
-                "fusion_weights": torch.tensor([1.0, 0.0], device=geometry_logit.device).repeat(len(geometry_logit), 1),
+                "fusion_weights": geometry_logit.new_tensor([1.0, 0.0]).expand(
+                    geometry_logit.shape[0], -1
+                ),
                 "geometry_embedding": geometry_embedding,
                 "texture_embedding": zeros,
             }

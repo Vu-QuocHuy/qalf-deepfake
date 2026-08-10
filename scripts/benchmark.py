@@ -35,6 +35,9 @@ def main() -> None:
     parser.add_argument("--landmark-root", required=True)
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--iterations", type=int, default=100)
+    parser.add_argument("--preprocessing-iterations", type=int, default=20)
+    parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    parser.add_argument("--cpu-threads", type=int, default=1)
     parser.add_argument("--output", default=None)
     args = parser.parse_args()
 
@@ -48,10 +51,18 @@ def main() -> None:
         num_frames=int(data["num_frames"]),
         texture_frames=int(data["texture_frames"]),
         image_size=int(data["image_size"]),
-        geometry_mode=str(data.get("geometry_mode", "aligned_motion")),
+        geometry_mode=str(data.get("geometry_mode", "aligned_motion_3d")),
         texture_mode=str(data.get("texture_mode", "canonical_skin")),
         training=False,
     )
+    if args.preprocessing_iterations < 1:
+        parser.error("--preprocessing-iterations must be positive")
+    _ = dataset[0]
+    preprocessing_timings: list[float] = []
+    for _ in range(args.preprocessing_iterations):
+        started = time.perf_counter()
+        _ = dataset[0]
+        preprocessing_timings.append((time.perf_counter() - started) * 1000.0)
     batch = next(iter(DataLoader(dataset, batch_size=1, shuffle=False, num_workers=0)))
     model = QALFModel(
         geometry_input_dim=int(checkpoint["geometry_input_dim"]),
@@ -65,7 +76,15 @@ def main() -> None:
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
     )
     model.load_state_dict(checkpoint["model"], strict=True)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if args.device == "cuda" and not torch.cuda.is_available():
+        parser.error("CUDA was requested but is unavailable")
+    device = torch.device(
+        "cuda"
+        if args.device == "cuda" or (args.device == "auto" and torch.cuda.is_available())
+        else "cpu"
+    )
+    if device.type == "cpu":
+        torch.set_num_threads(max(1, args.cpu_threads))
     model.to(device).eval()
     batch = move_batch(batch, device)
 
@@ -94,6 +113,9 @@ def main() -> None:
         "trainable_parameters": sum(
             parameter.numel() for parameter in model.parameters() if parameter.requires_grad
         ),
+        "cached_preprocessing_latency_ms_mean": statistics.mean(preprocessing_timings),
+        "cached_preprocessing_latency_ms_p50": percentile(preprocessing_timings, 0.50),
+        "cached_preprocessing_latency_ms_p95": percentile(preprocessing_timings, 0.95),
         "latency_ms_mean": statistics.mean(timings),
         "latency_ms_p50": percentile(timings, 0.50),
         "latency_ms_p95": percentile(timings, 0.95),
@@ -101,7 +123,15 @@ def main() -> None:
         "peak_cuda_memory_bytes": (
             int(torch.cuda.max_memory_allocated()) if device.type == "cuda" else None
         ),
-        "note": "Incremental model cost only; video decode, MTCNN, and Face Mesh are excluded.",
+        "cached_pipeline_latency_ms_approx": (
+            statistics.mean(preprocessing_timings) + statistics.mean(timings)
+        ),
+        "cpu_threads": torch.get_num_threads() if device.type == "cpu" else None,
+        "note": (
+            "Model latency and cached preprocessing are reported separately. Cached preprocessing "
+            "loads extracted frames/landmarks and builds features; original video decode, MTCNN, "
+            "and Face Landmarker extraction remain excluded."
+        ),
     }
     print(json.dumps(report, indent=2))
     if args.output:

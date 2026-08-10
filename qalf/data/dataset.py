@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import random
 from pathlib import Path
 
@@ -16,6 +17,16 @@ from .manifest import VideoRecord, load_manifest
 IMAGE_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGE_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
 
+DEFAULT_GEOMETRY_AUGMENTATION = {
+    "noise_probability": 0.5,
+    "noise_std": 0.01,
+    "drift_probability": 0.25,
+    "drift_std": 0.002,
+    "frame_dropout_probability": 0.25,
+    "max_frame_dropout_ratio": 0.15,
+    "point_dropout_probability": 0.01,
+}
+
 
 def _clip_indices(
     total: int,
@@ -28,7 +39,9 @@ def _clip_indices(
         raise ValueError(f"Sequence has {total} frames but the model requires {count}")
     if total == count:
         if not training and clips_per_video > 1:
-            raise ValueError("Cannot draw multiple distinct clips when sequence length equals clip length")
+            raise ValueError(
+                "Cannot draw multiple distinct clips when sequence length equals clip length"
+            )
         return np.arange(total)
     if training:
         start = random.randint(0, total - count)
@@ -131,13 +144,74 @@ def _augment(image: np.ndarray) -> np.ndarray:
     if random.random() < 0.3:
         quality = random.randint(45, 90)
         ok, encoded = cv2.imencode(
-            ".jpg", cv2.cvtColor(output.astype(np.uint8), cv2.COLOR_RGB2BGR),
+            ".jpg",
+            cv2.cvtColor(output.astype(np.uint8), cv2.COLOR_RGB2BGR),
             [int(cv2.IMWRITE_JPEG_QUALITY), quality],
         )
         if ok:
             decoded = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
             output = cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
     return output.astype(np.uint8)
+
+
+def _augment_geometry_landmarks(
+    landmarks: np.ndarray,
+    detected: np.ndarray,
+    config: dict[str, float],
+    python_rng=None,
+    numpy_rng=None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply branch-specific tracking corruptions before geometry construction."""
+
+    unknown = set(config) - set(DEFAULT_GEOMETRY_AUGMENTATION)
+    if unknown:
+        raise ValueError(f"Unknown geometry augmentation keys: {sorted(unknown)}")
+    settings = {**DEFAULT_GEOMETRY_AUGMENTATION, **config}
+    python_rng = python_rng or random
+    numpy_rng = numpy_rng or np.random
+    for name, value in settings.items():
+        if value < 0:
+            raise ValueError(f"Geometry augmentation {name} must be non-negative")
+    for name in (
+        "noise_probability",
+        "drift_probability",
+        "frame_dropout_probability",
+        "max_frame_dropout_ratio",
+        "point_dropout_probability",
+    ):
+        if settings[name] > 1:
+            raise ValueError(f"Geometry augmentation {name} must not exceed one")
+
+    output = landmarks.copy()
+    output_detected = detected.astype(bool, copy=True)
+    interocular = np.linalg.norm(output[:, 33, :2] - output[:, 263, :2], axis=1)
+    valid_scales = interocular[np.isfinite(interocular) & (interocular > 1e-6)]
+    fallback_scale = float(np.median(valid_scales)) if valid_scales.size else 1.0
+    scales = np.where(np.isfinite(interocular) & (interocular > 1e-6), interocular, fallback_scale)
+
+    if python_rng.random() < settings["noise_probability"] and settings["noise_std"] > 0:
+        noise = numpy_rng.normal(size=output.shape).astype(np.float32)
+        output += noise * scales[:, None, None] * settings["noise_std"]
+
+    if python_rng.random() < settings["drift_probability"] and settings["drift_std"] > 0:
+        increments = numpy_rng.normal(size=output.shape).astype(np.float32)
+        drift = np.cumsum(increments, axis=0)
+        drift -= drift.mean(axis=0, keepdims=True)
+        output += drift * scales[:, None, None] * settings["drift_std"]
+
+    point_probability = settings["point_dropout_probability"]
+    if point_probability > 0:
+        point_mask = numpy_rng.random(size=output.shape[:2]) < point_probability
+        output[point_mask] = np.nan
+
+    if python_rng.random() < settings["frame_dropout_probability"] and len(output) > 1:
+        maximum = max(1, int(round(len(output) * settings["max_frame_dropout_ratio"])))
+        maximum = min(maximum, len(output) - 1)
+        span = python_rng.randint(1, maximum)
+        start = python_rng.randint(0, len(output) - span)
+        output[start : start + span] = np.nan
+        output_detected[start : start + span] = False
+    return output, output_detected
 
 
 class QALFVideoDataset(Dataset):
@@ -154,9 +228,12 @@ class QALFVideoDataset(Dataset):
         image_size: int = 128,
         training: bool = False,
         clips_per_video: int = 1,
-        geometry_mode: str = "aligned_motion",
+        geometry_mode: str = "aligned_motion_3d",
         texture_mode: str = "canonical_skin",
         landmark_indices: tuple[int, ...] = DEFAULT_LANDMARK_INDICES,
+        geometry_augmentation: dict[str, float] | None = None,
+        geometry_corruption: dict[str, float] | None = None,
+        geometry_corruption_seed: int = 12345,
     ) -> None:
         self.records = load_manifest(manifest_path)
         self.frame_root = Path(frame_root)
@@ -179,6 +256,11 @@ class QALFVideoDataset(Dataset):
         self.landmark_indices = landmark_indices
         self.geometry_mode = geometry_mode
         self.geometry_input_dim = geometry_input_dim(landmark_indices, geometry_mode)
+        self.geometry_augmentation = dict(geometry_augmentation or {})
+        self.geometry_corruption = dict(geometry_corruption or {})
+        self.geometry_corruption_seed = int(geometry_corruption_seed)
+        if self.training and self.geometry_corruption:
+            raise ValueError("geometry_corruption is reserved for deterministic evaluation")
         if texture_mode not in {"canonical_skin", "full_face"}:
             raise ValueError(f"Unsupported texture mode: {texture_mode}")
         self.texture_mode = texture_mode
@@ -192,11 +274,7 @@ class QALFVideoDataset(Dataset):
 
     @property
     def labels(self) -> list[int]:
-        return [
-            record.label
-            for record in self.records
-            for _ in range(self.clips_per_video)
-        ]
+        return [record.label for record in self.records for _ in range(self.clips_per_video)]
 
     def __len__(self) -> int:
         return len(self.records) * self.clips_per_video
@@ -207,9 +285,7 @@ class QALFVideoDataset(Dataset):
         with np.load(self.landmark_root / str(record.landmark_path)) as cache:
             landmarks = cache["landmarks"].copy()
             detected = cache["detected"].copy()
-            timestamps = (
-                cache["timestamps_sec"].copy() if "timestamps_sec" in cache.files else None
-            )
+            timestamps = cache["timestamps_sec"].copy() if "timestamps_sec" in cache.files else None
         if len(landmarks) != len(record.frames) or len(detected) != len(record.frames):
             raise ValueError(
                 f"{record.video_id}: landmark cache length does not match manifest frames"
@@ -223,17 +299,38 @@ class QALFVideoDataset(Dataset):
             clip_index,
             self.clips_per_video,
         )
+        geometry_landmarks = landmarks[clip].copy()
+        geometry_detected = detected[clip].copy()
+        if self.training and self.geometry_augmentation:
+            geometry_landmarks, geometry_detected = _augment_geometry_landmarks(
+                geometry_landmarks,
+                geometry_detected,
+                self.geometry_augmentation,
+            )
+        elif self.geometry_corruption:
+            identity = (
+                f"{self.geometry_corruption_seed}:{record.dataset}:{record.method}:"
+                f"{record.video_id}:{clip_index}"
+            )
+            seed = int.from_bytes(hashlib.sha256(identity.encode("utf-8")).digest()[:8], "big")
+            geometry_landmarks, geometry_detected = _augment_geometry_landmarks(
+                geometry_landmarks,
+                geometry_detected,
+                self.geometry_corruption,
+                python_rng=random.Random(seed),
+                numpy_rng=np.random.default_rng(seed),
+            )
         geometry, geometry_quality = build_geometry_features(
-            landmarks[clip],
-            detected[clip],
+            geometry_landmarks,
+            geometry_detected,
             timestamps[clip] if timestamps is not None and len(timestamps) else None,
             self.landmark_indices,
             self.geometry_mode,
         )
 
-        texture_positions = np.rint(
-            np.linspace(0, len(clip) - 1, self.texture_frames)
-        ).astype(np.int64)
+        texture_positions = np.rint(np.linspace(0, len(clip) - 1, self.texture_frames)).astype(
+            np.int64
+        )
         texture_tensors: list[np.ndarray] = []
         texture_qualities: list[np.ndarray] = []
         for position in texture_positions:

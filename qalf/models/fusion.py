@@ -13,8 +13,12 @@ class QualityAwareFusion(nn.Module):
         geometry_quality_dim: int = 5,
         texture_quality_dim: int = 5,
         dropout: float = 0.2,
+        gate_mode: str = "full",
     ) -> None:
         super().__init__()
+        if gate_mode not in {"full", "content", "quality"}:
+            raise ValueError(f"Unsupported gate mode: {gate_mode}")
+        self.gate_mode = gate_mode
         gate_input = embedding_dim * 2 + geometry_quality_dim + texture_quality_dim + 2
         self.gate = nn.Sequential(
             nn.Linear(gate_input, embedding_dim),
@@ -45,13 +49,26 @@ class QualityAwareFusion(nn.Module):
                 1.0 - torch.abs(torch.sigmoid(texture_logit) - 0.5) * 2.0,
             ],
             dim=1,
-        )
+        ).detach()
+        if self.gate_mode == "quality":
+            geometry_embedding_for_gate = torch.zeros_like(geometry_embedding)
+            texture_embedding_for_gate = torch.zeros_like(texture_embedding)
+            branch_uncertainty = torch.zeros_like(branch_uncertainty)
+        else:
+            geometry_embedding_for_gate = geometry_embedding
+            texture_embedding_for_gate = texture_embedding
+        if self.gate_mode == "content":
+            geometry_quality_for_gate = torch.zeros_like(geometry_quality)
+            texture_quality_for_gate = torch.zeros_like(texture_quality)
+        else:
+            geometry_quality_for_gate = geometry_quality
+            texture_quality_for_gate = texture_quality
         gate_input = torch.cat(
             [
-                geometry_embedding,
-                texture_embedding,
-                geometry_quality,
-                texture_quality,
+                geometry_embedding_for_gate,
+                texture_embedding_for_gate,
+                geometry_quality_for_gate,
+                texture_quality_for_gate,
                 branch_uncertainty,
             ],
             dim=1,
@@ -75,4 +92,6 @@ class ConcatFusion(nn.Module):
     def forward(
         self, geometry_embedding: torch.Tensor, texture_embedding: torch.Tensor
     ) -> torch.Tensor:
-        return self.classifier(torch.cat([geometry_embedding, texture_embedding], dim=1)).squeeze(-1)
+        return self.classifier(torch.cat([geometry_embedding, texture_embedding], dim=1)).squeeze(
+            -1
+        )

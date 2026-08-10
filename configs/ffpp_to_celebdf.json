@@ -8,8 +8,17 @@
     "num_frames": 32,
     "texture_frames": 4,
     "image_size": 128,
-    "geometry_mode": "aligned_motion",
+    "geometry_mode": "aligned_motion_3d",
     "texture_mode": "canonical_skin",
+    "geometry_augmentation": {
+      "noise_probability": 0.5,
+      "noise_std": 0.01,
+      "drift_probability": 0.25,
+      "drift_std": 0.002,
+      "frame_dropout_probability": 0.25,
+      "max_frame_dropout_ratio": 0.15,
+      "point_dropout_probability": 0.01
+    },
     "eval_clips_per_video": 2,
     "video_aggregation": "mean",
     "top_k": 1

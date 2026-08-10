@@ -18,9 +18,14 @@ def main() -> None:
     parser.add_argument("--landmark-root", required=True)
     parser.add_argument("--output-manifest", required=True)
     parser.add_argument(
+        "--model-path",
+        required=True,
+        help="MediaPipe Face Landmarker .task model.",
+    )
+    parser.add_argument(
         "--video-mode",
         action="store_true",
-        help="Enable MediaPipe tracking across frames. Static per-frame detection is the default.",
+        help="Use VIDEO tracking; IMAGE mode remains the reproducible default.",
     )
     parser.add_argument("--min-confidence", type=float, default=0.5)
     parser.add_argument("--min-detected-ratio", type=float, default=0.75)
@@ -33,7 +38,8 @@ def main() -> None:
         args.frame_root,
         args.landmark_root,
         args.output_manifest,
-        static_image_mode=not args.video_mode,
+        args.model_path,
+        running_mode="video" if args.video_mode else "image",
         min_confidence=args.min_confidence,
         min_detected_ratio=args.min_detected_ratio,
         fail_fast=not args.skip_errors,

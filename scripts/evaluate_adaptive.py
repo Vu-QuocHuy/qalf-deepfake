@@ -32,14 +32,25 @@ def _write_csv(path: Path, rows: dict[str, object]) -> None:
             writer.writerow(dict(zip(columns, row, strict=True)))
 
 
-def _load_threshold(path: str | Path) -> float:
+def _load_threshold(path: str | Path) -> tuple[float, dict[str, list[str]]]:
     with Path(path).open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
+    provenance = payload.get("threshold_selection")
+    if not isinstance(provenance, dict):
+        raise ValueError(f"Threshold JSON lacks validated threshold_selection provenance: {path}")
+    datasets = sorted(str(value) for value in provenance.get("datasets", []))
+    splits = sorted(str(value) for value in provenance.get("splits", []))
+    if datasets != ["ffpp"] or splits != ["val"]:
+        raise ValueError(
+            f"Threshold must originate from FF++ validation, got datasets={datasets}, splits={splits}"
+        )
     if "threshold" in payload:
-        return float(payload["threshold"])
-    if "metrics" in payload and "threshold" in payload["metrics"]:
-        return float(payload["metrics"]["threshold"])
-    raise ValueError(f"No threshold found in: {path}")
+        threshold = float(payload["threshold"])
+    elif "metrics" in payload and "threshold" in payload["metrics"]:
+        threshold = float(payload["metrics"]["threshold"])
+    else:
+        raise ValueError(f"No threshold found in: {path}")
+    return threshold, {"datasets": datasets, "splits": splits}
 
 
 def main() -> None:
@@ -61,6 +72,11 @@ def main() -> None:
     parser.add_argument("--min-landmark-ratio", type=float, default=0.80)
     parser.add_argument("--threshold-json")
     parser.add_argument(
+        "--budget-reference",
+        help="Rule-policy report used to require a matched periodic texture-call budget.",
+    )
+    parser.add_argument("--budget-tolerance", type=float, default=0.02)
+    parser.add_argument(
         "--select-threshold",
         action="store_true",
         help="Select threshold on this manifest. Use only on FF++ validation, never target test.",
@@ -76,6 +92,10 @@ def main() -> None:
         )
     if args.refresh_interval < 1 or args.max_cache_age < 1:
         parser.error("refresh interval and max cache age must be positive")
+    if args.budget_reference and args.policy != "periodic":
+        parser.error("--budget-reference is only valid for the periodic baseline")
+    if args.budget_tolerance < 0:
+        parser.error("--budget-tolerance must be non-negative")
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
     config = checkpoint["config"]
@@ -94,11 +114,18 @@ def main() -> None:
         num_frames=int(data["num_frames"]),
         texture_frames=int(data["texture_frames"]),
         image_size=int(data["image_size"]),
-        geometry_mode=str(data.get("geometry_mode", "aligned_motion")),
+        geometry_mode=str(data.get("geometry_mode", "aligned_motion_3d")),
         texture_mode=str(data.get("texture_mode", "canonical_skin")),
         training=False,
         clips_per_video=clips_per_video,
     )
+    manifest_datasets = sorted({record.dataset for record in dataset.records})
+    manifest_splits = sorted({record.split for record in dataset.records})
+    if args.select_threshold and (manifest_datasets != ["ffpp"] or manifest_splits != ["val"]):
+        parser.error(
+            "--select-threshold is hard-limited to an FF++ validation manifest; "
+            f"got datasets={manifest_datasets}, splits={manifest_splits}"
+        )
     if dataset.geometry_input_dim != int(checkpoint["geometry_input_dim"]):
         raise ValueError("Evaluation geometry feature dimension differs from checkpoint")
     loader = DataLoader(
@@ -220,17 +247,23 @@ def main() -> None:
     if args.select_threshold:
         threshold = select_threshold(labels, scores)
         threshold_source = "selected_on_current_manifest"
+        threshold_selection = {
+            "datasets": manifest_datasets,
+            "splits": manifest_splits,
+        }
     elif args.threshold_json:
-        threshold = _load_threshold(args.threshold_json)
+        threshold, threshold_selection = _load_threshold(args.threshold_json)
         threshold_source = str(args.threshold_json)
     else:
         threshold = float(checkpoint["threshold"])
         threshold_source = "always_on_ffpp_validation_checkpoint"
+        threshold_selection = {"datasets": ["ffpp"], "splits": ["val"]}
     metrics = compute_metrics(labels, scores, threshold)
     texture_calls = int(sum(clip_rows["texture_invoked"]))
     report = {
         "metrics": metrics,
         "threshold_source": threshold_source,
+        "threshold_selection": threshold_selection,
         "policy": args.policy,
         "clips_per_video": clips_per_video,
         "aggregation": aggregation,
@@ -243,6 +276,19 @@ def main() -> None:
         "uncertainty_threshold": args.uncertainty_threshold,
         "min_landmark_ratio": args.min_landmark_ratio,
     }
+    if args.budget_reference:
+        with Path(args.budget_reference).open("r", encoding="utf-8") as handle:
+            reference_report = json.load(handle)
+        if reference_report.get("policy") != "rule":
+            raise ValueError("--budget-reference must point to a rule-policy report")
+        if int(reference_report.get("total_clips", -1)) != len(clip_rows["score"]):
+            raise ValueError("Budget reference and periodic run contain different numbers of clips")
+        reference_ratio = float(reference_report["texture_invocation_ratio"])
+        budget_delta = abs(report["texture_invocation_ratio"] - reference_ratio)
+        report["budget_reference"] = str(args.budget_reference)
+        report["budget_reference_ratio"] = reference_ratio
+        report["budget_absolute_delta"] = budget_delta
+        report["budget_matched"] = budget_delta <= args.budget_tolerance
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_csv(output_dir / "adaptive_clip_predictions.csv", clip_rows)
@@ -250,6 +296,12 @@ def main() -> None:
     with (output_dir / "adaptive_metrics.json").open("w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2, ensure_ascii=False)
     print(json.dumps(report, indent=2, ensure_ascii=False))
+    if args.budget_reference and not report["budget_matched"]:
+        raise RuntimeError(
+            "Periodic baseline does not match the rule-policy texture-call budget: "
+            f"absolute delta={report['budget_absolute_delta']:.4f}, "
+            f"tolerance={args.budget_tolerance:.4f}. Adjust --refresh-interval."
+        )
 
 
 if __name__ == "__main__":

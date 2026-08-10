@@ -1,0 +1,9 @@
+{
+  "noise_probability": 1.0,
+  "noise_std": 0.01,
+  "drift_probability": 1.0,
+  "drift_std": 0.002,
+  "frame_dropout_probability": 1.0,
+  "max_frame_dropout_ratio": 0.15,
+  "point_dropout_probability": 0.01
+}

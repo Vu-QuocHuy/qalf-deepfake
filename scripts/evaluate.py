@@ -34,11 +34,22 @@ def main() -> None:
     parser.add_argument("--clips-per-video", type=int)
     parser.add_argument("--aggregation", choices=("mean", "median", "topk"))
     parser.add_argument("--top-k", type=int)
+    parser.add_argument(
+        "--geometry-corruption-json",
+        help="Optional deterministic geometry corruption config for robustness evaluation.",
+    )
+    parser.add_argument("--geometry-corruption-seed", type=int, default=12345)
     args = parser.parse_args()
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
     config = checkpoint["config"]
     data, model_config = config["data"], config["model"]
+    geometry_corruption = {}
+    if args.geometry_corruption_json:
+        with Path(args.geometry_corruption_json).open("r", encoding="utf-8") as handle:
+            geometry_corruption = json.load(handle)
+        if not isinstance(geometry_corruption, dict):
+            parser.error("--geometry-corruption-json must contain a JSON object")
     dataset = QALFVideoDataset(
         args.manifest,
         args.frame_root,
@@ -46,7 +57,7 @@ def main() -> None:
         num_frames=int(data["num_frames"]),
         texture_frames=int(data["texture_frames"]),
         image_size=int(data["image_size"]),
-        geometry_mode=str(data.get("geometry_mode", "aligned_motion")),
+        geometry_mode=str(data.get("geometry_mode", "aligned_motion_3d")),
         texture_mode=str(data.get("texture_mode", "canonical_skin")),
         training=False,
         clips_per_video=int(
@@ -54,6 +65,8 @@ def main() -> None:
             if args.clips_per_video is not None
             else data.get("eval_clips_per_video", 1)
         ),
+        geometry_corruption=geometry_corruption,
+        geometry_corruption_seed=args.geometry_corruption_seed,
     )
     if dataset.geometry_input_dim != int(checkpoint["geometry_input_dim"]):
         raise ValueError("Evaluation geometry feature dimension differs from checkpoint")
@@ -94,6 +107,18 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     with (output_dir / "metrics.json").open("w", encoding="utf-8") as handle:
         json.dump(metrics, handle, indent=2, ensure_ascii=False)
+    with (output_dir / "evaluation_protocol.json").open("w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "threshold": float(checkpoint["threshold"]),
+                "threshold_selection": {"datasets": ["ffpp"], "splits": ["val"]},
+                "geometry_corruption": geometry_corruption,
+                "geometry_corruption_seed": args.geometry_corruption_seed,
+            },
+            handle,
+            indent=2,
+            ensure_ascii=False,
+        )
     for filename, rows in (
         ("clip_predictions.csv", clip_predictions),
         ("predictions.csv", predictions),

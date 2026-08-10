@@ -62,12 +62,43 @@ def main() -> None:
     parser.add_argument("--frame-root")
     parser.add_argument("--landmark-root")
     parser.add_argument("--output-dir")
+    parser.add_argument(
+        "--geometry-mode",
+        choices=(
+            "normalized",
+            "aligned",
+            "motion_only",
+            "aligned_motion",
+            "aligned_3d",
+            "motion_3d",
+            "aligned_motion_3d",
+        ),
+    )
+    parser.add_argument(
+        "--fusion-mode",
+        choices=(
+            "geometry",
+            "texture",
+            "average",
+            "concat",
+            "content_gate",
+            "quality_only",
+            "quality",
+        ),
+    )
+    parser.add_argument("--no-geometry-augmentation", action="store_true")
     args = parser.parse_args()
 
     config = load_config(args.config)
     data = config["data"]
     training = config["training"]
     model_config = config["model"]
+    if args.geometry_mode:
+        data["geometry_mode"] = args.geometry_mode
+    if args.fusion_mode:
+        model_config["fusion_mode"] = args.fusion_mode
+    if args.no_geometry_augmentation:
+        data["geometry_augmentation"] = {}
     seed = int(config.get("seed", 42))
     _seed_everything(seed)
     train_manifest = args.train_manifest or data["train_manifest"]
@@ -92,8 +123,9 @@ def main() -> None:
         "num_frames": int(data["num_frames"]),
         "texture_frames": int(data["texture_frames"]),
         "image_size": int(data["image_size"]),
-        "geometry_mode": str(data.get("geometry_mode", "aligned_motion")),
+        "geometry_mode": str(data.get("geometry_mode", "aligned_motion_3d")),
         "texture_mode": str(data.get("texture_mode", "canonical_skin")),
+        "geometry_augmentation": data.get("geometry_augmentation", {}),
     }
     train_dataset = QALFVideoDataset(
         train_manifest, training=True, clips_per_video=1, **dataset_args
@@ -104,6 +136,24 @@ def main() -> None:
         clips_per_video=int(data["eval_clips_per_video"]),
         **dataset_args,
     )
+    train_protocol = (
+        sorted({record.dataset for record in train_dataset.records}),
+        sorted({record.split for record in train_dataset.records}),
+    )
+    val_protocol = (
+        sorted({record.dataset for record in val_dataset.records}),
+        sorted({record.split for record in val_dataset.records}),
+    )
+    if train_protocol != (["ffpp"], ["train"]):
+        raise ValueError(
+            "Training is restricted to the official FF++ train split; "
+            f"got datasets={train_protocol[0]}, splits={train_protocol[1]}"
+        )
+    if val_protocol != (["ffpp"], ["val"]):
+        raise ValueError(
+            "Threshold selection is restricted to the official FF++ validation split; "
+            f"got datasets={val_protocol[0]}, splits={val_protocol[1]}"
+        )
     batch_size = int(training["batch_size"])
     workers = int(training.get("num_workers", 4))
     train_loader = _loader(
