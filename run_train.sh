@@ -52,9 +52,10 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 
 FRAME_ROOT="$DATA_ROOT/data/extracted/ffpp"
-LANDMARK_ROOT="$DATA_ROOT/data/landmarks/ffpp-landmark"
-TRAIN_MANIFEST="$LANDMARK_ROOT/manifests/ffpp_train_landmarks.jsonl"
-VAL_MANIFEST="$LANDMARK_ROOT/manifests/ffpp_val_landmarks.jsonl"
+LANDMARK_OUTPUT_ROOT="$DATA_ROOT/data/landmarks/ffpp-landmark"
+LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
+TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
+VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
 OUTPUT_DIR="$DATA_ROOT/experiments/qalf_ffpp"
 
 for required_path in "$TRAIN_MANIFEST" "$VAL_MANIFEST" "$FRAME_ROOT" "$LANDMARK_ROOT"; do

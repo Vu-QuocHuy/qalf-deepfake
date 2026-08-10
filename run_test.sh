@@ -37,8 +37,9 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 
 FRAME_ROOT="$DATA_ROOT/data/extracted/celebdf"
-LANDMARK_ROOT="$DATA_ROOT/data/landmarks/celebdf-landmark"
-TEST_MANIFEST="$LANDMARK_ROOT/manifests/celebdf_test_landmarks.jsonl"
+LANDMARK_OUTPUT_ROOT="$DATA_ROOT/data/landmarks/celebdf-landmark"
+LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
+TEST_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
 CHECKPOINT="$DATA_ROOT/experiments/qalf_ffpp/best.pt"
 OUTPUT_DIR="$DATA_ROOT/experiments/qalf_ffpp_to_celebdf"
 
