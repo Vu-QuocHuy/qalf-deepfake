@@ -19,6 +19,7 @@ class QALFModel(nn.Module):
         embedding_dim: int = 128,
         dropout: float = 0.2,
         texture_pretrained: bool = True,
+        texture_backbone: str = "mobilenet_v3_small",
         geometry_quality_dim: int = 5,
         texture_quality_dim: int = 5,
         fusion_mode: str = "quality",
@@ -50,7 +51,12 @@ class QALFModel(nn.Module):
         self.texture_encoder = (
             None
             if fusion_mode == "geometry"
-            else TextureEncoder(embedding_dim, dropout, texture_pretrained)
+            else TextureEncoder(
+                embedding_dim,
+                dropout,
+                texture_pretrained,
+                backbone=texture_backbone,
+            )
         )
         gate_modes = {
             "quality": "full",

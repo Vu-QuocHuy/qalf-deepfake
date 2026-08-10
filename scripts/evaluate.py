@@ -23,6 +23,12 @@ from qalf.metrics import compute_metrics
 from qalf.models import QALFModel
 
 
+def _format_metrics(metrics: dict[str, float]) -> str:
+    lines = ["QALF evaluation metrics"]
+    lines.extend(f"{name}: {value:.4f}" for name, value in metrics.items())
+    return "\n".join(lines) + "\n"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True)
@@ -86,6 +92,7 @@ def main() -> None:
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
+        texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -99,27 +106,46 @@ def main() -> None:
         method=str(args.aggregation or data.get("video_aggregation", "mean")),
         top_k=int(args.top_k if args.top_k is not None else data.get("top_k", 1)),
     )
-    metrics = compute_metrics(
-        np.asarray(predictions["label"], dtype=np.int64),
-        np.asarray(predictions["score"], dtype=np.float64),
-        float(checkpoint["threshold"]),
-    )
+    labels = np.asarray(predictions["label"], dtype=np.int64)
+    fused_scores = np.asarray(predictions["score"], dtype=np.float64)
+    geometry_scores = np.asarray(predictions["geometry_score"], dtype=np.float64)
+    texture_scores = np.asarray(predictions["texture_score"], dtype=np.float64)
+    threshold = float(checkpoint["threshold"])
+    metrics = compute_metrics(labels, fused_scores, threshold)
+    metrics["geometry_auc"] = compute_metrics(labels, geometry_scores, threshold)["auc"]
+    metrics["texture_auc"] = compute_metrics(labels, texture_scores, threshold)["auc"]
+    metrics["fixed_average_auc"] = compute_metrics(
+        labels,
+        0.5 * (geometry_scores + texture_scores),
+        threshold,
+    )["auc"]
+    metrics["mean_geometry_weight"] = float(np.mean(predictions["geometry_weight"]))
+    metrics["mean_texture_weight"] = float(np.mean(predictions["texture_weight"]))
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    with (output_dir / "metrics.json").open("w", encoding="utf-8") as handle:
-        json.dump(metrics, handle, indent=2, ensure_ascii=False)
-    with (output_dir / "evaluation_protocol.json").open("w", encoding="utf-8") as handle:
-        json.dump(
-            {
-                "threshold": float(checkpoint["threshold"]),
-                "threshold_selection": {"datasets": ["ffpp"], "splits": ["val"]},
-                "geometry_corruption": geometry_corruption,
-                "geometry_corruption_seed": args.geometry_corruption_seed,
-            },
-            handle,
-            indent=2,
-            ensure_ascii=False,
+    metrics_text = _format_metrics(metrics)
+    (output_dir / "metrics.txt").write_text(metrics_text, encoding="utf-8")
+    (output_dir / "evaluation_protocol.txt").write_text(
+        "\n".join(
+            (
+                "QALF evaluation protocol",
+                f"checkpoint: {args.checkpoint}",
+                f"manifest: {args.manifest}",
+                f"texture_backbone: {model_config.get('texture_backbone', 'mobilenet_v3_small')}",
+                f"num_frames: {int(data['num_frames'])}",
+                f"texture_frames: {int(data['texture_frames'])}",
+                f"image_size: {int(data['image_size'])}",
+                f"clips_per_video: {dataset.clips_per_video}",
+                f"aggregation: {args.aggregation or data.get('video_aggregation', 'mean')}",
+                f"threshold: {threshold:.4f}",
+                "threshold_selection: FF++ validation",
+                f"geometry_corruption: {json.dumps(geometry_corruption, ensure_ascii=False)}",
+                f"geometry_corruption_seed: {args.geometry_corruption_seed}",
+            )
         )
+        + "\n",
+        encoding="utf-8",
+    )
     for filename, rows in (
         ("clip_predictions.csv", clip_predictions),
         ("predictions.csv", predictions),
@@ -130,7 +156,7 @@ def main() -> None:
             writer.writeheader()
             for row in zip(*(rows[column] for column in columns), strict=True):
                 writer.writerow(dict(zip(columns, row, strict=True)))
-    print(json.dumps(metrics, indent=2, ensure_ascii=False))
+    print(metrics_text, end="")
 
 
 if __name__ == "__main__":

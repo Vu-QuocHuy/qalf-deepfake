@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import random
 import sys
 from pathlib import Path
@@ -23,7 +24,7 @@ from qalf.data.dataset import QALFVideoDataset
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import QALFModel
+from qalf.models import QALFModel, SUPPORTED_TEXTURE_BACKBONES
 
 
 def _seed_everything(seed: int) -> None:
@@ -77,6 +78,71 @@ def _dataset_summary(dataset: QALFVideoDataset) -> dict[str, object]:
     }
 
 
+def _create_logger(path: Path) -> logging.Logger:
+    logger = logging.getLogger("qalf.train")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    formatter = logging.Formatter("%(asctime)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    stream = logging.StreamHandler(sys.stdout)
+    stream.setFormatter(formatter)
+    file_handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(stream)
+    logger.addHandler(file_handler)
+    return logger
+
+
+def _optimizer_groups(
+    model: QALFModel,
+    learning_rate: float,
+    backbone_learning_rate: float,
+) -> list[dict[str, object]]:
+    backbone_parameters: list[nn.Parameter] = []
+    if model.texture_encoder is not None:
+        backbone_parameters = list(model.texture_encoder.features.parameters())
+    backbone_ids = {id(parameter) for parameter in backbone_parameters}
+    head_parameters = [
+        parameter
+        for parameter in model.parameters()
+        if parameter.requires_grad and id(parameter) not in backbone_ids
+    ]
+    groups: list[dict[str, object]] = []
+    if head_parameters:
+        groups.append({"params": head_parameters, "lr": learning_rate, "name": "head"})
+    if backbone_parameters:
+        groups.append(
+            {
+                "params": backbone_parameters,
+                "lr": backbone_learning_rate,
+                "name": "texture_backbone",
+            }
+        )
+    return groups
+
+
+def _epoch_message(
+    epoch: int,
+    epochs: int,
+    optimizer: torch.optim.Optimizer,
+    train_metrics: dict[str, float],
+    validation_metrics: dict[str, float],
+) -> str:
+    learning_rates = {
+        str(group.get("name", index)): float(group["lr"])
+        for index, group in enumerate(optimizer.param_groups)
+    }
+    rate_text = " ".join(f"{name}_lr={rate:.4e}" for name, rate in learning_rates.items())
+    return (
+        f"epoch={epoch:03d}/{epochs:03d} {rate_text} | "
+        f"train loss={train_metrics['loss']:.4f} fused={train_metrics['fused']:.4f} "
+        f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f} | "
+        f"val auc={validation_metrics['auc']:.4f} ap={validation_metrics['average_precision']:.4f} "
+        f"balanced_acc={validation_metrics['balanced_accuracy']:.4f} "
+        f"accuracy={validation_metrics['accuracy']:.4f} f1={validation_metrics['f1']:.4f} "
+        f"eer={validation_metrics['eer']:.4f} threshold={validation_metrics['threshold']:.4f}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
@@ -94,10 +160,15 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--num-workers", type=int)
     parser.add_argument("--learning-rate", type=float)
+    parser.add_argument("--backbone-learning-rate", type=float)
     parser.add_argument("--weight-decay", type=float)
     parser.add_argument("--geometry-loss-weight", type=float)
     parser.add_argument("--texture-loss-weight", type=float)
     parser.add_argument("--early-stop-patience", type=int)
+    parser.add_argument("--geometry-hidden", type=int)
+    parser.add_argument("--geometry-layers", type=int)
+    parser.add_argument("--embedding-dim", type=int)
+    parser.add_argument("--dropout", type=float)
     parser.add_argument(
         "--fake-methods",
         nargs="+",
@@ -119,7 +190,12 @@ def main() -> None:
             "quality",
         ),
     )
+    parser.add_argument(
+        "--texture-backbone",
+        choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES)),
+    )
     parser.add_argument("--no-geometry-augmentation", action="store_true")
+    parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--no-balanced-sampler", action="store_true")
     args = parser.parse_args()
@@ -132,8 +208,21 @@ def main() -> None:
         data["geometry_mode"] = args.geometry_mode
     if args.fusion_mode:
         model_config["fusion_mode"] = args.fusion_mode
+    if args.texture_backbone:
+        model_config["texture_backbone"] = args.texture_backbone
+    model_overrides = {
+        "geometry_hidden": args.geometry_hidden,
+        "geometry_layers": args.geometry_layers,
+        "embedding_dim": args.embedding_dim,
+        "dropout": args.dropout,
+    }
+    model_config.update(
+        {key: value for key, value in model_overrides.items() if value is not None}
+    )
     if args.no_geometry_augmentation:
         data["geometry_augmentation"] = {}
+    if args.no_texture_augmentation:
+        data["texture_augmentation"] = {}
     if args.fake_methods is not None:
         data["fake_methods"] = args.fake_methods
     data_overrides = {
@@ -147,6 +236,7 @@ def main() -> None:
         "batch_size": args.batch_size,
         "num_workers": args.num_workers,
         "learning_rate": args.learning_rate,
+        "backbone_learning_rate": args.backbone_learning_rate,
         "weight_decay": args.weight_decay,
         "geometry_loss_weight": args.geometry_loss_weight,
         "texture_loss_weight": args.texture_loss_weight,
@@ -182,11 +272,18 @@ def main() -> None:
         parser.error("training.num_workers cannot be negative")
     if float(training.get("learning_rate", 0.0)) <= 0:
         parser.error("training.learning_rate must be positive")
+    if float(training.get("backbone_learning_rate", training["learning_rate"])) <= 0:
+        parser.error("training.backbone_learning_rate must be positive")
     for name in ("weight_decay", "geometry_loss_weight", "texture_loss_weight"):
         if float(training.get(name, 0.0)) < 0:
             parser.error(f"training.{name} cannot be negative")
     if int(training.get("early_stop_patience", 0)) < 0:
         parser.error("training.early_stop_patience cannot be negative")
+    for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
+        if int(model_config.get(name, 0)) < 1:
+            parser.error(f"model.{name} must be at least one")
+    if not 0.0 <= float(model_config.get("dropout", 0.0)) < 1.0:
+        parser.error("model.dropout must be in [0, 1)")
     seed = int(config.get("seed", 42))
     _seed_everything(seed)
     train_manifest = args.train_manifest or data["train_manifest"]
@@ -195,6 +292,7 @@ def main() -> None:
     landmark_root = args.landmark_root or data["train_landmark_root"]
     output_dir = Path(args.output_dir or config.get("output_dir", "outputs/qalf"))
     output_dir.mkdir(parents=True, exist_ok=True)
+    logger = _create_logger(output_dir / "train.log")
     data["train_manifest"] = str(train_manifest)
     data["val_manifest"] = str(val_manifest)
     data["train_frame_root"] = str(frame_root)
@@ -214,6 +312,7 @@ def main() -> None:
         "geometry_mode": str(data.get("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE)),
         "texture_mode": str(data.get("texture_mode", "canonical_skin")),
         "geometry_augmentation": data.get("geometry_augmentation", {}),
+        "texture_augmentation": data.get("texture_augmentation"),
         "fake_methods": data.get("fake_methods"),
     }
     train_dataset = QALFVideoDataset(
@@ -243,7 +342,8 @@ def main() -> None:
             "Threshold selection is restricted to the official FF++ validation split; "
             f"got datasets={val_protocol[0]}, splits={val_protocol[1]}"
         )
-    print(
+    logger.info(
+        "Training protocol:\n%s",
         json.dumps(
             {
                 "protocol": "FF++ filtered training protocol",
@@ -253,7 +353,7 @@ def main() -> None:
             },
             indent=2,
             ensure_ascii=False,
-        )
+        ),
     )
     batch_size = int(training["batch_size"])
     workers = int(training.get("num_workers", 4))
@@ -274,13 +374,22 @@ def main() -> None:
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
+        texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
     ).to(device)
     optimizer = AdamW(
-        model.parameters(),
-        lr=float(training.get("learning_rate", 3e-4)),
+        _optimizer_groups(
+            model,
+            float(training.get("learning_rate", 3e-4)),
+            float(
+                training.get(
+                    "backbone_learning_rate",
+                    training.get("learning_rate", 3e-4),
+                )
+            ),
+        ),
         weight_decay=float(training.get("weight_decay", 1e-4)),
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -301,7 +410,16 @@ def main() -> None:
     best_auc = -float("inf")
     stale_epochs = 0
     patience = int(training.get("early_stop_patience", 0))
-    for epoch in range(1, int(training["epochs"]) + 1):
+    epochs = int(training["epochs"])
+    logger.info(
+        "device=%s backbone=%s parameters=%d trainable=%d amp=%s",
+        device,
+        model_config.get("texture_backbone", "mobilenet_v3_small"),
+        sum(parameter.numel() for parameter in model.parameters()),
+        sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
+        amp_enabled,
+    )
+    for epoch in range(1, epochs + 1):
         train_metrics = train_epoch(
             model,
             train_loader,
@@ -322,11 +440,11 @@ def main() -> None:
         scores = np.asarray(validation["score"], dtype=np.float64)
         threshold = select_threshold(labels, scores)
         val_metrics = compute_metrics(labels, scores, threshold)
-        scheduler.step()
         row = {"epoch": epoch, "train": train_metrics, "validation": val_metrics}
         history.append(row)
         save_json(history, output_dir / "history.json")
-        print(json.dumps(row, ensure_ascii=False))
+        logger.info(_epoch_message(epoch, epochs, optimizer, train_metrics, val_metrics))
+        scheduler.step()
 
         checkpoint = {
             "epoch": epoch,
@@ -347,8 +465,13 @@ def main() -> None:
         else:
             stale_epochs += 1
             if patience > 0 and stale_epochs >= patience:
-                print(f"Early stopping after {epoch} epochs")
+                logger.info("Early stopping after %d epochs", epoch)
                 break
+    logger.info(
+        "training_complete best_val_auc=%.4f output_dir=%s",
+        best_auc,
+        output_dir,
+    )
 
 
 if __name__ == "__main__":

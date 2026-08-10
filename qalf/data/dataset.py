@@ -33,6 +33,22 @@ DEFAULT_GEOMETRY_AUGMENTATION = {
     "point_dropout_probability": 0.01,
 }
 
+DEFAULT_TEXTURE_AUGMENTATION = {
+    "flip_probability": 0.5,
+    "brightness_contrast_probability": 0.6,
+    "gamma_probability": 0.3,
+    "gamma_min": 0.75,
+    "gamma_max": 1.25,
+    "downsample_probability": 0.4,
+    "downsample_min_scale": 0.45,
+    "blur_probability": 0.3,
+    "noise_probability": 0.3,
+    "noise_std": 6.0,
+    "jpeg_probability": 0.5,
+    "jpeg_min_quality": 35.0,
+    "jpeg_max_quality": 90.0,
+}
+
 
 def _clip_indices(
     total: int,
@@ -139,16 +155,60 @@ def _texture_quality(
     )
 
 
-def _augment(image: np.ndarray) -> np.ndarray:
+def _resolve_texture_augmentation(config: dict[str, float]) -> dict[str, float]:
+    unknown = set(config) - set(DEFAULT_TEXTURE_AUGMENTATION)
+    if unknown:
+        raise ValueError(f"Unknown texture augmentation keys: {sorted(unknown)}")
+    settings = {**DEFAULT_TEXTURE_AUGMENTATION, **config}
+    for name in (
+        "flip_probability",
+        "brightness_contrast_probability",
+        "gamma_probability",
+        "downsample_probability",
+        "blur_probability",
+        "noise_probability",
+        "jpeg_probability",
+    ):
+        if not 0.0 <= settings[name] <= 1.0:
+            raise ValueError(f"Texture augmentation {name} must be in [0, 1]")
+    if not 0.0 < settings["gamma_min"] <= settings["gamma_max"]:
+        raise ValueError("Texture augmentation gamma range is invalid")
+    if not 0.0 < settings["downsample_min_scale"] <= 1.0:
+        raise ValueError("Texture augmentation downsample_min_scale must be in (0, 1]")
+    if settings["noise_std"] < 0:
+        raise ValueError("Texture augmentation noise_std cannot be negative")
+    if not 1 <= settings["jpeg_min_quality"] <= settings["jpeg_max_quality"] <= 100:
+        raise ValueError("Texture augmentation JPEG quality range is invalid")
+    return settings
+
+
+def _augment(image: np.ndarray, settings: dict[str, float]) -> np.ndarray:
     output = image.astype(np.float32)
-    if random.random() < 0.5:
+    if random.random() < settings["flip_probability"]:
+        output = np.ascontiguousarray(output[:, ::-1])
+    if random.random() < settings["brightness_contrast_probability"]:
         alpha = random.uniform(0.85, 1.15)
         beta = random.uniform(-12.0, 12.0)
         output = np.clip(output * alpha + beta, 0, 255)
-    if random.random() < 0.2:
+    if random.random() < settings["gamma_probability"]:
+        gamma = random.uniform(settings["gamma_min"], settings["gamma_max"])
+        output = 255.0 * np.power(np.clip(output / 255.0, 0.0, 1.0), gamma)
+    if random.random() < settings["downsample_probability"]:
+        height, width = output.shape[:2]
+        scale = random.uniform(settings["downsample_min_scale"], 0.9)
+        small_width = max(16, int(round(width * scale)))
+        small_height = max(16, int(round(height * scale)))
+        output = cv2.resize(output, (small_width, small_height), interpolation=cv2.INTER_AREA)
+        output = cv2.resize(output, (width, height), interpolation=cv2.INTER_LINEAR)
+    if random.random() < settings["blur_probability"]:
         output = cv2.GaussianBlur(output, (3, 3), sigmaX=random.uniform(0.1, 1.2))
-    if random.random() < 0.3:
-        quality = random.randint(45, 90)
+    if random.random() < settings["noise_probability"] and settings["noise_std"] > 0:
+        noise = np.random.normal(0.0, settings["noise_std"], size=output.shape)
+        output = np.clip(output + noise, 0, 255)
+    if random.random() < settings["jpeg_probability"]:
+        quality = random.randint(
+            int(settings["jpeg_min_quality"]), int(settings["jpeg_max_quality"])
+        )
         ok, encoded = cv2.imencode(
             ".jpg",
             cv2.cvtColor(output.astype(np.uint8), cv2.COLOR_RGB2BGR),
@@ -241,6 +301,7 @@ class QALFVideoDataset(Dataset):
         geometry_corruption: dict[str, float] | None = None,
         geometry_corruption_seed: int = 12345,
         fake_methods: Sequence[str] | None = None,
+        texture_augmentation: dict[str, float] | None = None,
     ) -> None:
         records = load_manifest(manifest_path)
         self.fake_methods: tuple[str, ...] | None = None
@@ -285,6 +346,12 @@ class QALFVideoDataset(Dataset):
         self.geometry_mode = geometry_mode
         self.geometry_input_dim = geometry_input_dim(landmark_indices, geometry_mode)
         self.geometry_augmentation = dict(geometry_augmentation or {})
+        if texture_augmentation is None:
+            self.texture_augmentation = dict(DEFAULT_TEXTURE_AUGMENTATION)
+        elif texture_augmentation:
+            self.texture_augmentation = _resolve_texture_augmentation(texture_augmentation)
+        else:
+            self.texture_augmentation = {}
         self.geometry_corruption = dict(geometry_corruption or {})
         self.geometry_corruption_seed = int(geometry_corruption_seed)
         if self.training and self.geometry_corruption:
@@ -375,7 +442,8 @@ class QALFVideoDataset(Dataset):
                 self.texture_mode,
             )
             if self.training:
-                canonical = _augment(canonical)
+                if self.texture_augmentation:
+                    canonical = _augment(canonical, self.texture_augmentation)
                 quality = _texture_quality(
                     canonical,
                     image_rgb.shape[1],

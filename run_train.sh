@@ -34,7 +34,7 @@ LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
 VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
-OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp_4methods"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f"
 
 for required_path in "$TRAIN_MANIFEST" "$VAL_MANIFEST" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
     if [[ ! -e "$required_path" ]]; then
@@ -62,17 +62,23 @@ echo "Training output: $OUTPUT_DIR"
     --landmark-root "$LANDMARK_ROOT" \
     --output-dir "$OUTPUT_DIR" \
     --seed 42 \
-    --epochs 25 \
-    --batch-size 16 \
+    --epochs 35 \
+    --batch-size 8 \
     --num-workers 4 \
     --learning-rate 0.0003 \
-    --weight-decay 0.0001 \
-    --early-stop-patience 6 \
+    --backbone-learning-rate 0.00003 \
+    --weight-decay 0.0003 \
+    --early-stop-patience 8 \
     --num-frames 32 \
-    --texture-frames 4 \
-    --image-size 128 \
-    --eval-clips-per-video 2 \
+    --texture-frames 8 \
+    --image-size 160 \
+    --eval-clips-per-video 3 \
     --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
+    --texture-backbone efficientnet_b0 \
+    --geometry-hidden 128 \
+    --geometry-layers 3 \
+    --embedding-dim 192 \
+    --dropout 0.3 \
     --geometry-mode aligned_motion_3d \
     --fusion-mode quality \
     --geometry-loss-weight 0.25 \
