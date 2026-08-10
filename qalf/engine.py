@@ -3,12 +3,26 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Iterable
+from typing import Iterable, Protocol
 
 import numpy as np
 import torch
 from torch import nn
 from tqdm.auto import tqdm
+
+
+class GradScalerProtocol(Protocol):
+    """Common interface of the legacy and current PyTorch gradient scalers."""
+
+    def is_enabled(self) -> bool: ...
+
+    def scale(self, outputs: torch.Tensor) -> torch.Tensor: ...
+
+    def unscale_(self, optimizer: torch.optim.Optimizer) -> None: ...
+
+    def step(self, optimizer: torch.optim.Optimizer) -> object: ...
+
+    def update(self) -> None: ...
 
 
 def move_batch(batch: dict[str, object], device: torch.device) -> dict[str, object]:
@@ -42,7 +56,7 @@ def train_epoch(
     optimizer: torch.optim.Optimizer,
     criterion: nn.Module,
     device: torch.device,
-    scaler: torch.cuda.amp.GradScaler,
+    scaler: GradScalerProtocol,
     geometry_weight: float,
     texture_weight: float,
 ) -> dict[str, float]:
@@ -55,9 +69,7 @@ def train_epoch(
         optimizer.zero_grad(set_to_none=True)
         with torch.autocast(device_type=device.type, enabled=scaler.is_enabled()):
             outputs = model(batch)
-            loss, parts = qalf_loss(
-                outputs, labels, criterion, geometry_weight, texture_weight
-            )
+            loss, parts = qalf_loss(outputs, labels, criterion, geometry_weight, texture_weight)
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)

@@ -4,6 +4,7 @@ import numpy as np
 
 from qalf.data.geometry import (
     DEFAULT_LANDMARK_INDICES,
+    _alignment_medoid,
     build_geometry_features,
     geometry_input_dim,
 )
@@ -89,6 +90,15 @@ class GeometryTest(unittest.TestCase):
         )
         mouth_y_velocity = features[:, mouth_index * 3 + 1]
         self.assertGreater(float(np.abs(mouth_y_velocity).mean()), 1e-3)
+
+    def test_alignment_reference_is_not_forced_to_noisy_first_frame(self) -> None:
+        clean = self.base - self.base.mean(axis=0, keepdims=True)
+        clean /= np.sqrt(np.mean(np.sum(clean**2, axis=1)))
+        frames = np.repeat(clean[None, ...], 5, axis=0)
+        frames[0] = frames[0].copy()
+        frames[0, :40] += 2.0
+        reference = _alignment_medoid(frames)
+        self.assertLess(float(np.sqrt(np.mean((reference - frames[1]) ** 2))), 1e-5)
 
     def test_individual_missing_point_is_interpolated(self) -> None:
         sequence = np.repeat(self.base[None, ...], 8, axis=0)

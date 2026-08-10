@@ -91,6 +91,7 @@ RIGID_ALIGNMENT_INDICES = (
 LEGACY_2D_MODES = {"normalized", "aligned", "motion_only", "aligned_motion"}
 POSE_3D_MODES = {"aligned_3d", "motion_3d", "aligned_motion_3d"}
 GEOMETRY_FEATURE_MODES = LEGACY_2D_MODES | POSE_3D_MODES
+DEFAULT_GEOMETRY_FEATURE_MODE = "aligned_motion_3d"
 
 
 def _fill_missing(points: np.ndarray, detected: np.ndarray) -> np.ndarray:
@@ -133,6 +134,34 @@ def _kabsch_rotation(points: np.ndarray, reference: np.ndarray) -> np.ndarray:
     return rotation.astype(np.float32)
 
 
+def _alignment_medoid(frames: np.ndarray) -> np.ndarray:
+    """Estimate a robust temporal reference and return its nearest observed frame.
+
+    A medoid keeps the reference on the observed face manifold and avoids making the
+    entire clip depend on a potentially noisy first frame. Two generalized-Procrustes
+    median updates make the selection insensitive to rigid pose without the quadratic
+    cost of comparing every frame pair.
+    """
+
+    if len(frames) == 0:
+        raise ValueError("Cannot select an alignment reference from an empty sequence")
+    if len(frames) == 1:
+        return frames[0]
+    reference = frames[len(frames) // 2]
+    for _ in range(2):
+        aligned = np.stack([frame @ _kabsch_rotation(frame, reference) for frame in frames])
+        reference = np.median(aligned, axis=0).astype(np.float32)
+        reference, _ = _normalize_frame(reference)
+
+    residuals: list[float] = []
+    aligned_frames: list[np.ndarray] = []
+    for frame in frames:
+        aligned = frame @ _kabsch_rotation(frame, reference)
+        aligned_frames.append(aligned)
+        residuals.append(float(np.sqrt(np.mean((aligned - reference) ** 2))))
+    return aligned_frames[int(np.argmin(residuals))].astype(np.float32)
+
+
 def _legacy_2d_alignment(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     normalized_frames: list[np.ndarray] = []
     scales: list[float] = []
@@ -141,7 +170,7 @@ def _legacy_2d_alignment(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np
         normalized_frames.append(normalized)
         scales.append(scale)
     normalized = np.stack(normalized_frames).astype(np.float32)
-    reference = normalized[0]
+    reference = _alignment_medoid(normalized)
     aligned = np.stack([frame @ _kabsch_rotation(frame, reference) for frame in normalized]).astype(
         np.float32
     )
@@ -169,7 +198,7 @@ def _rigid_3d_alignment(
 
     normalized = np.stack(normalized_features).astype(np.float32)
     anchors = np.stack(normalized_anchors).astype(np.float32)
-    reference = anchors[0]
+    reference = _alignment_medoid(anchors)
     aligned_frames: list[np.ndarray] = []
     residuals: list[float] = []
     for points, frame_anchors in zip(normalized, anchors, strict=True):
@@ -209,7 +238,7 @@ def build_geometry_features(
     detected: np.ndarray,
     timestamps_sec: np.ndarray | None = None,
     indices: tuple[int, ...] = DEFAULT_LANDMARK_INDICES,
-    feature_mode: str = "aligned_motion_3d",
+    feature_mode: str = DEFAULT_GEOMETRY_FEATURE_MODE,
     alignment_indices: tuple[int, ...] = RIGID_ALIGNMENT_INDICES,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Build per-frame geometry features and five measurement-quality descriptors.
@@ -281,7 +310,7 @@ def build_geometry_features(
 
 def geometry_input_dim(
     indices: tuple[int, ...] = DEFAULT_LANDMARK_INDICES,
-    feature_mode: str = "aligned_motion_3d",
+    feature_mode: str = DEFAULT_GEOMETRY_FEATURE_MODE,
 ) -> int:
     if feature_mode not in GEOMETRY_FEATURE_MODES:
         raise ValueError(f"Unsupported geometry feature mode: {feature_mode}")

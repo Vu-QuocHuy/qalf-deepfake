@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
+
 
 def load_config(path: str | Path) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as handle:
@@ -21,13 +23,9 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("data.texture_frames must be in [1, data.num_frames]")
     if int(config["data"].get("eval_clips_per_video", 1)) < 1:
         raise ValueError("data.eval_clips_per_video must be >= 1")
-    if config["data"].get("geometry_mode", "aligned_motion") not in {
-        "normalized",
-        "aligned",
-        "motion_only",
-        "aligned_motion",
-    }:
-        raise ValueError("Unsupported data.geometry_mode")
+    geometry_mode = config["data"].setdefault("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE)
+    if geometry_mode not in GEOMETRY_FEATURE_MODES:
+        raise ValueError(f"Unsupported data.geometry_mode: {geometry_mode}")
     if config["data"].get("texture_mode", "canonical_skin") not in {
         "canonical_skin",
         "full_face",

@@ -20,6 +20,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from qalf.config import load_config, save_json
 from qalf.data.dataset import QALFVideoDataset
+from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
 from qalf.models import QALFModel
@@ -31,6 +32,15 @@ def _seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def _make_grad_scaler(enabled: bool):
+    """Use the current AMP API while retaining the declared PyTorch 2.2 minimum."""
+
+    grad_scaler = getattr(torch.amp, "GradScaler", None)
+    if grad_scaler is not None:
+        return grad_scaler("cuda", enabled=enabled)
+    return torch.cuda.amp.GradScaler(enabled=enabled)
 
 
 def _loader(dataset, batch_size, workers, training, balanced):
@@ -64,15 +74,7 @@ def main() -> None:
     parser.add_argument("--output-dir")
     parser.add_argument(
         "--geometry-mode",
-        choices=(
-            "normalized",
-            "aligned",
-            "motion_only",
-            "aligned_motion",
-            "aligned_3d",
-            "motion_3d",
-            "aligned_motion_3d",
-        ),
+        choices=tuple(sorted(GEOMETRY_FEATURE_MODES)),
     )
     parser.add_argument(
         "--fusion-mode",
@@ -123,7 +125,7 @@ def main() -> None:
         "num_frames": int(data["num_frames"]),
         "texture_frames": int(data["texture_frames"]),
         "image_size": int(data["image_size"]),
-        "geometry_mode": str(data.get("geometry_mode", "aligned_motion_3d")),
+        "geometry_mode": str(data.get("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE)),
         "texture_mode": str(data.get("texture_mode", "canonical_skin")),
         "geometry_augmentation": data.get("geometry_augmentation", {}),
     }
@@ -186,7 +188,7 @@ def main() -> None:
         optimizer, T_max=max(1, int(training["epochs"]))
     )
     amp_enabled = bool(training.get("amp", True)) and device.type == "cuda"
-    scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
+    scaler = _make_grad_scaler(amp_enabled)
     criterion = nn.BCEWithLogitsLoss()
     geometry_loss_weight = float(training.get("geometry_loss_weight", 0.25))
     texture_loss_weight = float(training.get("texture_loss_weight", 0.25))

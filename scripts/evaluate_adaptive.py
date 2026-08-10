@@ -18,6 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from qalf.data.dataset import QALFVideoDataset
+from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE
 from qalf.engine import aggregate_predictions, move_batch
 from qalf.metrics import compute_metrics, select_threshold
 from qalf.models import QALFModel, TextureRefreshPolicy
@@ -114,7 +115,7 @@ def main() -> None:
         num_frames=int(data["num_frames"]),
         texture_frames=int(data["texture_frames"]),
         image_size=int(data["image_size"]),
-        geometry_mode=str(data.get("geometry_mode", "aligned_motion_3d")),
+        geometry_mode=str(data.get("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE)),
         texture_mode=str(data.get("texture_mode", "canonical_skin")),
         training=False,
         clips_per_video=clips_per_video,

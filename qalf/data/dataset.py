@@ -11,7 +11,12 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .geometry import DEFAULT_LANDMARK_INDICES, build_geometry_features, geometry_input_dim
+from .geometry import (
+    DEFAULT_GEOMETRY_FEATURE_MODE,
+    DEFAULT_LANDMARK_INDICES,
+    build_geometry_features,
+    geometry_input_dim,
+)
 from .manifest import VideoRecord, load_manifest
 
 IMAGE_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
@@ -228,7 +233,7 @@ class QALFVideoDataset(Dataset):
         image_size: int = 128,
         training: bool = False,
         clips_per_video: int = 1,
-        geometry_mode: str = "aligned_motion_3d",
+        geometry_mode: str = DEFAULT_GEOMETRY_FEATURE_MODE,
         texture_mode: str = "canonical_skin",
         landmark_indices: tuple[int, ...] = DEFAULT_LANDMARK_INDICES,
         geometry_augmentation: dict[str, float] | None = None,
