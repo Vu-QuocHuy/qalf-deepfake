@@ -38,6 +38,8 @@ OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb1_240_8f_ema_texture"
 echo "Python: $PYTHON"
 echo "Training output: $OUTPUT_DIR"
 echo "Protocol: EfficientNet-B1 240px, EMA=0.999, texture emphasis"
+export CUBLAS_WORKSPACE_CONFIG=':4096:8'
+echo "Deterministic cuBLAS workspace: $CUBLAS_WORKSPACE_CONFIG"
 "$PYTHON" scripts/train.py \
     --config configs/ffpp_to_celebdf_b1_ema.json \
     --train-manifest "$TRAIN_MANIFEST" \
