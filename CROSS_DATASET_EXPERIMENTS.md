@@ -52,6 +52,15 @@ fusion rules, or hyperparameters from Celeb-DF test AUC for a final paper; use a
 separate cross-domain development set and reserve the locked test set for the
 final report.
 
+## Reporting artifacts
+
+Training preserves `best.pt` and `last.pt` at their existing paths and adds
+`run_metadata.json`, `training_summary.json`, `history.json`, `train.log`, and
+`plots/training_history.png`. Evaluation writes a stable human-readable table in
+`metrics.txt`, a machine-readable `metrics.json`, `eval.log`, video- and
+clip-level prediction CSV files, the exact protocol, raw/normalized confusion
+matrices, ROC and precision-recall curves, and the real/fake score distribution.
+
 ## Motivation
 
 Full-face input restores eyes, mouth, and face-boundary evidence removed by the

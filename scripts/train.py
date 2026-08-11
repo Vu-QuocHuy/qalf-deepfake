@@ -7,6 +7,7 @@ import argparse
 import logging
 import random
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -24,6 +25,7 @@ from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_M
 from qalf.engine import EMAModel, aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
 from qalf.models import QALFModel, SUPPORTED_TEXTURE_BACKBONES, SUPPORTED_TEXTURE_POOLING
+from qalf.reporting import collect_run_metadata, save_training_history_plot
 
 
 def _seed_everything(seed: int, deterministic: bool = False) -> None:
@@ -129,31 +131,39 @@ def _optimizer_groups(
     return groups
 
 
-def _epoch_message(
+def _epoch_messages(
     epoch: int,
     epochs: int,
     optimizer: torch.optim.Optimizer,
     train_metrics: dict[str, float],
-    validation_metrics: dict[str, float],
-) -> str:
+    validation_metrics: dict[str, float | int],
+    duration_seconds: float,
+) -> list[str]:
     learning_rates = {
         str(group.get("name", index)): float(group["lr"])
         for index, group in enumerate(optimizer.param_groups)
     }
     rate_text = " ".join(f"{name}_lr={rate:.4e}" for name, rate in learning_rates.items())
-    return (
-        f"epoch={epoch:03d}/{epochs:03d} {rate_text} | "
-        f"train loss={train_metrics['loss']:.4f} fused={train_metrics['fused']:.4f} "
-        f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f} | "
-        f"val auc={validation_metrics['auc']:.4f} ap={validation_metrics['average_precision']:.4f} "
-        f"geometry_auc={validation_metrics['geometry_auc']:.4f} "
-        f"texture_auc={validation_metrics['texture_auc']:.4f} "
-        f"geometry_weight={validation_metrics['mean_geometry_weight']:.4f} "
-        f"texture_weight={validation_metrics['mean_texture_weight']:.4f} "
-        f"balanced_acc={validation_metrics['balanced_accuracy']:.4f} "
-        f"accuracy={validation_metrics['accuracy']:.4f} f1={validation_metrics['f1']:.4f} "
-        f"eer={validation_metrics['eer']:.4f} threshold={validation_metrics['threshold']:.4f}"
-    )
+    return [
+        f"epoch={epoch:03d}/{epochs:03d} duration={duration_seconds:.1f}s {rate_text}",
+        "  train | "
+        f"total={train_metrics['loss']:.4f} fused={train_metrics['fused']:.4f} "
+        f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f}",
+        "  val   | "
+        f"auc={float(validation_metrics['auc']):.4f} "
+        f"ap={float(validation_metrics['average_precision']):.4f} "
+        f"eer={float(validation_metrics['eer']):.4f} "
+        f"balanced_acc={float(validation_metrics['balanced_accuracy']):.4f} "
+        f"accuracy={float(validation_metrics['accuracy']):.4f} "
+        f"f1={float(validation_metrics['f1']):.4f} "
+        f"threshold={float(validation_metrics['threshold']):.4f}",
+        "  branch| "
+        f"geometry_auc={float(validation_metrics['geometry_auc']):.4f} "
+        f"texture_auc={float(validation_metrics['texture_auc']):.4f} "
+        f"weights_geometry/texture="
+        f"{float(validation_metrics['mean_geometry_weight']):.4f}/"
+        f"{float(validation_metrics['mean_texture_weight']):.4f}",
+    ]
 
 
 def main() -> None:
@@ -367,6 +377,10 @@ def main() -> None:
     data.setdefault("video_aggregation", "mean")
     data.setdefault("top_k", 1)
     save_json(config, output_dir / "config.json")
+    save_json(
+        collect_run_metadata(sys.argv, config, PROJECT_ROOT),
+        output_dir / "run_metadata.json",
+    )
 
     dataset_args = {
         "frame_root": frame_root,
@@ -388,6 +402,12 @@ def main() -> None:
         training=False,
         clips_per_video=int(data["eval_clips_per_video"]),
         **dataset_args,
+    )
+    train_counts = np.bincount(
+        [record.label for record in train_dataset.records], minlength=2
+    )
+    val_counts = np.bincount(
+        [record.label for record in val_dataset.records], minlength=2
     )
     batch_size = int(training["batch_size"])
     workers = int(training.get("num_workers", 4))
@@ -465,34 +485,62 @@ def main() -> None:
     stale_epochs = 0
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
+    logger.info("=" * 72)
+    logger.info("QALF TRAINING RUN")
     logger.info(
-        "device=%s backbone=%s texture_mode=%s texture_frames=%d image_size=%d "
-        "texture_pooling=%s mixstyle_probability=%.3f mixstyle_alpha=%.3f "
-        "mixstyle_layers=%s parameters=%d trainable=%d "
-        "amp=%s deterministic=%s "
-        "ema_decay=%.4f validation_weights=%s geometry_loss_weight=%.3f "
-        "texture_loss_weight=%.3f texture_gate_bias=%.3f early_stop_patience=%d",
+        "  model | device=%s backbone=%s texture_mode=%s pooling=%s "
+        "frames=%d image_size=%d parameters=%d trainable=%d",
         device,
         model_config.get("texture_backbone", "efficientnet_b0"),
         data.get("texture_mode", "canonical_skin"),
+        model_config.get("texture_temporal_pooling", "mean"),
         int(data["texture_frames"]),
         int(data["image_size"]),
-        model_config.get("texture_temporal_pooling", "mean"),
-        mixstyle_probability,
-        mixstyle_alpha,
-        list(mixstyle_layers),
         sum(parameter.numel() for parameter in model.parameters()),
         sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
+    )
+    logger.info(
+        "  data  | train_videos=%d (real=%d fake=%d) "
+        "val_videos=%d (real=%d fake=%d) val_samples=%d "
+        "num_frames=%d clips_per_video=%d aggregation=%s",
+        len(train_dataset.records),
+        int(train_counts[0]),
+        int(train_counts[1]),
+        len(val_dataset.records),
+        int(val_counts[0]),
+        int(val_counts[1]),
+        len(val_dataset),
+        int(data["num_frames"]),
+        int(data["eval_clips_per_video"]),
+        data["video_aggregation"],
+    )
+    logger.info(
+        "  train | amp=%s deterministic=%s ema_decay=%.4f validation_weights=%s "
+        "loss_weights=fused:1.000 geometry:%.3f texture:%.3f patience=%d",
         amp_enabled,
         deterministic,
         ema_decay,
         "ema" if ema is not None else "raw",
         geometry_loss_weight,
         texture_loss_weight,
-        float(model_config.get("texture_gate_bias", 0.0)),
         patience,
     )
+    logger.info(
+        "  extra | mixstyle_probability=%.3f mixstyle_alpha=%.3f "
+        "mixstyle_layers=%s texture_gate_bias=%.3f",
+        mixstyle_probability,
+        mixstyle_alpha,
+        list(mixstyle_layers),
+        float(model_config.get("texture_gate_bias", 0.0)),
+    )
+    logger.info("  select| best_metric=val_auc threshold=Youden-J on FF++ validation")
+    logger.info("  files | output_dir=%s", output_dir)
+    logger.info("=" * 72)
+    run_started = time.perf_counter()
+    history_plot_enabled = True
+    training_plot_path = output_dir / "plots" / "training_history.png"
     for epoch in range(1, epochs + 1):
+        epoch_started = time.perf_counter()
         train_metrics = train_epoch(
             model,
             train_loader,
@@ -530,7 +578,25 @@ def main() -> None:
         row = {"epoch": epoch, "train": train_metrics, "validation": val_metrics}
         history.append(row)
         save_json(history, output_dir / "history.json")
-        logger.info(_epoch_message(epoch, epochs, optimizer, train_metrics, val_metrics))
+        epoch_duration = time.perf_counter() - epoch_started
+        if history_plot_enabled:
+            try:
+                save_training_history_plot(
+                    history,
+                    training_plot_path,
+                )
+            except Exception as error:
+                history_plot_enabled = False
+                logger.warning("Training history plots disabled: %s", error)
+        for message in _epoch_messages(
+            epoch,
+            epochs,
+            optimizer,
+            train_metrics,
+            val_metrics,
+            epoch_duration,
+        ):
+            logger.info(message)
         scheduler.step()
 
         checkpoint = {
@@ -545,6 +611,10 @@ def main() -> None:
             "validation_metrics": val_metrics,
             "ema_decay": ema_decay,
             "model_weights": "ema" if ema is not None else "raw",
+            "label_convention": "real=0,fake=1",
+            "score_target": "fake",
+            "threshold_selection": "youden_j_ffpp_validation",
+            "best_metric": "val_auc",
         }
         torch.save(checkpoint, output_dir / "last.pt")
         if val_metrics["auc"] > best_auc:
@@ -574,15 +644,52 @@ def main() -> None:
             if patience > 0 and stale_epochs >= patience:
                 logger.info("Early stopping after %d epochs", epoch)
                 break
+    best_metrics = next(
+        (
+            row["validation"]
+            for row in history
+            if int(row["epoch"]) == best_epoch
+        ),
+        {},
+    )
+    summary = {
+        "status": "complete",
+        "completed_epochs": len(history),
+        "best_epoch": best_epoch,
+        "best_metric": "val_auc",
+        "best_value": best_auc,
+        "best_threshold": best_threshold,
+        "best_validation_metrics": best_metrics,
+        "duration_seconds": time.perf_counter() - run_started,
+        "best_model": str(best_path),
+        "last_model": str(output_dir / "last.pt"),
+        "history": str(output_dir / "history.json"),
+        "training_plot": str(training_plot_path) if training_plot_path.is_file() else None,
+    }
+    save_json(summary, output_dir / "training_summary.json")
+    logger.info("=" * 72)
     logger.info(
-        "training_complete best_epoch=%03d best_val_auc=%.4f "
-        "best_threshold=%.4f best_model=%s output_dir=%s",
+        "training_complete epochs=%d duration=%.1fs best_epoch=%03d best_val_auc=%.4f",
+        len(history),
+        float(summary["duration_seconds"]),
         best_epoch,
         best_auc,
-        best_threshold,
-        best_path,
-        output_dir,
     )
+    logger.info(
+        "  result| auc=%.4f ap=%.4f eer=%.4f balanced_acc=%.4f threshold=%.4f",
+        float(best_metrics.get("auc", best_auc)),
+        float(best_metrics.get("average_precision", float("nan"))),
+        float(best_metrics.get("eer", float("nan"))),
+        float(best_metrics.get("balanced_accuracy", float("nan"))),
+        best_threshold,
+    )
+    logger.info(
+        "  model | weights=%s best_model=%s",
+        "ema" if ema is not None else "raw",
+        best_path,
+    )
+    logger.info("  files | summary=%s", output_dir / "training_summary.json")
+    logger.info("=" * 72)
 
 
 if __name__ == "__main__":

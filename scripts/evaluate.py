@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -16,17 +17,31 @@ from torch.utils.data import DataLoader
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from qalf.config import save_json
 from qalf.data.dataset import QALFVideoDataset, texture_view_count
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE
 from qalf.engine import aggregate_predictions, predict
 from qalf.metrics import compute_metrics, select_threshold
 from qalf.models import QALFModel
+from qalf.reporting import (
+    collect_run_metadata,
+    format_evaluation_report,
+    save_evaluation_plots,
+)
 
 
-def _format_metrics(metrics: dict[str, float]) -> str:
-    lines = ["QALF evaluation metrics"]
-    lines.extend(f"{name}: {value:.4f}" for name, value in metrics.items())
-    return "\n".join(lines) + "\n"
+def _create_logger(path: Path) -> logging.Logger:
+    logger = logging.getLogger("qalf.evaluate")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    formatter = logging.Formatter("%(asctime)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    stream = logging.StreamHandler(sys.stdout)
+    stream.setFormatter(formatter)
+    file_handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(stream)
+    logger.addHandler(file_handler)
+    return logger
 
 
 def main() -> None:
@@ -75,17 +90,38 @@ def main() -> None:
             "--threshold-manifest, --threshold-frame-root, and "
             "--threshold-landmark-root must be provided together"
         )
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger = _create_logger(output_dir / "eval.log")
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
+    if "label_convention" not in checkpoint or "score_target" not in checkpoint:
+        logger.warning(
+            "Legacy checkpoint has no explicit label metadata; assuming real=0, fake=1, "
+            "score=P(fake)."
+        )
+    label_convention = str(checkpoint.get("label_convention", "real=0,fake=1"))
+    score_target = str(checkpoint.get("score_target", "fake"))
+    if label_convention != "real=0,fake=1" or score_target != "fake":
+        raise ValueError(
+            "Checkpoint label convention is incompatible: "
+            f"label_convention={label_convention}, score_target={score_target}"
+        )
     config = checkpoint["config"]
+    save_json(
+        collect_run_metadata(sys.argv, config, PROJECT_ROOT),
+        output_dir / "run_metadata.json",
+    )
     data, model_config = config["data"], config["model"]
     texture_frames = int(
         args.texture_frames if args.texture_frames is not None else data["texture_frames"]
     )
     if not 1 <= texture_frames <= int(data["num_frames"]):
         parser.error("--texture-frames must be in [1, checkpoint num_frames]")
-    print(
-        "Checkpoint model: "
+    logger.info("=" * 72)
+    logger.info("QALF EVALUATION RUN")
+    logger.info(
+        "  model | "
         f"backbone={model_config.get('texture_backbone', 'efficientnet_b0')} "
         f"texture_mode={data.get('texture_mode', 'canonical_skin')} "
         f"texture_pooling={model_config.get('texture_temporal_pooling', 'mean')} "
@@ -95,6 +131,9 @@ def main() -> None:
         f"weights={checkpoint.get('model_weights', 'raw')} "
         f"ema_decay={float(checkpoint.get('ema_decay', 0.0)):.4f}"
     )
+    logger.info("  input | checkpoint=%s", args.checkpoint)
+    logger.info("  input | manifest=%s", args.manifest)
+    logger.info("=" * 72)
     geometry_corruption = {}
     if args.geometry_corruption_json:
         with Path(args.geometry_corruption_json).open("r", encoding="utf-8") as handle:
@@ -243,43 +282,103 @@ def main() -> None:
     )["auc"]
     metrics["mean_geometry_weight"] = float(np.mean(predictions["geometry_weight"]))
     metrics["mean_texture_weight"] = float(np.mean(predictions["texture_weight"]))
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    metrics_text = _format_metrics(metrics)
+    dataset_names = sorted({str(value) for value in predictions["dataset"]})
+    aggregation = str(args.aggregation or data.get("video_aggregation", "mean"))
+    threshold_context = (
+        "FF++ validation calibration (Youden-J)"
+        if args.threshold_manifest
+        else "checkpoint FF++ validation (Youden-J)"
+    )
+    report_context = {
+        "Dataset": ", ".join(dataset_names),
+        "Videos": (
+            f"{int(metrics['sample_count'])} "
+            f"(real={int(metrics['real_count'])}, fake={int(metrics['fake_count'])})"
+        ),
+        "Inference": (
+            f"clips={dataset.clips_per_video}, aggregation={aggregation}, "
+            f"texture_frames={texture_frames}, flip_tta={args.texture_flip_tta}"
+        ),
+        "Threshold source": threshold_context,
+        "Model weights": checkpoint.get("model_weights", "raw"),
+    }
+    metrics_text = format_evaluation_report(metrics, context=report_context)
     (output_dir / "metrics.txt").write_text(metrics_text, encoding="utf-8")
     if threshold_calibration_metrics is not None:
         (output_dir / "threshold_calibration_metrics.txt").write_text(
-            _format_metrics(threshold_calibration_metrics),
+            format_evaluation_report(
+                threshold_calibration_metrics,
+                title="FF++ THRESHOLD CALIBRATION",
+                context={"Manifest": args.threshold_manifest},
+            ),
             encoding="utf-8",
         )
+    protocol = {
+        "checkpoint": str(args.checkpoint),
+        "manifest": str(args.manifest),
+        "datasets": dataset_names,
+        "label_convention": label_convention,
+        "score_target": score_target,
+        "model": {
+            "texture_backbone": model_config.get("texture_backbone", "efficientnet_b0"),
+            "texture_temporal_pooling": model_config.get(
+                "texture_temporal_pooling", "mean"
+            ),
+            "texture_mode": data.get("texture_mode", "canonical_skin"),
+            "texture_mixstyle_probability": float(
+                model_config.get("texture_mixstyle_probability", 0.0)
+            ),
+            "texture_mixstyle_alpha": float(
+                model_config.get("texture_mixstyle_alpha", 0.1)
+            ),
+            "texture_mixstyle_layers": model_config.get(
+                "texture_mixstyle_layers", []
+            ),
+            "model_weights": checkpoint.get("model_weights", "raw"),
+            "ema_decay": float(checkpoint.get("ema_decay", 0.0)),
+        },
+        "inference": {
+            "num_frames": int(data["num_frames"]),
+            "texture_frames": texture_frames,
+            "image_size": int(data["image_size"]),
+            "clips_per_video": dataset.clips_per_video,
+            "aggregation": aggregation,
+            "top_k": int(args.top_k if args.top_k is not None else data.get("top_k", 1)),
+            "texture_flip_tta": args.texture_flip_tta,
+        },
+        "threshold": {
+            "value": threshold,
+            "source": threshold_source,
+            "checkpoint_value": float(checkpoint["threshold"]),
+            "selection": checkpoint.get(
+                "threshold_selection", "youden_j_ffpp_validation"
+            ),
+            "calibration_clips_per_video": int(
+                args.threshold_clips_per_video
+                if args.threshold_clips_per_video is not None
+                else data.get("eval_clips_per_video", 1)
+            ),
+        },
+        "geometry_corruption": geometry_corruption,
+        "geometry_corruption_seed": args.geometry_corruption_seed,
+    }
+    save_json({"metrics": metrics, "protocol": protocol}, output_dir / "metrics.json")
     (output_dir / "evaluation_protocol.txt").write_text(
         "\n".join(
             (
-                "QALF evaluation protocol",
-                f"checkpoint: {args.checkpoint}",
-                f"manifest: {args.manifest}",
-                f"texture_backbone: {model_config.get('texture_backbone', 'efficientnet_b0')}",
-                f"texture_temporal_pooling: {model_config.get('texture_temporal_pooling', 'mean')}",
-                f"texture_mode: {data.get('texture_mode', 'canonical_skin')}",
-                "texture_mixstyle_probability: "
-                f"{float(model_config.get('texture_mixstyle_probability', 0.0)):.4f}",
-                "texture_mixstyle_alpha: "
-                f"{float(model_config.get('texture_mixstyle_alpha', 0.1)):.4f}",
-                f"texture_mixstyle_layers: {model_config.get('texture_mixstyle_layers', [])}",
-                f"model_weights: {checkpoint.get('model_weights', 'raw')}",
-                f"ema_decay: {float(checkpoint.get('ema_decay', 0.0)):.4f}",
-                f"num_frames: {int(data['num_frames'])}",
-                f"texture_frames: {texture_frames}",
-                f"image_size: {int(data['image_size'])}",
-                f"clips_per_video: {dataset.clips_per_video}",
-                f"aggregation: {args.aggregation or data.get('video_aggregation', 'mean')}",
-                f"texture_flip_tta: {args.texture_flip_tta}",
-                f"threshold: {threshold:.4f}",
-                f"checkpoint_threshold: {float(checkpoint['threshold']):.4f}",
-                f"threshold_source: {threshold_source}",
-                f"threshold_clips_per_video: {int(args.threshold_clips_per_video if args.threshold_clips_per_video is not None else data.get('eval_clips_per_video', 1))}",
-                f"geometry_corruption: {json.dumps(geometry_corruption, ensure_ascii=False)}",
-                f"geometry_corruption_seed: {args.geometry_corruption_seed}",
+                "QALF EVALUATION PROTOCOL",
+                "=" * 72,
+                f"checkpoint: {protocol['checkpoint']}",
+                f"manifest: {protocol['manifest']}",
+                f"datasets: {', '.join(protocol['datasets'])}",
+                f"label_convention: {protocol['label_convention']}",
+                f"score_target: {protocol['score_target']}",
+                f"model: {json.dumps(protocol['model'], ensure_ascii=False)}",
+                f"inference: {json.dumps(protocol['inference'], ensure_ascii=False)}",
+                f"threshold: {json.dumps(protocol['threshold'], ensure_ascii=False)}",
+                "geometry_corruption: "
+                f"{json.dumps(protocol['geometry_corruption'], ensure_ascii=False)}",
+                f"geometry_corruption_seed: {protocol['geometry_corruption_seed']}",
             )
         )
         + "\n",
@@ -295,7 +394,23 @@ def main() -> None:
             writer.writeheader()
             for row in zip(*(rows[column] for column in columns), strict=True):
                 writer.writerow(dict(zip(columns, row, strict=True)))
-    print(metrics_text, end="")
+    try:
+        plot_files = save_evaluation_plots(
+            labels,
+            fused_scores,
+            threshold,
+            output_dir / "plots",
+        )
+    except Exception as error:
+        plot_files = []
+        logger.warning("Could not generate evaluation plots: %s", error)
+    logger.info("\n%s", metrics_text.rstrip())
+    logger.info(
+        "evaluation_complete metrics=%s predictions=%s plots=%s",
+        output_dir / "metrics.json",
+        output_dir / "predictions.csv",
+        ",".join(plot_files),
+    )
 
 
 if __name__ == "__main__":
