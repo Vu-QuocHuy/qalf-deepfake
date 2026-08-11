@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Cross-dataset research profiles. Each ablation changes one mechanism from the
-# deterministic B0 control; temporal_dg combines the mechanisms after ablation.
+# Focused cross-dataset profiles built from the best full-face configuration.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 
@@ -28,49 +27,42 @@ if [[ ! -x "$PYTHON" ]]; then
     exit 1
 fi
 
-PROFILE="${1:-temporal_dg}"
+PROFILE="${1:-dual_view}"
 PROFILE_ARGS=()
 case "$PROFILE" in
-    control)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_control_deterministic'
-        DESCRIPTION='deterministic reproduction control'
-        ;;
     full_face)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_deterministic'
-        DESCRIPTION='full aligned face instead of four rectangular skin regions'
+        DESCRIPTION='established 0.8209 AUC full-face baseline'
         PROFILE_ARGS+=(--texture-mode full_face)
         ;;
-    mixstyle)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_mixstyle_deterministic'
-        DESCRIPTION='video-coherent MixStyle at shallow EfficientNet stages'
-        PROFILE_ARGS+=(
-            --texture-mixstyle-probability 0.5
-            --texture-mixstyle-alpha 0.1
-            --texture-mixstyle-layers 1 2
-        )
+    full_face_ema)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_ema'
+        DESCRIPTION='full-face baseline with EMA checkpoint selection'
+        PROFILE_ARGS+=(--texture-mode full_face --ema-decay 0.999)
         ;;
-    dynamics)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_dynamics_deterministic'
-        DESCRIPTION='mean plus temporal variance/velocity/acceleration pooling'
-        PROFILE_ARGS+=(--texture-temporal-pooling dynamics)
-        ;;
-    temporal_dg)
-        EXPERIMENT='qalf_ffpp4_effb0_224_16f_temporal_dg'
-        DESCRIPTION='full face, 224px, 16f dynamics, Video MixStyle, and EMA'
+    full_face_mixstyle)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_mixstyle'
+        DESCRIPTION='full-face baseline with video-coherent MixStyle'
         PROFILE_ARGS+=(
             --texture-mode full_face
-            --texture-frames 16
-            --image-size 224
-            --texture-temporal-pooling dynamics
             --texture-mixstyle-probability 0.5
             --texture-mixstyle-alpha 0.1
             --texture-mixstyle-layers 1 2
-            --ema-decay 0.999
         )
+        ;;
+    full_face_dynamics)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_dynamics'
+        DESCRIPTION='full-face baseline with temporal dynamics pooling'
+        PROFILE_ARGS+=(--texture-mode full_face --texture-temporal-pooling dynamics)
+        ;;
+    dual_view)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_dual_view'
+        DESCRIPTION='shared-backbone fusion of full-face and canonical-skin views'
+        PROFILE_ARGS+=(--texture-mode dual_view)
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: control, full_face, mixstyle, dynamics, or temporal_dg' >&2
+        echo 'Use: full_face, full_face_ema, full_face_mixstyle, full_face_dynamics, or dual_view' >&2
         exit 2
         ;;
 esac

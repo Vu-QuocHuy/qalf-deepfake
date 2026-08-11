@@ -29,6 +29,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
     if config["data"].get("texture_mode", "canonical_skin") not in {
         "canonical_skin",
         "full_face",
+        "dual_view",
     }:
         raise ValueError("Unsupported data.texture_mode")
     if config["data"].get("video_aggregation", "mean") not in {"mean", "median", "topk"}:
@@ -60,12 +61,9 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("model.texture_backbone must be efficientnet_b0 or efficientnet_b1")
     if config["model"]["texture_temporal_pooling"] not in {
         "mean",
-        "attention",
         "dynamics",
     }:
-        raise ValueError(
-            "model.texture_temporal_pooling must be mean, attention, or dynamics"
-        )
+        raise ValueError("model.texture_temporal_pooling must be mean or dynamics")
     mixstyle_probability = float(config["model"]["texture_mixstyle_probability"])
     if not 0.0 <= mixstyle_probability <= 1.0:
         raise ValueError("model.texture_mixstyle_probability must be in [0, 1]")

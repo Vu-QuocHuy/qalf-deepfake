@@ -17,7 +17,7 @@ from tqdm.auto import tqdm
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from qalf.data.dataset import QALFVideoDataset
+from qalf.data.dataset import QALFVideoDataset, texture_view_count
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE
 from qalf.engine import aggregate_predictions, move_batch
 from qalf.metrics import compute_metrics, select_threshold
@@ -146,6 +146,9 @@ def main() -> None:
         texture_pretrained=False,
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
+        texture_views=texture_view_count(
+            str(data.get("texture_mode", "canonical_skin"))
+        ),
         texture_mixstyle_probability=float(
             model_config.get("texture_mixstyle_probability", 0.0)
         ),

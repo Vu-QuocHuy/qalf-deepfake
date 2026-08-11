@@ -8,7 +8,7 @@ from torch import nn
 from qalf.engine import EMAModel
 from qalf.models.fusion import QualityAwareFusion
 from qalf.models.texture import (
-    TemporalAttentionPool,
+    DualViewFusion,
     TemporalDynamicsPool,
     VideoMixStyle,
 )
@@ -53,14 +53,14 @@ class TextureGateBiasTests(unittest.TestCase):
         )
 
 
-class TemporalAttentionPoolTests(unittest.TestCase):
-    def test_initial_pooling_is_exact_frame_mean(self) -> None:
-        pooling = TemporalAttentionPool(embedding_dim=8)
-        frame_embeddings = torch.randn(3, 12, 8)
+class DualViewFusionTests(unittest.TestCase):
+    def test_initial_fusion_preserves_full_face_prior(self) -> None:
+        fusion = DualViewFusion(embedding_dim=8)
+        view_embeddings = torch.randn(3, 12, 2, 8)
 
         torch.testing.assert_close(
-            pooling(frame_embeddings),
-            frame_embeddings.mean(dim=1),
+            fusion(view_embeddings),
+            0.8 * view_embeddings[:, :, 0] + 0.2 * view_embeddings[:, :, 1],
         )
 
 

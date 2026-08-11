@@ -14,6 +14,7 @@ from torch import nn
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from qalf.data.dataset import texture_view_count
 from qalf.models import QALFModel
 
 
@@ -47,7 +48,7 @@ class ONNXQALFWrapper(nn.Module):
 
 def build_model(checkpoint: dict[str, object]) -> QALFModel:
     config = checkpoint["config"]
-    model_config = config["model"]
+    data, model_config = config["data"], config["model"]
     model = QALFModel(
         geometry_input_dim=int(checkpoint["geometry_input_dim"]),
         geometry_hidden=int(model_config.get("geometry_hidden", 96)),
@@ -57,6 +58,9 @@ def build_model(checkpoint: dict[str, object]) -> QALFModel:
         texture_pretrained=False,
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
+        texture_views=texture_view_count(
+            str(data.get("texture_mode", "canonical_skin"))
+        ),
         texture_mixstyle_probability=float(
             model_config.get("texture_mixstyle_probability", 0.0)
         ),
@@ -83,13 +87,16 @@ def main() -> None:
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
     data = checkpoint["config"]["data"]
+    texture_channels = 3 * texture_view_count(
+        str(data.get("texture_mode", "canonical_skin"))
+    )
     wrapper = ONNXQALFWrapper(build_model(checkpoint)).eval()
     examples = (
         torch.zeros(1, int(data["num_frames"]), int(checkpoint["geometry_input_dim"])),
         torch.zeros(
             1,
             int(data["texture_frames"]),
-            3,
+            texture_channels,
             int(data["image_size"]),
             int(data["image_size"]),
         ),

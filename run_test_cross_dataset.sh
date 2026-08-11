@@ -12,31 +12,31 @@ case "$(uname -s)" in
     *) echo "ERROR: unsupported shell platform: $(uname -s)" >&2; exit 1 ;;
 esac
 
-PROFILE="${1:-temporal_dg}"
+PROFILE="${1:-dual_view}"
 case "$PROFILE" in
-    control)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_control_deterministic'
-        TEST_TEXTURE_FRAMES=12
-        ;;
     full_face)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_deterministic'
         TEST_TEXTURE_FRAMES=12
         ;;
-    mixstyle)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_mixstyle_deterministic'
+    full_face_ema)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_ema'
         TEST_TEXTURE_FRAMES=12
         ;;
-    dynamics)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_dynamics_deterministic'
+    full_face_mixstyle)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_mixstyle'
         TEST_TEXTURE_FRAMES=12
         ;;
-    temporal_dg)
-        EXPERIMENT='qalf_ffpp4_effb0_224_16f_temporal_dg'
-        TEST_TEXTURE_FRAMES=16
+    full_face_dynamics)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_dynamics'
+        TEST_TEXTURE_FRAMES=12
+        ;;
+    dual_view)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_dual_view'
+        TEST_TEXTURE_FRAMES=12
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: control, full_face, mixstyle, dynamics, or temporal_dg' >&2
+        echo 'Use: full_face, full_face_ema, full_face_mixstyle, full_face_dynamics, or dual_view' >&2
         exit 2
         ;;
 esac

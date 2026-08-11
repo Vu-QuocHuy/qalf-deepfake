@@ -19,7 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from qalf.config import load_config, save_json
-from qalf.data.dataset import QALFVideoDataset
+from qalf.data.dataset import QALFVideoDataset, TEXTURE_MODES, texture_view_count
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
 from qalf.engine import EMAModel, aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
@@ -171,7 +171,7 @@ def main() -> None:
     parser.add_argument("--eval-clips-per-video", type=int)
     parser.add_argument(
         "--texture-mode",
-        choices=("canonical_skin", "full_face"),
+        choices=tuple(sorted(TEXTURE_MODES)),
     )
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--batch-size", type=int)
@@ -418,6 +418,9 @@ def main() -> None:
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
+        texture_views=texture_view_count(
+            str(data.get("texture_mode", "canonical_skin"))
+        ),
         texture_mixstyle_probability=mixstyle_probability,
         texture_mixstyle_alpha=mixstyle_alpha,
         texture_mixstyle_layers=mixstyle_layers,

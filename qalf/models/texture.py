@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 SUPPORTED_TEXTURE_BACKBONES = {"efficientnet_b0", "efficientnet_b1"}
-SUPPORTED_TEXTURE_POOLING = {"mean", "attention", "dynamics"}
+SUPPORTED_TEXTURE_POOLING = {"mean", "dynamics"}
 
 
 def _build_backbone(name: str, pretrained: bool) -> tuple[nn.Module, nn.Module, int]:
@@ -25,27 +25,6 @@ def _build_backbone(name: str, pretrained: bool) -> tuple[nn.Module, nn.Module, 
     else:
         raise ValueError(f"Unsupported texture backbone: {name}")
     return model.features, model.avgpool, feature_dim
-
-
-class TemporalAttentionPool(nn.Module):
-    """Permutation-invariant attention pooling for frame-level texture embeddings."""
-
-    def __init__(self, embedding_dim: int) -> None:
-        super().__init__()
-        hidden_dim = max(32, embedding_dim // 2)
-        self.attention = nn.Sequential(
-            nn.Linear(embedding_dim, hidden_dim),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, 1),
-        )
-        # Start as exact mean pooling. Training can then learn which frames matter
-        # without introducing a random pooling bias at initialization.
-        nn.init.zeros_(self.attention[-1].weight)
-        nn.init.zeros_(self.attention[-1].bias)
-
-    def forward(self, frame_embeddings: torch.Tensor) -> torch.Tensor:
-        weights = torch.softmax(self.attention(frame_embeddings), dim=1)
-        return torch.sum(weights * frame_embeddings, dim=1)
 
 
 class TemporalDynamicsPool(nn.Module):
@@ -92,6 +71,34 @@ class TemporalDynamicsPool(nn.Module):
             [standard_deviation, first_difference, second_difference], dim=1
         )
         return mean + self.projection(dynamics)
+
+
+class DualViewFusion(nn.Module):
+    """Fuse full-face and canonical-skin embeddings for every frame.
+
+    The initial 80/20 weighting preserves the empirically stronger full-face
+    representation while allowing the gate to learn when skin-only evidence is
+    useful.
+    """
+
+    def __init__(self, embedding_dim: int) -> None:
+        super().__init__()
+        self.gate = nn.Sequential(
+            nn.Linear(embedding_dim * 2, embedding_dim),
+            nn.LayerNorm(embedding_dim),
+            nn.SiLU(),
+            nn.Linear(embedding_dim, 2),
+        )
+        nn.init.zeros_(self.gate[-1].weight)
+        with torch.no_grad():
+            self.gate[-1].bias.copy_(torch.tensor([1.3862944, 0.0]))
+
+    def forward(self, view_embeddings: torch.Tensor) -> torch.Tensor:
+        if view_embeddings.ndim != 4 or view_embeddings.shape[2] != 2:
+            raise ValueError("DualViewFusion expects [batch, frames, 2, embedding]")
+        gate_input = view_embeddings.flatten(start_dim=2)
+        weights = torch.softmax(self.gate(gate_input), dim=2).unsqueeze(-1)
+        return torch.sum(weights * view_embeddings, dim=2)
 
 
 class VideoMixStyle(nn.Module):
@@ -163,6 +170,7 @@ class TextureEncoder(nn.Module):
         mixstyle_probability: float = 0.0,
         mixstyle_alpha: float = 0.1,
         mixstyle_layers: tuple[int, ...] = (),
+        texture_views: int = 1,
     ) -> None:
         super().__init__()
         if backbone not in SUPPORTED_TEXTURE_BACKBONES:
@@ -171,6 +179,9 @@ class TextureEncoder(nn.Module):
             raise ValueError(f"Unsupported texture temporal pooling: {temporal_pooling}")
         self.backbone_name = backbone
         self.temporal_pooling = temporal_pooling
+        if texture_views not in {1, 2}:
+            raise ValueError("Texture views must be one or two")
+        self.texture_views = int(texture_views)
         self.features, self.pool, feature_dim = _build_backbone(backbone, pretrained)
         self.mixstyle_layers = tuple(sorted(set(int(index) for index in mixstyle_layers)))
         invalid_layers = [
@@ -192,9 +203,7 @@ class TextureEncoder(nn.Module):
             nn.Dropout(dropout),
         )
         self.classifier = nn.Linear(embedding_dim, 1)
-        self.temporal_attention = (
-            TemporalAttentionPool(embedding_dim) if temporal_pooling == "attention" else None
-        )
+        self.view_fusion = DualViewFusion(embedding_dim) if texture_views == 2 else None
         self.temporal_dynamics = (
             TemporalDynamicsPool(embedding_dim, dropout)
             if temporal_pooling == "dynamics"
@@ -203,16 +212,27 @@ class TextureEncoder(nn.Module):
 
     def forward(self, texture: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         batch, frames, channels, height, width = texture.shape
-        output = texture.reshape(batch * frames, channels, height, width)
+        expected_channels = self.texture_views * 3
+        if channels != expected_channels:
+            raise ValueError(
+                f"Texture encoder expects {expected_channels} channels, received {channels}"
+            )
+        output = texture.reshape(
+            batch, frames, self.texture_views, 3, height, width
+        ).reshape(batch * frames * self.texture_views, 3, height, width)
         for index, layer in enumerate(self.features):
             output = layer(output)
             if self.mixstyle is not None and index in self.mixstyle_layers:
-                output = self.mixstyle(output, batch, frames)
+                output = self.mixstyle(output, batch, frames * self.texture_views)
         output = self.pool(output).flatten(1)
-        output = self.projection(output).reshape(batch, frames, -1)
-        if self.temporal_attention is not None:
-            embedding = self.temporal_attention(output)
-        elif self.temporal_dynamics is not None:
+        output = self.projection(output).reshape(
+            batch, frames, self.texture_views, -1
+        )
+        if self.view_fusion is not None:
+            output = self.view_fusion(output)
+        else:
+            output = output.squeeze(2)
+        if self.temporal_dynamics is not None:
             embedding = self.temporal_dynamics(output)
         else:
             embedding = output.mean(dim=1)

@@ -15,6 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.export_onnx import ONNXQALFWrapper, build_model
+from qalf.data.dataset import texture_view_count
 
 
 def main() -> None:
@@ -25,6 +26,9 @@ def main() -> None:
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
     data = checkpoint["config"]["data"]
+    texture_channels = 3 * texture_view_count(
+        str(data.get("texture_mode", "canonical_skin"))
+    )
     model = build_model(checkpoint)
     quantized = torch.ao.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
     wrapper = ONNXQALFWrapper(quantized).eval()
@@ -33,7 +37,7 @@ def main() -> None:
         torch.zeros(
             1,
             int(data["texture_frames"]),
-            3,
+            texture_channels,
             int(data["image_size"]),
             int(data["image_size"]),
         ),

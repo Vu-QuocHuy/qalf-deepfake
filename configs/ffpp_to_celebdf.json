@@ -15,7 +15,7 @@
       "NeuralTextures"
     ],
     "geometry_mode": "aligned_motion_3d",
-    "texture_mode": "canonical_skin",
+    "texture_mode": "full_face",
     "geometry_augmentation": {
       "noise_probability": 0.5,
       "noise_std": 0.01,
@@ -68,10 +68,10 @@
     "geometry_loss_weight": 0.25,
     "texture_loss_weight": 0.25,
     "ema_decay": 0.0,
-    "deterministic": false,
+    "deterministic": true,
     "balanced_sampler": true,
     "amp": true,
     "early_stop_patience": 5
   },
-  "output_dir": "outputs/qalf_ffpp4_effb0_160_8f"
+  "output_dir": "outputs/qalf_ffpp4_effb0_160_8f_full_face"
 }
