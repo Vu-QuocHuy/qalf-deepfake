@@ -93,11 +93,9 @@ POSE_3D_MODES = {
     "aligned_3d",
     "motion_3d",
     "aligned_motion_3d",
-    "aligned_motion_rigid_3d",
 }
 GEOMETRY_FEATURE_MODES = LEGACY_2D_MODES | POSE_3D_MODES
 DEFAULT_GEOMETRY_FEATURE_MODE = "aligned_motion_3d"
-RIGID_FEATURE_DIM = 30
 
 
 def _fill_missing(points: np.ndarray, detected: np.ndarray) -> np.ndarray:
@@ -187,7 +185,7 @@ def _legacy_2d_alignment(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np
 def _rigid_3d_alignment(
     feature_points: np.ndarray,
     anchor_points: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Normalize and remove 3D rigid pose estimated from expression-stable anchors."""
 
     normalized_features: list[np.ndarray] = []
@@ -207,38 +205,14 @@ def _rigid_3d_alignment(
     reference = _alignment_medoid(anchors)
     aligned_frames: list[np.ndarray] = []
     residuals: list[float] = []
-    rigid_features: list[np.ndarray] = []
-    for points, frame_anchors, center, scale in zip(
-        normalized,
-        anchors,
-        [anchors.mean(axis=0, keepdims=True) for anchors in anchor_points],
-        scales,
-        strict=True,
-    ):
+    for points, frame_anchors in zip(normalized, anchors, strict=True):
         rotation = _kabsch_rotation(frame_anchors, reference)
         aligned_frames.append(points @ rotation)
         residuals.append(float(np.sqrt(np.mean((frame_anchors @ rotation - reference) ** 2))))
-        # A continuous six-dimensional rotation representation plus translation and
-        # log-scale preserves the rigid motion discarded from the aligned landmarks.
-        rigid_features.append(
-            np.concatenate(
-                [
-                    rotation[:, :2].reshape(-1),
-                    center.reshape(-1),
-                    np.asarray([np.log(max(float(scale), 1e-6))], dtype=np.float32),
-                ]
-            ).astype(np.float32)
-        )
-    rigid = np.stack(rigid_features).astype(np.float32)
-    # Translation and scale in MediaPipe coordinates contain clip/crop-specific offsets.
-    # Keep only their within-clip motion so the rigid stream cannot memorize a dataset's
-    # face-cropping convention. The rotation already maps each frame to the clip medoid.
-    rigid[:, 6:10] -= np.median(rigid[:, 6:10], axis=0, keepdims=True)
     return (
         normalized,
         np.stack(aligned_frames).astype(np.float32),
         np.asarray([scales, residuals], dtype=np.float32),
-        rigid,
     )
 
 
@@ -298,11 +272,10 @@ def build_geometry_features(
 
     if feature_mode in LEGACY_2D_MODES:
         normalized, aligned, diagnostics = _legacy_2d_alignment(points)
-        rigid_base = None
     else:
         raw_anchors = landmarks[:, alignment_indices, :3].astype(np.float32)
         anchors = _fill_missing(raw_anchors, detected)
-        normalized, aligned, diagnostics, rigid_base = _rigid_3d_alignment(points, anchors)
+        normalized, aligned, diagnostics = _rigid_3d_alignment(points, anchors)
 
     velocity, acceleration, deltas = _temporal_derivatives(aligned, timestamps_sec)
     frame_valid = detected.astype(np.float32)[:, None]
@@ -321,17 +294,6 @@ def build_geometry_features(
             velocity.reshape(len(aligned), -1),
             acceleration.reshape(len(aligned), -1),
         ]
-        if feature_mode == "aligned_motion_rigid_3d":
-            assert rigid_base is not None
-            rigid_velocity, rigid_acceleration, _ = _temporal_derivatives(
-                rigid_base[:, None, :], timestamps_sec
-            )
-            components.append(
-                np.concatenate(
-                    [rigid_base, rigid_velocity[:, 0], rigid_acceleration[:, 0]],
-                    axis=1,
-                )
-            )
     features = np.concatenate([*components, frame_valid], axis=1).astype(np.float32)
 
     scales, residuals = diagnostics
@@ -364,24 +326,5 @@ def geometry_input_dim(
         "aligned_3d": 3,
         "motion_3d": 6,
         "aligned_motion_3d": 9,
-        "aligned_motion_rigid_3d": 9,
     }
-    rigid_dim = RIGID_FEATURE_DIM if feature_mode == "aligned_motion_rigid_3d" else 0
-    return len(indices) * coordinate_multipliers[feature_mode] + rigid_dim + 1
-
-
-def geometry_feature_layout(
-    indices: tuple[int, ...] = DEFAULT_LANDMARK_INDICES,
-    feature_mode: str = DEFAULT_GEOMETRY_FEATURE_MODE,
-) -> tuple[int, int, int]:
-    """Return node count, per-node feature width, and rigid feature width.
-
-    Graph encoders require a structured aligned-position/motion layout. Legacy
-    feature modes remain valid for the original flat temporal encoder.
-    """
-
-    if feature_mode == "aligned_motion_3d":
-        return len(indices), 9, 0
-    if feature_mode == "aligned_motion_rigid_3d":
-        return len(indices), 9, RIGID_FEATURE_DIM
-    return len(indices), 0, 0
+    return len(indices) * coordinate_multipliers[feature_mode] + 1

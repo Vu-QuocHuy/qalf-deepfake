@@ -18,31 +18,31 @@ validation.
 
 Full face is therefore the current baseline. The earlier combined profile is
 not retained as a default: it costs substantially more compute and scores 0.81
-AUC points below the simpler full-face model. Attention pooling and dedicated
+AUC points below the simpler full-face model. Texture-frame attention pooling and dedicated
 B1/EMA wrapper scripts were also removed after their completed ablations
 underperformed. EfficientNet-B1 remains available through
 `--texture-backbone efficientnet_b1` for controlled experiments.
 
 The first locked SBI run improved Celeb-DF AUC from `0.8209` to `0.8325`
-(`texture_auc=0.8323`, `geometry_auc=0.5672`). SBI is therefore the reference
-for the cumulative Geometry++ ablation below.
+(`texture_auc=0.8323`, `geometry_auc=0.5672`). A completed cumulative Geometry++
+screen found no configuration above that SBI baseline. Graph message passing,
+rigid/non-rigid two-stream features, class-balanced geometry loss, and noisy-view
+self-supervision were therefore removed from the active code.
 
-## Geometry++ cumulative ablation
+## Isolated geometry ablation
 
-Every profile retains EfficientNet-B0, full-face input, 8 texture frames during
-training, the locked 50/25/25 SBI mixture, and 12 texture frames during
-evaluation. Each row adds only the named component to the preceding row.
+The two components that showed a positive marginal signal are now tested directly
+from SBI rather than inheriting changes from earlier rows. Every profile retains
+EfficientNet-B0, full-face input, 8 texture frames during training, the locked
+50/25/25 SBI mixture, and 12 texture frames during evaluation.
 
-| Profile | Increment over SBI |
+| Profile | Single controlled change from SBI |
 | --- | --- |
-| `geometry_g1_balanced` | Equal real/fake class means in the SBI-masked geometry loss |
-| `geometry_g2_attentive` | Attentive mean/std/max temporal statistics instead of mean pooling |
-| `geometry_g3_graph` | Clip-local landmark k-NN graph message passing before temporal encoding |
-| `geometry_g4_two_stream` | Separate non-rigid landmark and rigid pose/scale/translation streams |
-| `geometry_g5_self_supervised` | Scale-aware noisy-view geometry consistency loss |
-| `geometry_g6_reliability` | 15% per-branch modality dropout and reliability-routing loss 0.10 |
+| `geometry_i1_attentive` | Attentive mean/std/max temporal statistics |
+| `geometry_i2_reliability` | 15% per-branch modality dropout and routing loss 0.10 |
+| `geometry_i3_attentive_reliability` | Combination of I1 and I2 |
 
-Run all six train/evaluation jobs sequentially from Git Bash:
+Run all three train/evaluation jobs sequentially from Git Bash:
 
 ```bash
 ./run_geometry_ablation.sh all
@@ -62,15 +62,16 @@ Train or evaluate the suite separately:
 Run one profile only:
 
 ```bash
-./run_train_cross_dataset.sh geometry_g3_graph
-./run_test_cross_dataset.sh geometry_g3_graph
+./run_train_cross_dataset.sh geometry_i1_attentive
+./run_test_cross_dataset.sh geometry_i1_attentive
 ```
 
-After `test` or `all`, the suite writes `geometry_ablation.csv` and
-`geometry_ablation.md` under `E:/DeepFakeData/experiments`. The SBI baseline is
-included automatically as the reference row. The report places FF++ validation AUC,
-Celeb-DF AUC, their domain gap, branch AUCs, fusion weights, and operating-point metrics
-in the same table.
+After `test` or `all`, the suite writes `geometry_isolated_ablation.csv` and
+`geometry_isolated_ablation.md` under `E:/DeepFakeData/experiments`. The SBI baseline
+is included automatically as the reference row. The report places FF++ validation
+AUC, Celeb-DF AUC, their domain gap, branch AUCs, fusion weights, and operating-point
+metrics in the same table. It also reports fused-minus-texture AUC and
+fixed-average-minus-texture AUC so geometry complementarity is visible directly.
 
 ## Active profiles
 
@@ -95,6 +96,9 @@ For `full_face_sbi`, inspect a small training-only preview before the full run:
 | --- | --- |
 | `full_face` | Reproduce the established 0.8209-AUC baseline |
 | `full_face_sbi` | Locked 50/25/25 hybrid SBI experiment; current primary profile |
+| `geometry_i1_attentive` | Isolated attentive geometry pooling on SBI |
+| `geometry_i2_reliability` | Isolated reliability routing on SBI |
+| `geometry_i3_attentive_reliability` | Combine only the two retained geometry changes |
 | `full_face_ema` | Isolate EMA on the full-face baseline |
 | `full_face_dynamics` | Isolate temporal dynamics on full-face inputs |
 | `full_face_mixstyle` | Isolate MixStyle on full-face inputs |

@@ -16,7 +16,6 @@ from .geometry import (
     DEFAULT_GEOMETRY_FEATURE_MODE,
     DEFAULT_LANDMARK_INDICES,
     build_geometry_features,
-    geometry_feature_layout,
     geometry_input_dim,
 )
 from .manifest import VideoRecord, load_manifest
@@ -377,11 +376,6 @@ class QALFVideoDataset(Dataset):
         self.landmark_indices = landmark_indices
         self.geometry_mode = geometry_mode
         self.geometry_input_dim = geometry_input_dim(landmark_indices, geometry_mode)
-        (
-            self.geometry_node_count,
-            self.geometry_node_feature_dim,
-            self.geometry_rigid_feature_dim,
-        ) = geometry_feature_layout(landmark_indices, geometry_mode)
         self.geometry_augmentation = dict(geometry_augmentation or {})
         if texture_augmentation is None:
             self.texture_augmentation = dict(DEFAULT_TEXTURE_AUGMENTATION)

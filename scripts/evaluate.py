@@ -187,13 +187,6 @@ def main() -> None:
         geometry_hidden=int(model_config.get("geometry_hidden", 96)),
         geometry_layers=int(model_config.get("geometry_layers", 3)),
         geometry_architecture=str(model_config.get("geometry_architecture", "tcn_mean")),
-        geometry_node_count=int(checkpoint.get("geometry_node_count", 0)),
-        geometry_node_feature_dim=int(checkpoint.get("geometry_node_feature_dim", 0)),
-        geometry_rigid_feature_dim=int(checkpoint.get("geometry_rigid_feature_dim", 0)),
-        geometry_graph_neighbors=int(model_config.get("geometry_graph_neighbors", 4)),
-        geometry_consistency_noise_std=float(
-            model_config.get("geometry_consistency_noise_std", 0.0)
-        ),
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
@@ -342,10 +335,6 @@ def main() -> None:
             "texture_backbone": model_config.get("texture_backbone", "efficientnet_b0"),
             "texture_temporal_pooling": model_config.get("texture_temporal_pooling", "mean"),
             "geometry_architecture": model_config.get("geometry_architecture", "tcn_mean"),
-            "geometry_graph_neighbors": int(model_config.get("geometry_graph_neighbors", 4)),
-            "geometry_consistency_noise_std": float(
-                model_config.get("geometry_consistency_noise_std", 0.0)
-            ),
             "texture_mode": data.get("texture_mode", "canonical_skin"),
             "texture_mixstyle_probability": float(
                 model_config.get("texture_mixstyle_probability", 0.0)
@@ -363,12 +352,6 @@ def main() -> None:
             "texture_frames": training_texture_frames,
             "image_size": int(data["image_size"]),
             "sbi": sbi_config,
-            "geometry_class_balanced": bool(
-                config["training"].get("geometry_class_balanced", False)
-            ),
-            "geometry_self_supervision_loss_weight": float(
-                config["training"].get("geometry_self_supervision_loss_weight", 0.0)
-            ),
             "reliability_gate_loss_weight": float(
                 config["training"].get("reliability_gate_loss_weight", 0.0)
             ),

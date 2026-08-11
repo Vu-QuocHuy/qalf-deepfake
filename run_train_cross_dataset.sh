@@ -40,66 +40,32 @@ case "$PROFILE" in
         DESCRIPTION='locked full-face baseline with 50/25/25 SBI hybrid training'
         PROFILE_ARGS+=(--texture-mode full_face --sbi)
         ;;
-    geometry_g1_balanced)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g1_balanced'
-        DESCRIPTION='SBI plus class-balanced supervised geometry loss'
-        PROFILE_ARGS+=(--texture-mode full_face --sbi --geometry-class-balanced)
-        ;;
-    geometry_g2_attentive)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g2_attentive'
-        DESCRIPTION='G1 plus attentive temporal statistics pooling'
+    geometry_i1_attentive)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i1_attentive'
+        DESCRIPTION='isolated SBI plus attentive temporal statistics pooling'
         PROFILE_ARGS+=(
             --texture-mode full_face
             --sbi
-            --geometry-class-balanced
             --geometry-architecture tcn_attentive
         )
         ;;
-    geometry_g3_graph)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g3_graph'
-        DESCRIPTION='G2 plus clip-local landmark graph message passing'
+    geometry_i2_reliability)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i2_reliability'
+        DESCRIPTION='isolated SBI plus modality dropout and reliability routing'
         PROFILE_ARGS+=(
             --texture-mode full_face
             --sbi
-            --geometry-class-balanced
-            --geometry-architecture graph_attentive
+            --modality-dropout-probability 0.15
+            --reliability-gate-loss-weight 0.10
         )
         ;;
-    geometry_g4_two_stream)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g4_two_stream'
-        DESCRIPTION='G3 plus rigid and non-rigid geometry streams'
+    geometry_i3_attentive_reliability)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i3_attentive_reliability'
+        DESCRIPTION='isolated SBI plus attentive geometry and reliability routing'
         PROFILE_ARGS+=(
             --texture-mode full_face
             --sbi
-            --geometry-class-balanced
-            --geometry-mode aligned_motion_rigid_3d
-            --geometry-architecture graph_rigid_attentive
-        )
-        ;;
-    geometry_g5_self_supervised)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g5_self_supervised'
-        DESCRIPTION='G4 plus geometry augmentation-consistency self-supervision'
-        PROFILE_ARGS+=(
-            --texture-mode full_face
-            --sbi
-            --geometry-class-balanced
-            --geometry-mode aligned_motion_rigid_3d
-            --geometry-architecture graph_rigid_attentive
-            --geometry-consistency-noise-std 0.10
-            --geometry-self-supervision-loss-weight 0.05
-        )
-        ;;
-    geometry_g6_reliability)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g6_reliability'
-        DESCRIPTION='G5 plus modality dropout and supervised reliability routing'
-        PROFILE_ARGS+=(
-            --texture-mode full_face
-            --sbi
-            --geometry-class-balanced
-            --geometry-mode aligned_motion_rigid_3d
-            --geometry-architecture graph_rigid_attentive
-            --geometry-consistency-noise-std 0.10
-            --geometry-self-supervision-loss-weight 0.05
+            --geometry-architecture tcn_attentive
             --modality-dropout-probability 0.15
             --reliability-gate-loss-weight 0.10
         )
@@ -131,7 +97,7 @@ case "$PROFILE" in
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face, full_face_sbi, geometry_g1_balanced, geometry_g2_attentive, geometry_g3_graph, geometry_g4_two_stream, geometry_g5_self_supervised, geometry_g6_reliability, full_face_ema, full_face_mixstyle, full_face_dynamics, or dual_view' >&2
+        echo 'Use: full_face, full_face_sbi, geometry_i1_attentive, geometry_i2_reliability, geometry_i3_attentive_reliability, full_face_ema, full_face_mixstyle, full_face_dynamics, or dual_view' >&2
         exit 2
         ;;
 esac

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from .fusion import ConcatFusion, QualityAwareFusion
 from .geometry import GeometryEncoder
@@ -18,11 +17,6 @@ class QALFModel(nn.Module):
         geometry_hidden: int = 96,
         geometry_layers: int = 3,
         geometry_architecture: str = "tcn_mean",
-        geometry_node_count: int = 0,
-        geometry_node_feature_dim: int = 0,
-        geometry_rigid_feature_dim: int = 0,
-        geometry_graph_neighbors: int = 4,
-        geometry_consistency_noise_std: float = 0.0,
         embedding_dim: int = 128,
         dropout: float = 0.2,
         texture_pretrained: bool = True,
@@ -54,9 +48,6 @@ class QALFModel(nn.Module):
         if not 0.0 <= modality_dropout_probability <= 0.5:
             raise ValueError("modality_dropout_probability must be in [0, 0.5]")
         self.modality_dropout_probability = float(modality_dropout_probability)
-        if geometry_consistency_noise_std < 0.0:
-            raise ValueError("geometry_consistency_noise_std must be non-negative")
-        self.geometry_consistency_noise_std = float(geometry_consistency_noise_std)
         self.geometry_encoder = (
             None
             if fusion_mode == "texture"
@@ -67,10 +58,6 @@ class QALFModel(nn.Module):
                 geometry_layers,
                 dropout,
                 architecture=geometry_architecture,
-                node_count=geometry_node_count,
-                node_feature_dim=geometry_node_feature_dim,
-                rigid_feature_dim=geometry_rigid_feature_dim,
-                graph_neighbors=geometry_graph_neighbors,
             )
         )
         self.texture_encoder = (
@@ -113,28 +100,6 @@ class QALFModel(nn.Module):
         if self.geometry_encoder is None:
             raise RuntimeError("Geometry encoder is disabled in texture-only mode")
         return self.geometry_encoder(geometry)
-
-    def geometry_consistency_loss(
-        self,
-        geometry: torch.Tensor,
-        reference_embedding: torch.Tensor,
-    ) -> torch.Tensor:
-        """Match geometry embeddings under scale-aware landmark tracking noise."""
-
-        if not self.training or self.geometry_consistency_noise_std == 0.0:
-            return reference_embedding.sum() * 0.0
-        feature_scale = geometry.detach().std(dim=1, keepdim=True).clamp_min(1e-3)
-        noise = torch.randn_like(geometry) * feature_scale * self.geometry_consistency_noise_std
-        noise[..., -1] = 0.0  # Preserve the explicit frame-validity indicator.
-        augmented_embedding, _ = self.forward_geometry(geometry + noise)
-        return (
-            1.0
-            - F.cosine_similarity(
-                reference_embedding,
-                augmented_embedding,
-                dim=1,
-            )
-        ).mean()
 
     def forward_texture(self, texture: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if self.texture_encoder is None:
@@ -193,7 +158,6 @@ class QALFModel(nn.Module):
                 "texture_embedding": texture_embedding,
             }
         geometry_embedding, geometry_logit = self.forward_geometry(batch["geometry"])
-        geometry_consistency = self.geometry_consistency_loss(batch["geometry"], geometry_embedding)
         if self.fusion_mode == "geometry":
             zeros = torch.zeros_like(geometry_embedding)
             return {
@@ -205,7 +169,6 @@ class QALFModel(nn.Module):
                 ),
                 "geometry_embedding": geometry_embedding,
                 "texture_embedding": zeros,
-                "geometry_consistency_loss": geometry_consistency,
             }
         texture_embedding, texture_logit = self.forward_texture(batch["texture"])
         fusion_geometry_embedding = geometry_embedding
@@ -257,5 +220,4 @@ class QALFModel(nn.Module):
             "geometry_embedding": geometry_embedding,
             "texture_embedding": texture_embedding,
             "reliability_target": reliability_target,
-            "geometry_consistency_loss": geometry_consistency,
         }

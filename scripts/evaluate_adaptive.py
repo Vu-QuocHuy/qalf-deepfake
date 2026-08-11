@@ -142,13 +142,6 @@ def main() -> None:
         geometry_hidden=int(model_config.get("geometry_hidden", 96)),
         geometry_layers=int(model_config.get("geometry_layers", 3)),
         geometry_architecture=str(model_config.get("geometry_architecture", "tcn_mean")),
-        geometry_node_count=int(checkpoint.get("geometry_node_count", 0)),
-        geometry_node_feature_dim=int(checkpoint.get("geometry_node_feature_dim", 0)),
-        geometry_rigid_feature_dim=int(checkpoint.get("geometry_rigid_feature_dim", 0)),
-        geometry_graph_neighbors=int(model_config.get("geometry_graph_neighbors", 4)),
-        geometry_consistency_noise_std=float(
-            model_config.get("geometry_consistency_noise_std", 0.0)
-        ),
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,

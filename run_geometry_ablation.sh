@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run the cumulative Geometry++ ablation suite. Each profile keeps the established
-# EfficientNet-B0/full-face/SBI protocol and adds exactly one geometry component.
+# Run isolated geometry ablations from the established EfficientNet-B0/full-face/SBI
+# baseline. No profile inherits a change from another ablation profile.
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
@@ -28,12 +28,9 @@ case "$MODE" in
 esac
 
 PROFILES=(
-    geometry_g1_balanced
-    geometry_g2_attentive
-    geometry_g3_graph
-    geometry_g4_two_stream
-    geometry_g5_self_supervised
-    geometry_g6_reliability
+    geometry_i1_attentive
+    geometry_i2_reliability
+    geometry_i3_attentive_reliability
 )
 BASELINE_PROFILE='full_face_sbi'
 BASELINE_CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_full_face_sbi/best.pt"

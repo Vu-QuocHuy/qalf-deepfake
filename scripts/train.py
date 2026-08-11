@@ -163,7 +163,6 @@ def _epoch_messages(
         f"total={train_metrics['loss']:.4f} fused={train_metrics['fused']:.4f} "
         f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f} "
         f"reliability={train_metrics.get('reliability', 0.0):.4f} "
-        f"geometry_ssl={train_metrics.get('geometry_self_supervision', 0.0):.4f} "
         f"sbi_fraction={train_metrics.get('sbi_fraction', 0.0):.3f} "
         f"geometry_supervision={train_metrics.get('geometry_supervision_fraction', 1.0):.3f} "
         f"reliability_supervision="
@@ -222,8 +221,6 @@ def main() -> None:
         "--geometry-architecture",
         choices=tuple(sorted(SUPPORTED_GEOMETRY_ARCHITECTURES)),
     )
-    parser.add_argument("--geometry-graph-neighbors", type=int)
-    parser.add_argument("--geometry-consistency-noise-std", type=float)
     parser.add_argument("--embedding-dim", type=int)
     parser.add_argument("--dropout", type=float)
     parser.add_argument(
@@ -263,14 +260,8 @@ def main() -> None:
     parser.add_argument("--texture-mixstyle-probability", type=float)
     parser.add_argument("--texture-mixstyle-alpha", type=float)
     parser.add_argument("--texture-mixstyle-layers", type=int, nargs="+")
-    parser.add_argument(
-        "--geometry-class-balanced",
-        action="store_true",
-        help="Average real and fake geometry losses independently after masking SBI.",
-    )
     parser.add_argument("--modality-dropout-probability", type=float)
     parser.add_argument("--reliability-gate-loss-weight", type=float)
-    parser.add_argument("--geometry-self-supervision-loss-weight", type=float)
     parser.add_argument("--no-geometry-augmentation", action="store_true")
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
@@ -305,8 +296,6 @@ def main() -> None:
         "geometry_hidden": args.geometry_hidden,
         "geometry_layers": args.geometry_layers,
         "geometry_architecture": args.geometry_architecture,
-        "geometry_graph_neighbors": args.geometry_graph_neighbors,
-        "geometry_consistency_noise_std": args.geometry_consistency_noise_std,
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
         "texture_gate_bias": args.texture_gate_bias,
@@ -344,7 +333,6 @@ def main() -> None:
         "ema_decay": args.ema_decay,
         "early_stop_patience": args.early_stop_patience,
         "reliability_gate_loss_weight": args.reliability_gate_loss_weight,
-        "geometry_self_supervision_loss_weight": (args.geometry_self_supervision_loss_weight),
     }
     data.update({key: value for key, value in data_overrides.items() if value is not None})
     training.update({key: value for key, value in training_overrides.items() if value is not None})
@@ -356,8 +344,6 @@ def main() -> None:
         training["balanced_sampler"] = False
     if args.deterministic:
         training["deterministic"] = True
-    if args.geometry_class_balanced:
-        training["geometry_class_balanced"] = True
     data["sbi"] = resolve_sbi_config(data.get("sbi"))
     if bool(data["sbi"]["enabled"]) and not bool(training.get("balanced_sampler", True)):
         parser.error("SBI requires the explicit three-stratum sampler")
@@ -396,17 +382,6 @@ def main() -> None:
             parser.error(f"model.{name} must be at least one")
     if not 0.0 <= float(model_config.get("dropout", 0.0)) < 1.0:
         parser.error("model.dropout must be in [0, 1)")
-    if int(model_config.get("geometry_graph_neighbors", 4)) < 1:
-        parser.error("model.geometry_graph_neighbors must be at least one")
-    geometry_architecture = str(model_config.get("geometry_architecture", "tcn_mean"))
-    geometry_mode = str(data.get("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE))
-    if geometry_architecture == "graph_attentive" and geometry_mode != "aligned_motion_3d":
-        parser.error("graph_attentive requires --geometry-mode aligned_motion_3d")
-    if (
-        geometry_architecture == "graph_rigid_attentive"
-        and geometry_mode != "aligned_motion_rigid_3d"
-    ):
-        parser.error("graph_rigid_attentive requires --geometry-mode aligned_motion_rigid_3d")
     modality_dropout_probability = float(model_config.get("modality_dropout_probability", 0.0))
     if not 0.0 <= modality_dropout_probability <= 0.5:
         parser.error("model.modality_dropout_probability must be in [0, 0.5]")
@@ -415,16 +390,6 @@ def main() -> None:
         parser.error("training.reliability_gate_loss_weight cannot be negative")
     if reliability_gate_loss_weight > 0.0 and modality_dropout_probability == 0.0:
         parser.error("Reliability gate loss requires positive modality dropout")
-    geometry_consistency_noise_std = float(model_config.get("geometry_consistency_noise_std", 0.0))
-    geometry_self_supervision_loss_weight = float(
-        training.get("geometry_self_supervision_loss_weight", 0.0)
-    )
-    if geometry_consistency_noise_std < 0.0:
-        parser.error("model.geometry_consistency_noise_std cannot be negative")
-    if geometry_self_supervision_loss_weight < 0.0:
-        parser.error("training.geometry_self_supervision_loss_weight cannot be negative")
-    if geometry_self_supervision_loss_weight > 0.0 and geometry_consistency_noise_std == 0.0:
-        parser.error("Geometry self-supervision loss requires consistency noise")
     if modality_dropout_probability > 0.0 and str(
         model_config.get("fusion_mode", "quality")
     ) not in {"quality", "quality_only", "content_gate"}:
@@ -514,11 +479,6 @@ def main() -> None:
         geometry_hidden=int(model_config.get("geometry_hidden", 96)),
         geometry_layers=int(model_config.get("geometry_layers", 3)),
         geometry_architecture=str(model_config.get("geometry_architecture", "tcn_mean")),
-        geometry_node_count=train_dataset.geometry_node_count,
-        geometry_node_feature_dim=train_dataset.geometry_node_feature_dim,
-        geometry_rigid_feature_dim=train_dataset.geometry_rigid_feature_dim,
-        geometry_graph_neighbors=int(model_config.get("geometry_graph_neighbors", 4)),
-        geometry_consistency_noise_std=geometry_consistency_noise_std,
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
@@ -603,8 +563,7 @@ def main() -> None:
     logger.info(
         "  train | amp=%s deterministic=%s ema_decay=%.4f validation_weights=%s "
         "loss_weights=fused:1.000 geometry:%.3f texture:%.3f reliability:%.3f "
-        "geometry_ssl:%.3f "
-        "geometry_class_balanced=%s modality_dropout=%.3f patience=%d",
+        "modality_dropout=%.3f patience=%d",
         amp_enabled,
         deterministic,
         ema_decay,
@@ -612,8 +571,6 @@ def main() -> None:
         geometry_loss_weight,
         texture_loss_weight,
         reliability_gate_loss_weight,
-        geometry_self_supervision_loss_weight,
-        bool(training.get("geometry_class_balanced", False)),
         modality_dropout_probability,
         patience,
     )
@@ -644,9 +601,7 @@ def main() -> None:
             scaler,
             geometry_loss_weight,
             texture_loss_weight,
-            geometry_class_balanced=bool(training.get("geometry_class_balanced", False)),
             reliability_gate_weight=reliability_gate_loss_weight,
-            geometry_self_supervision_weight=geometry_self_supervision_loss_weight,
             ema=ema,
         )
         eval_model = ema.shadow if ema is not None else model
@@ -702,9 +657,6 @@ def main() -> None:
             "geometry_input_dim": train_dataset.geometry_input_dim,
             "geometry_quality_dim": train_dataset.geometry_quality_dim,
             "texture_quality_dim": train_dataset.texture_quality_dim,
-            "geometry_node_count": train_dataset.geometry_node_count,
-            "geometry_node_feature_dim": train_dataset.geometry_node_feature_dim,
-            "geometry_rigid_feature_dim": train_dataset.geometry_rigid_feature_dim,
             "threshold": threshold,
             "validation_metrics": val_metrics,
             "ema_decay": ema_decay,
