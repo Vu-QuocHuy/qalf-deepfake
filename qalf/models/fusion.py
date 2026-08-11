@@ -14,6 +14,7 @@ class QualityAwareFusion(nn.Module):
         texture_quality_dim: int = 5,
         dropout: float = 0.2,
         gate_mode: str = "full",
+        texture_gate_bias: float = 0.0,
     ) -> None:
         super().__init__()
         if gate_mode not in {"full", "content", "quality"}:
@@ -27,6 +28,8 @@ class QualityAwareFusion(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(embedding_dim, 2),
         )
+        with torch.no_grad():
+            self.gate[-1].bias[1] += float(texture_gate_bias)
         self.classifier = nn.Sequential(
             nn.Linear(embedding_dim, embedding_dim // 2),
             nn.SiLU(),

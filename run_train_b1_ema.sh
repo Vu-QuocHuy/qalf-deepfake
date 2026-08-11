@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Shared storage roots. Hyperparameters are edited directly in the train command below.
+# EfficientNet-B1 protocol: native 240px resolution, EMA, and texture emphasis.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 
@@ -24,7 +24,6 @@ case "$(uname -s)" in
 esac
 if [[ ! -x "$PYTHON" ]]; then
     echo "ERROR: virtual-environment Python not found: $PYTHON" >&2
-    echo 'Create a Windows venv for Git Bash or a separate Linux venv for WSL.' >&2
     exit 1
 fi
 
@@ -34,11 +33,7 @@ LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
 VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
-OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f}"
-EXTRA_TRAIN_ARGS=()
-if [[ -n "${QALF_EMA_DECAY:-}" ]]; then
-    EXTRA_TRAIN_ARGS+=(--ema-decay "$QALF_EMA_DECAY")
-fi
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb1_240_8f_ema_texture"
 
 for required_path in "$TRAIN_MANIFEST" "$VAL_MANIFEST" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
     if [[ ! -e "$required_path" ]]; then
@@ -49,10 +44,9 @@ done
 
 echo "Python: $PYTHON"
 echo "Training output: $OUTPUT_DIR"
-"$PYTHON" -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NOT AVAILABLE')"
-
+echo "Protocol: EfficientNet-B1 240px, EMA=0.999, texture emphasis"
 "$PYTHON" scripts/train.py \
-    --config configs/ffpp_to_celebdf.json \
+    --config configs/ffpp_to_celebdf_b1_ema.json \
     --train-manifest "$TRAIN_MANIFEST" \
     --val-manifest "$VAL_MANIFEST" \
     --frame-root "$FRAME_ROOT" \
@@ -60,24 +54,26 @@ echo "Training output: $OUTPUT_DIR"
     --output-dir "$OUTPUT_DIR" \
     --seed 42 \
     --epochs 35 \
-    --batch-size 8 \
+    --batch-size 4 \
     --num-workers 4 \
-    --learning-rate 0.0003 \
-    --backbone-learning-rate 0.00003 \
-    --weight-decay 0.0003 \
+    --learning-rate 0.0002 \
+    --backbone-learning-rate 0.00001 \
+    --weight-decay 0.0005 \
     --early-stop-patience 5 \
     --num-frames 32 \
     --texture-frames 8 \
-    --image-size 160 \
+    --image-size 240 \
     --eval-clips-per-video 3 \
     --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
-    --texture-backbone efficientnet_b0 \
+    --texture-backbone efficientnet_b1 \
     --geometry-hidden 128 \
     --geometry-layers 3 \
     --embedding-dim 192 \
     --dropout 0.3 \
     --geometry-mode aligned_motion_3d \
     --fusion-mode quality \
-    --geometry-loss-weight 0.25 \
-    --texture-loss-weight 0.25 \
-    "${EXTRA_TRAIN_ARGS[@]}"
+    --geometry-loss-weight 0.10 \
+    --texture-loss-weight 0.50 \
+    --texture-gate-bias 1.0 \
+    --ema-decay 0.999 \
+    --deterministic

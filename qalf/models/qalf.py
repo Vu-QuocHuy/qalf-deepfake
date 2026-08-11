@@ -19,10 +19,11 @@ class QALFModel(nn.Module):
         embedding_dim: int = 128,
         dropout: float = 0.2,
         texture_pretrained: bool = True,
-        texture_backbone: str = "mobilenet_v3_small",
+        texture_backbone: str = "efficientnet_b0",
         geometry_quality_dim: int = 5,
         texture_quality_dim: int = 5,
         fusion_mode: str = "quality",
+        texture_gate_bias: float = 0.0,
     ) -> None:
         super().__init__()
         if fusion_mode not in {
@@ -70,6 +71,7 @@ class QALFModel(nn.Module):
                 texture_quality_dim,
                 dropout,
                 gate_mode=gate_modes[fusion_mode],
+                texture_gate_bias=texture_gate_bias,
             )
             if fusion_mode in gate_modes
             else None

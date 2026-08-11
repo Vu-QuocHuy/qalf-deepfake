@@ -7,7 +7,7 @@
     "train_landmark_root": "/path/to/landmarks",
     "num_frames": 32,
     "texture_frames": 8,
-    "image_size": 160,
+    "image_size": 240,
     "fake_methods": [
       "Deepfakes",
       "Face2Face",
@@ -50,24 +50,24 @@
     "embedding_dim": 192,
     "dropout": 0.3,
     "texture_pretrained": true,
-    "texture_backbone": "efficientnet_b0",
+    "texture_backbone": "efficientnet_b1",
     "fusion_mode": "quality",
-    "texture_gate_bias": 0.0
+    "texture_gate_bias": 1.0
   },
   "training": {
     "epochs": 35,
-    "batch_size": 8,
+    "batch_size": 4,
     "num_workers": 4,
-    "learning_rate": 0.0003,
-    "backbone_learning_rate": 0.00003,
-    "weight_decay": 0.0003,
-    "geometry_loss_weight": 0.25,
-    "texture_loss_weight": 0.25,
-    "ema_decay": 0.0,
-    "deterministic": false,
+    "learning_rate": 0.0002,
+    "backbone_learning_rate": 0.00001,
+    "weight_decay": 0.0005,
+    "geometry_loss_weight": 0.1,
+    "texture_loss_weight": 0.5,
+    "ema_decay": 0.999,
+    "deterministic": true,
     "balanced_sampler": true,
     "amp": true,
     "early_stop_patience": 5
   },
-  "output_dir": "outputs/qalf_ffpp4_effb0_160_8f"
+  "output_dir": "outputs/qalf_ffpp4_effb1_240_8f_ema_texture"
 }

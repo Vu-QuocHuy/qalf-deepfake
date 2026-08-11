@@ -74,6 +74,13 @@ def main() -> None:
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
     config = checkpoint["config"]
     data, model_config = config["data"], config["model"]
+    print(
+        "Checkpoint model: "
+        f"backbone={model_config.get('texture_backbone', 'efficientnet_b0')} "
+        f"image_size={int(data['image_size'])} "
+        f"weights={checkpoint.get('model_weights', 'raw')} "
+        f"ema_decay={float(checkpoint.get('ema_decay', 0.0)):.4f}"
+    )
     geometry_corruption = {}
     if args.geometry_corruption_json:
         with Path(args.geometry_corruption_json).open("r", encoding="utf-8") as handle:
@@ -115,10 +122,11 @@ def main() -> None:
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
-        texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
+        texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
+        texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
     )
     model.load_state_dict(checkpoint["model"], strict=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -225,7 +233,9 @@ def main() -> None:
                 "QALF evaluation protocol",
                 f"checkpoint: {args.checkpoint}",
                 f"manifest: {args.manifest}",
-                f"texture_backbone: {model_config.get('texture_backbone', 'mobilenet_v3_small')}",
+                f"texture_backbone: {model_config.get('texture_backbone', 'efficientnet_b0')}",
+                f"model_weights: {checkpoint.get('model_weights', 'raw')}",
+                f"ema_decay: {float(checkpoint.get('ema_decay', 0.0)):.4f}",
                 f"num_frames: {int(data['num_frames'])}",
                 f"texture_frames: {int(data['texture_frames'])}",
                 f"image_size: {int(data['image_size'])}",

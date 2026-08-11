@@ -22,17 +22,27 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from qalf.config import load_config, save_json
 from qalf.data.dataset import QALFVideoDataset
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
-from qalf.engine import aggregate_predictions, predict, train_epoch
+from qalf.engine import EMAModel, aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
 from qalf.models import QALFModel, SUPPORTED_TEXTURE_BACKBONES
 
 
-def _seed_everything(seed: int) -> None:
+def _seed_everything(seed: int, deterministic: bool = False) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    if deterministic:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        torch.use_deterministic_algorithms(True, warn_only=True)
+
+
+def _seed_worker(_: int) -> None:
+    worker_seed = torch.initial_seed() % (2**32)
+    random.seed(worker_seed)
+    np.random.seed(worker_seed)
 
 
 def _make_grad_scaler(enabled: bool):
@@ -44,7 +54,13 @@ def _make_grad_scaler(enabled: bool):
     return torch.cuda.amp.GradScaler(enabled=enabled)
 
 
-def _loader(dataset, batch_size, workers, training, balanced):
+def _loader(dataset, batch_size, workers, training, balanced, seed: int | None = None):
+    generator = None
+    worker_init_fn = None
+    if seed is not None:
+        generator = torch.Generator()
+        generator.manual_seed(seed)
+        worker_init_fn = _seed_worker
     sampler = None
     shuffle = training
     if training and balanced:
@@ -52,7 +68,12 @@ def _loader(dataset, batch_size, workers, training, balanced):
         if np.any(counts == 0):
             raise ValueError(f"Training manifest must contain both classes: counts={counts}")
         weights = [1.0 / counts[label] for label in dataset.labels]
-        sampler = WeightedRandomSampler(weights, len(weights), replacement=True)
+        sampler = WeightedRandomSampler(
+            weights,
+            len(weights),
+            replacement=True,
+            generator=generator,
+        )
         shuffle = False
     return DataLoader(
         dataset,
@@ -62,6 +83,8 @@ def _loader(dataset, batch_size, workers, training, balanced):
         num_workers=workers,
         pin_memory=torch.cuda.is_available(),
         persistent_workers=workers > 0,
+        worker_init_fn=worker_init_fn,
+        generator=generator,
     )
 
 
@@ -137,6 +160,10 @@ def _epoch_message(
         f"train loss={train_metrics['loss']:.4f} fused={train_metrics['fused']:.4f} "
         f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f} | "
         f"val auc={validation_metrics['auc']:.4f} ap={validation_metrics['average_precision']:.4f} "
+        f"geometry_auc={validation_metrics['geometry_auc']:.4f} "
+        f"texture_auc={validation_metrics['texture_auc']:.4f} "
+        f"geometry_weight={validation_metrics['mean_geometry_weight']:.4f} "
+        f"texture_weight={validation_metrics['mean_texture_weight']:.4f} "
         f"balanced_acc={validation_metrics['balanced_accuracy']:.4f} "
         f"accuracy={validation_metrics['accuracy']:.4f} f1={validation_metrics['f1']:.4f} "
         f"eer={validation_metrics['eer']:.4f} threshold={validation_metrics['threshold']:.4f}"
@@ -164,11 +191,21 @@ def main() -> None:
     parser.add_argument("--weight-decay", type=float)
     parser.add_argument("--geometry-loss-weight", type=float)
     parser.add_argument("--texture-loss-weight", type=float)
+    parser.add_argument(
+        "--ema-decay",
+        type=float,
+        help="EMA decay in (0, 1); omit or use 0 to validate raw weights.",
+    )
     parser.add_argument("--early-stop-patience", type=int)
     parser.add_argument("--geometry-hidden", type=int)
     parser.add_argument("--geometry-layers", type=int)
     parser.add_argument("--embedding-dim", type=int)
     parser.add_argument("--dropout", type=float)
+    parser.add_argument(
+        "--texture-gate-bias",
+        type=float,
+        help="Initial trainable logit bias toward the texture fusion branch.",
+    )
     parser.add_argument(
         "--fake-methods",
         nargs="+",
@@ -198,6 +235,11 @@ def main() -> None:
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--no-balanced-sampler", action="store_true")
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Use deterministic CUDA algorithms and explicitly seeded data workers.",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -215,6 +257,7 @@ def main() -> None:
         "geometry_layers": args.geometry_layers,
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
+        "texture_gate_bias": args.texture_gate_bias,
     }
     model_config.update(
         {key: value for key, value in model_overrides.items() if value is not None}
@@ -240,6 +283,7 @@ def main() -> None:
         "weight_decay": args.weight_decay,
         "geometry_loss_weight": args.geometry_loss_weight,
         "texture_loss_weight": args.texture_loss_weight,
+        "ema_decay": args.ema_decay,
         "early_stop_patience": args.early_stop_patience,
     }
     data.update({key: value for key, value in data_overrides.items() if value is not None})
@@ -252,6 +296,8 @@ def main() -> None:
         training["amp"] = False
     if args.no_balanced_sampler:
         training["balanced_sampler"] = False
+    if args.deterministic:
+        training["deterministic"] = True
 
     positive_integer_fields = {
         "data.num_frames": data["num_frames"],
@@ -279,13 +325,17 @@ def main() -> None:
             parser.error(f"training.{name} cannot be negative")
     if int(training.get("early_stop_patience", 0)) < 0:
         parser.error("training.early_stop_patience cannot be negative")
+    ema_decay = float(training.get("ema_decay", 0.0))
+    if ema_decay != 0.0 and not 0.0 < ema_decay < 1.0:
+        parser.error("training.ema_decay must be zero or in (0, 1)")
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(model_config.get(name, 0)) < 1:
             parser.error(f"model.{name} must be at least one")
     if not 0.0 <= float(model_config.get("dropout", 0.0)) < 1.0:
         parser.error("model.dropout must be in [0, 1)")
     seed = int(config.get("seed", 42))
-    _seed_everything(seed)
+    deterministic = bool(training.get("deterministic", False))
+    _seed_everything(seed, deterministic=deterministic)
     train_manifest = args.train_manifest or data["train_manifest"]
     val_manifest = args.val_manifest or data["val_manifest"]
     frame_root = args.frame_root or data["train_frame_root"]
@@ -363,8 +413,16 @@ def main() -> None:
         workers,
         True,
         bool(training.get("balanced_sampler", True)),
+        seed if deterministic else None,
     )
-    val_loader = _loader(val_dataset, batch_size, workers, False, False)
+    val_loader = _loader(
+        val_dataset,
+        batch_size,
+        workers,
+        False,
+        False,
+        seed + 1 if deterministic else None,
+    )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = QALFModel(
@@ -374,10 +432,11 @@ def main() -> None:
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
-        texture_backbone=str(model_config.get("texture_backbone", "mobilenet_v3_small")),
+        texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
+        texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(
@@ -397,6 +456,7 @@ def main() -> None:
     )
     amp_enabled = bool(training.get("amp", True)) and device.type == "cuda"
     scaler = _make_grad_scaler(amp_enabled)
+    ema = EMAModel(model, decay=ema_decay) if ema_decay > 0 else None
     criterion = nn.BCEWithLogitsLoss()
     geometry_loss_weight = float(training.get("geometry_loss_weight", 0.25))
     texture_loss_weight = float(training.get("texture_loss_weight", 0.25))
@@ -415,12 +475,20 @@ def main() -> None:
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
     logger.info(
-        "device=%s backbone=%s parameters=%d trainable=%d amp=%s early_stop_patience=%d",
+        "device=%s backbone=%s parameters=%d trainable=%d amp=%s deterministic=%s "
+        "ema_decay=%.4f validation_weights=%s geometry_loss_weight=%.3f "
+        "texture_loss_weight=%.3f texture_gate_bias=%.3f early_stop_patience=%d",
         device,
-        model_config.get("texture_backbone", "mobilenet_v3_small"),
+        model_config.get("texture_backbone", "efficientnet_b0"),
         sum(parameter.numel() for parameter in model.parameters()),
         sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
         amp_enabled,
+        deterministic,
+        ema_decay,
+        "ema" if ema is not None else "raw",
+        geometry_loss_weight,
+        texture_loss_weight,
+        float(model_config.get("texture_gate_bias", 0.0)),
         patience,
     )
     for epoch in range(1, epochs + 1):
@@ -433,8 +501,10 @@ def main() -> None:
             scaler,
             geometry_loss_weight,
             texture_loss_weight,
+            ema,
         )
-        validation_clips = predict(model, val_loader, device)
+        eval_model = ema.shadow if ema is not None else model
+        validation_clips = predict(eval_model, val_loader, device)
         validation = aggregate_predictions(
             validation_clips,
             method=str(data["video_aggregation"]),
@@ -444,6 +514,18 @@ def main() -> None:
         scores = np.asarray(validation["score"], dtype=np.float64)
         threshold = select_threshold(labels, scores)
         val_metrics = compute_metrics(labels, scores, threshold)
+        geometry_scores = np.asarray(validation["geometry_score"], dtype=np.float64)
+        texture_scores = np.asarray(validation["texture_score"], dtype=np.float64)
+        val_metrics["geometry_auc"] = compute_metrics(
+            labels, geometry_scores, threshold
+        )["auc"]
+        val_metrics["texture_auc"] = compute_metrics(labels, texture_scores, threshold)["auc"]
+        val_metrics["mean_geometry_weight"] = float(
+            np.mean(np.asarray(validation["geometry_weight"], dtype=np.float64))
+        )
+        val_metrics["mean_texture_weight"] = float(
+            np.mean(np.asarray(validation["texture_weight"], dtype=np.float64))
+        )
         row = {"epoch": epoch, "train": train_metrics, "validation": val_metrics}
         history.append(row)
         save_json(history, output_dir / "history.json")
@@ -452,7 +534,7 @@ def main() -> None:
 
         checkpoint = {
             "epoch": epoch,
-            "model": model.state_dict(),
+            "model": eval_model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "config": config,
             "geometry_input_dim": train_dataset.geometry_input_dim,
@@ -460,6 +542,8 @@ def main() -> None:
             "texture_quality_dim": train_dataset.texture_quality_dim,
             "threshold": threshold,
             "validation_metrics": val_metrics,
+            "ema_decay": ema_decay,
+            "model_weights": "ema" if ema is not None else "raw",
         }
         torch.save(checkpoint, output_dir / "last.pt")
         if val_metrics["auc"] > best_auc:
@@ -469,10 +553,11 @@ def main() -> None:
             stale_epochs = 0
             torch.save(checkpoint, best_path)
             logger.info(
-                "best_model_saved epoch=%03d val_auc=%.4f threshold=%.4f path=%s",
+                "best_model_saved epoch=%03d val_auc=%.4f threshold=%.4f weights=%s path=%s",
                 best_epoch,
                 best_auc,
                 best_threshold,
+                "ema" if ema is not None else "raw",
                 best_path,
             )
         else:

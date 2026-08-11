@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Shared storage roots. Evaluation options are edited directly in the command below.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 
@@ -24,7 +23,6 @@ case "$(uname -s)" in
 esac
 if [[ ! -x "$PYTHON" ]]; then
     echo "ERROR: virtual-environment Python not found: $PYTHON" >&2
-    echo 'Create a Windows venv for Git Bash or a separate Linux venv for WSL.' >&2
     exit 1
 fi
 
@@ -37,8 +35,8 @@ CELEBDF_FRAME_ROOT="$DATA_ROOT/extracted/celebdf"
 CELEBDF_LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
 CELEBDF_LANDMARK_ROOT="$CELEBDF_LANDMARK_OUTPUT_ROOT/landmarks"
 CELEBDF_TEST_MANIFEST="$CELEBDF_LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
-CHECKPOINT="${QALF_TEST_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f/best.pt}"
-OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_to_celebdf_flip_tta_ffpp_threshold}"
+CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_effb1_240_8f_ema_texture/best.pt"
+OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb1_240_8f_ema_texture_to_celebdf_flip_tta_ffpp_threshold"
 
 for required_path in \
     "$FFPP_VAL_MANIFEST" \
@@ -57,6 +55,8 @@ done
 echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
 echo "Evaluation output: $OUTPUT_DIR"
+echo "Texture backbone: efficientnet_b1 (240px)"
+echo "Checkpoint weights: EMA"
 echo "Texture flip TTA: enabled"
 echo "Threshold calibration: $FFPP_VAL_MANIFEST"
 
@@ -66,7 +66,7 @@ echo "Threshold calibration: $FFPP_VAL_MANIFEST"
     --frame-root "$CELEBDF_FRAME_ROOT" \
     --landmark-root "$CELEBDF_LANDMARK_ROOT" \
     --output-dir "$OUTPUT_DIR" \
-    --batch-size 8 \
+    --batch-size 4 \
     --num-workers 4 \
     --clips-per-video 3 \
     --aggregation mean \

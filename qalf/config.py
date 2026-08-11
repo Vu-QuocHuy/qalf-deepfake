@@ -48,16 +48,12 @@ def load_config(path: str | Path) -> dict[str, Any]:
         "geometry_layers": 3,
         "embedding_dim": 128,
         "dropout": 0.2,
-        "texture_backbone": "mobilenet_v3_small",
+        "texture_backbone": "efficientnet_b0",
     }
     for name, default in model_defaults.items():
         config["model"].setdefault(name, default)
-    if config["model"]["texture_backbone"] not in {
-        "mobilenet_v3_small",
-        "mobilenet_v3_large",
-        "efficientnet_b0",
-    }:
-        raise ValueError("Unsupported model.texture_backbone")
+    if config["model"]["texture_backbone"] not in {"efficientnet_b0", "efficientnet_b1"}:
+        raise ValueError("model.texture_backbone must be efficientnet_b0 or efficientnet_b1")
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(config["model"].get(name, 0)) < 1:
             raise ValueError(f"model.{name} must be >= 1")
