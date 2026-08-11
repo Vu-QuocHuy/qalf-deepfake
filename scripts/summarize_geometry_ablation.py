@@ -10,10 +10,8 @@ from pathlib import Path
 
 EXPERIMENTS = (
     ("SBI baseline", "qalf_ffpp4_effb0_160_8f_full_face_sbi"),
-    ("I1 attentive", "qalf_ffpp4_effb0_160_8f_sbi_geometry_i1_attentive"),
-    ("I2 reliability", "qalf_ffpp4_effb0_160_8f_sbi_geometry_i2_reliability"),
     (
-        "I3 attentive + reliability",
+        "Geometry candidate",
         "qalf_ffpp4_effb0_160_8f_sbi_geometry_i3_attentive_reliability",
     ),
 )
@@ -41,12 +39,17 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--experiments-root", required=True)
     parser.add_argument("--output-prefix")
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+    if args.seed < 0:
+        parser.error("--seed must be non-negative")
 
     root = Path(args.experiments_root)
+    experiment_suffix = "" if args.seed == 42 else f"_seed{args.seed}"
     rows: list[dict[str, str | float]] = []
     missing: list[Path] = []
-    for profile, experiment in EXPERIMENTS:
+    for profile, base_experiment in EXPERIMENTS:
+        experiment = f"{base_experiment}{experiment_suffix}"
         metrics_path = root / f"{experiment}{EVALUATION_SUFFIX}" / "metrics.json"
         if not metrics_path.is_file():
             missing.append(metrics_path)
@@ -75,7 +78,9 @@ def main() -> None:
         )
         rows.append(row)
 
-    baseline_path = root / f"{EXPERIMENTS[0][1]}{EVALUATION_SUFFIX}" / "metrics.json"
+    baseline_path = (
+        root / f"{EXPERIMENTS[0][1]}{experiment_suffix}{EVALUATION_SUFFIX}" / "metrics.json"
+    )
     if not baseline_path.is_file():
         raise SystemExit(
             f"SBI baseline evaluation is required before computing deltas: {baseline_path}"
@@ -88,7 +93,8 @@ def main() -> None:
     for row in rows:
         row["auc_delta"] = float(row["auc"]) - baseline_auc
 
-    prefix = Path(args.output_prefix) if args.output_prefix else root / "geometry_isolated_ablation"
+    default_report = f"geometry_candidate_comparison{experiment_suffix}"
+    prefix = Path(args.output_prefix) if args.output_prefix else root / default_report
     prefix.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = ["profile", "experiment", *FIELDS, *DERIVED_FIELDS, "auc_delta"]
     with prefix.with_suffix(".csv").open("w", encoding="utf-8", newline="") as handle:
@@ -102,7 +108,7 @@ def main() -> None:
         "Balanced acc | ACER | Geometry weight |"
     )
     lines = [
-        "# QALF isolated geometry ablation",
+        "# QALF geometry candidate comparison",
         "",
         header,
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run isolated geometry ablations from the established EfficientNet-B0/full-face/SBI
-# baseline. No profile inherits a change from another ablation profile.
+# Compare the only retained geometry candidate against the established SBI baseline.
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
@@ -28,15 +27,23 @@ case "$MODE" in
 esac
 
 PROFILES=(
-    geometry_i1_attentive
-    geometry_i2_reliability
-    geometry_i3_attentive_reliability
+    geometry_candidate
 )
 BASELINE_PROFILE='full_face_sbi'
-BASELINE_CHECKPOINT="$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_full_face_sbi/best.pt"
+SEED="${QALF_SEED:-42}"
+if ! [[ "$SEED" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: QALF_SEED must be a non-negative integer; got '$SEED'" >&2
+    exit 2
+fi
+BASELINE_EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi'
+if [[ "$SEED" != '42' ]]; then
+    BASELINE_EXPERIMENT="${BASELINE_EXPERIMENT}_seed${SEED}"
+fi
+BASELINE_CHECKPOINT="$STORAGE_ROOT/experiments/$BASELINE_EXPERIMENT/best.pt"
 
 echo "Geometry ablation mode: $MODE"
 echo "Baseline: $BASELINE_PROFILE"
+echo "Seed: $SEED"
 echo "Profiles: ${PROFILES[*]}"
 
 if [[ "$MODE" == train || "$MODE" == all ]]; then
@@ -72,7 +79,8 @@ done
 
 if [[ "$MODE" == test || "$MODE" == all ]]; then
     "$PYTHON" scripts/summarize_geometry_ablation.py \
-        --experiments-root "$STORAGE_ROOT/experiments"
+        --experiments-root "$STORAGE_ROOT/experiments" \
+        --seed "$SEED"
 fi
 
 echo "========================================================================"

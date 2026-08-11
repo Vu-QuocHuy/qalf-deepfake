@@ -22,44 +22,30 @@ case "$PROFILE" in
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi'
         TEST_TEXTURE_FRAMES=12
         ;;
-    geometry_i1_attentive)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i1_attentive'
-        TEST_TEXTURE_FRAMES=12
-        ;;
-    geometry_i2_reliability)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i2_reliability'
-        TEST_TEXTURE_FRAMES=12
-        ;;
-    geometry_i3_attentive_reliability)
+    geometry_candidate)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i3_attentive_reliability'
-        TEST_TEXTURE_FRAMES=12
-        ;;
-    full_face_ema)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_ema'
-        TEST_TEXTURE_FRAMES=12
-        ;;
-    full_face_mixstyle)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_mixstyle'
-        TEST_TEXTURE_FRAMES=12
-        ;;
-    full_face_dynamics)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_dynamics'
-        TEST_TEXTURE_FRAMES=12
-        ;;
-    dual_view)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_dual_view'
         TEST_TEXTURE_FRAMES=12
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face, full_face_sbi, geometry_i1_attentive, geometry_i2_reliability, geometry_i3_attentive_reliability, full_face_ema, full_face_mixstyle, full_face_dynamics, or dual_view' >&2
+        echo 'Use: full_face, full_face_sbi, or geometry_candidate' >&2
         exit 2
         ;;
 esac
+
+SEED="${QALF_SEED:-42}"
+if ! [[ "$SEED" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: QALF_SEED must be a non-negative integer; got '$SEED'" >&2
+    exit 2
+fi
+if [[ "$SEED" != '42' ]]; then
+    EXPERIMENT="${EXPERIMENT}_seed${SEED}"
+fi
 
 export QALF_TEST_CHECKPOINT="$STORAGE_ROOT/experiments/$EXPERIMENT/best.pt"
 export QALF_TEST_OUTPUT_DIR="$STORAGE_ROOT/experiments/${EXPERIMENT}_to_celebdf_${TEST_TEXTURE_FRAMES}f_3clips_mean_tta_ffpp_threshold"
 export QALF_TEXTURE_FRAMES="$TEST_TEXTURE_FRAMES"
 
 echo "Cross-dataset profile: $PROFILE"
+echo "Seed: $SEED"
 "$PROJECT_ROOT/run_test.sh"

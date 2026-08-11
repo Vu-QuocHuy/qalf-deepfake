@@ -29,20 +29,16 @@ screen found no configuration above that SBI baseline. Graph message passing,
 rigid/non-rigid two-stream features, class-balanced geometry loss, and noisy-view
 self-supervision were therefore removed from the active code.
 
-## Isolated geometry ablation
+## Retained geometry candidate
 
-The two components that showed a positive marginal signal are now tested directly
-from SBI rather than inheriting changes from earlier rows. Every profile retains
-EfficientNet-B0, full-face input, 8 texture frames during training, the locked
-50/25/25 SBI mixture, and 12 texture frames during evaluation.
+The isolated screen rejected attentive pooling alone (`0.8211` AUC) and reliability
+alone (`0.8217`). Their combination reached `0.8323`, effectively tying the `0.8325`
+SBI baseline while improving EER (`0.2473`), balanced accuracy (`0.7726`), and ACER
+(`0.2274`). It is retained as the only geometry candidate pending multi-seed testing.
 
-| Profile | Single controlled change from SBI |
-| --- | --- |
-| `geometry_i1_attentive` | Attentive mean/std/max temporal statistics |
-| `geometry_i2_reliability` | 15% per-branch modality dropout and routing loss 0.10 |
-| `geometry_i3_attentive_reliability` | Combination of I1 and I2 |
-
-Run all three train/evaluation jobs sequentially from Git Bash:
+Both candidate and baseline use EfficientNet-B0, full-face input, 8 texture frames
+during training, the locked 50/25/25 SBI mixture, and 12 texture frames during
+evaluation. Compare them with:
 
 ```bash
 ./run_geometry_ablation.sh all
@@ -62,12 +58,12 @@ Train or evaluate the suite separately:
 Run one profile only:
 
 ```bash
-./run_train_cross_dataset.sh geometry_i1_attentive
-./run_test_cross_dataset.sh geometry_i1_attentive
+./run_train_cross_dataset.sh geometry_candidate
+./run_test_cross_dataset.sh geometry_candidate
 ```
 
-After `test` or `all`, the suite writes `geometry_isolated_ablation.csv` and
-`geometry_isolated_ablation.md` under `E:/DeepFakeData/experiments`. The SBI baseline
+After `test` or `all`, the suite writes `geometry_candidate_comparison.csv` and
+`geometry_candidate_comparison.md` under `E:/DeepFakeData/experiments`. The SBI baseline
 is included automatically as the reference row. The report places FF++ validation
 AUC, Celeb-DF AUC, their domain gap, branch AUCs, fusion weights, and operating-point
 metrics in the same table. It also reports fused-minus-texture AUC and
@@ -96,18 +92,11 @@ For `full_face_sbi`, inspect a small training-only preview before the full run:
 | --- | --- |
 | `full_face` | Reproduce the established 0.8209-AUC baseline |
 | `full_face_sbi` | Locked 50/25/25 hybrid SBI experiment; current primary profile |
-| `geometry_i1_attentive` | Isolated attentive geometry pooling on SBI |
-| `geometry_i2_reliability` | Isolated reliability routing on SBI |
-| `geometry_i3_attentive_reliability` | Combine only the two retained geometry changes |
-| `full_face_ema` | Isolate EMA on the full-face baseline |
-| `full_face_dynamics` | Isolate temporal dynamics on full-face inputs |
-| `full_face_mixstyle` | Isolate MixStyle on full-face inputs |
-| `dual_view` | Completed negative ablation of full-face and canonical-skin fusion |
+| `geometry_candidate` | SBI plus attentive geometry and reliability routing |
 
-Dual-view is not the next primary experiment: it reached 0.8037 Celeb-DF AUC,
-below the 0.8209 full-face baseline, and its texture AUC also decreased. It is
-retained only for reproducibility. The next controlled experiment is the
-training-only SBI hybrid defined in `SBI_IMPLEMENTATION_PLAN.md`.
+Set `QALF_SEED` to run a non-default seed. Seed 42 keeps the historical output path;
+other seeds are written to an automatic `_seedN` suffix so checkpoints cannot overwrite
+one another. The comparison runner and report automatically follow the same suffix.
 
 Run only one change at a time before combining mechanisms. Do not select epochs,
 fusion rules, or hyperparameters from Celeb-DF test AUC for a final paper; use a
