@@ -113,6 +113,7 @@ def main() -> None:
         output_dir / "run_metadata.json",
     )
     data, model_config = config["data"], config["model"]
+    training_texture_frames = int(data["texture_frames"])
     texture_frames = int(
         args.texture_frames if args.texture_frames is not None else data["texture_frames"]
     )
@@ -126,10 +127,16 @@ def main() -> None:
         f"texture_mode={data.get('texture_mode', 'canonical_skin')} "
         f"texture_pooling={model_config.get('texture_temporal_pooling', 'mean')} "
         f"mixstyle_probability={float(model_config.get('texture_mixstyle_probability', 0.0)):.3f} "
-        f"texture_frames={texture_frames} "
+        f"training_texture_frames={training_texture_frames} "
         f"image_size={int(data['image_size'])} "
         f"weights={checkpoint.get('model_weights', 'raw')} "
         f"ema_decay={float(checkpoint.get('ema_decay', 0.0)):.4f}"
+    )
+    logger.info(
+        "  inference | num_frames=%d evaluation_texture_frames=%d clips_per_video=%d",
+        int(data["num_frames"]),
+        texture_frames,
+        int(args.clips_per_video or data.get("eval_clips_per_video", 1)),
     )
     sbi_config = data.get("sbi", {"enabled": False})
     logger.info(
@@ -344,6 +351,9 @@ def main() -> None:
             "ema_decay": float(checkpoint.get("ema_decay", 0.0)),
         },
         "training_data": {
+            "num_frames": int(data["num_frames"]),
+            "texture_frames": training_texture_frames,
+            "image_size": int(data["image_size"]),
             "sbi": sbi_config,
         },
         "inference": {
