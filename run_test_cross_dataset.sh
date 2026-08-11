@@ -22,6 +22,30 @@ case "$PROFILE" in
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi'
         TEST_TEXTURE_FRAMES=12
         ;;
+    geometry_g1_balanced)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g1_balanced'
+        TEST_TEXTURE_FRAMES=12
+        ;;
+    geometry_g2_attentive)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g2_attentive'
+        TEST_TEXTURE_FRAMES=12
+        ;;
+    geometry_g3_graph)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g3_graph'
+        TEST_TEXTURE_FRAMES=12
+        ;;
+    geometry_g4_two_stream)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g4_two_stream'
+        TEST_TEXTURE_FRAMES=12
+        ;;
+    geometry_g5_self_supervised)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g5_self_supervised'
+        TEST_TEXTURE_FRAMES=12
+        ;;
+    geometry_g6_reliability)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_g6_reliability'
+        TEST_TEXTURE_FRAMES=12
+        ;;
     full_face_ema)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_ema'
         TEST_TEXTURE_FRAMES=12
@@ -40,7 +64,7 @@ case "$PROFILE" in
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face, full_face_sbi, full_face_ema, full_face_mixstyle, full_face_dynamics, or dual_view' >&2
+        echo 'Use: full_face, full_face_sbi, geometry_g1_balanced, geometry_g2_attentive, geometry_g3_graph, geometry_g4_two_stream, geometry_g5_self_supervised, geometry_g6_reliability, full_face_ema, full_face_mixstyle, full_face_dynamics, or dual_view' >&2
         exit 2
         ;;
 esac

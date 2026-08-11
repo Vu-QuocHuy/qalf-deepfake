@@ -9,6 +9,7 @@ from typing import Iterable, Protocol
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 from tqdm.auto import tqdm
 
 
@@ -74,27 +75,63 @@ def qalf_loss(
     geometry_weight: float,
     texture_weight: float,
     geometry_loss_mask: torch.Tensor | None = None,
+    geometry_class_balanced: bool = False,
+    reliability_gate_weight: float = 0.0,
+    geometry_self_supervision_weight: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     def mean_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         value = criterion(logits, targets)
         return value.mean() if value.ndim > 0 else value
 
+    def geometry_binary_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        real = targets < 0.5
+        fake = ~real
+        if geometry_class_balanced and bool(real.any()) and bool(fake.any()):
+            return 0.5 * (
+                mean_loss(logits[real], targets[real]) + mean_loss(logits[fake], targets[fake])
+            )
+        return mean_loss(logits, targets)
+
     fused = mean_loss(outputs["logit"], labels)
     texture = mean_loss(outputs["texture_logit"], labels)
     if geometry_loss_mask is None:
-        geometry = mean_loss(outputs["geometry_logit"], labels)
+        geometry = geometry_binary_loss(outputs["geometry_logit"], labels)
     else:
         valid = geometry_loss_mask.reshape(-1) > 0.5
         if bool(valid.any()):
-            geometry = mean_loss(outputs["geometry_logit"][valid], labels[valid])
+            valid_logits = outputs["geometry_logit"][valid]
+            valid_labels = labels[valid]
+            geometry = geometry_binary_loss(valid_logits, valid_labels)
         else:
             # Preserve a differentiable graph for a hypothetical all-SBI batch.
             geometry = outputs["geometry_logit"].sum() * 0.0
-    total = fused + geometry_weight * geometry + texture_weight * texture
+    reliability = outputs["logit"].sum() * 0.0
+    reliability_target = outputs.get("reliability_target")
+    if reliability_gate_weight > 0.0 and reliability_target is not None:
+        supervised = reliability_target >= 0
+        if bool(supervised.any()):
+            reliability = F.nll_loss(
+                outputs["fusion_weights"][supervised].clamp_min(1e-6).log(),
+                reliability_target[supervised],
+            )
+    geometry_self_supervision = outputs["logit"].sum() * 0.0
+    if geometry_self_supervision_weight > 0.0:
+        geometry_self_supervision = outputs.get(
+            "geometry_consistency_loss", geometry_self_supervision
+        )
+    total = (
+        fused
+        + geometry_weight * geometry
+        + texture_weight * texture
+        + reliability_gate_weight * reliability
+        + geometry_self_supervision_weight * geometry_self_supervision
+    )
     return total, {
         "fused": float(fused.detach()),
         "geometry": float(geometry.detach()),
         "texture": float(texture.detach()),
+        "reliability": float(reliability.detach()),
+        "geometry_self_supervision": float(geometry_self_supervision.detach()),
     }
 
 
@@ -107,6 +144,9 @@ def train_epoch(
     scaler: GradScalerProtocol,
     geometry_weight: float,
     texture_weight: float,
+    geometry_class_balanced: bool = False,
+    reliability_gate_weight: float = 0.0,
+    geometry_self_supervision_weight: float = 0.0,
     ema: EMAModel | None = None,
 ) -> dict[str, float]:
     model.train()
@@ -126,6 +166,9 @@ def train_epoch(
                 geometry_weight,
                 texture_weight,
                 geometry_loss_mask if torch.is_tensor(geometry_loss_mask) else None,
+                geometry_class_balanced=geometry_class_balanced,
+                reliability_gate_weight=reliability_gate_weight,
+                geometry_self_supervision_weight=geometry_self_supervision_weight,
             )
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
@@ -147,16 +190,20 @@ def train_epoch(
         sample_types = batch.get("sample_type")
         if isinstance(sample_types, (list, tuple)):
             totals["sbi_samples"] += sum(value == "sbi" for value in sample_types)
+        reliability_target = outputs.get("reliability_target")
+        if torch.is_tensor(reliability_target):
+            totals["reliability_supervised"] += float((reliability_target >= 0).sum().detach())
         samples += batch_size
     if samples == 0:
         raise RuntimeError("Training loader produced no samples")
     result = {
         name: value / samples
         for name, value in totals.items()
-        if name not in {"geometry_supervised", "sbi_samples"}
+        if name not in {"geometry_supervised", "sbi_samples", "reliability_supervised"}
     }
     result["geometry_supervision_fraction"] = totals["geometry_supervised"] / samples
     result["sbi_fraction"] = totals["sbi_samples"] / samples
+    result["reliability_supervision_fraction"] = totals["reliability_supervised"] / samples
     return result
 
 

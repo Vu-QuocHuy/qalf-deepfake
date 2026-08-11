@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Collect QALF Geometry++ cross-dataset metrics into one comparison table."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+from pathlib import Path
+
+EXPERIMENTS = (
+    ("SBI baseline", "qalf_ffpp4_effb0_160_8f_full_face_sbi"),
+    ("G1 balanced", "qalf_ffpp4_effb0_160_8f_sbi_geometry_g1_balanced"),
+    ("G2 attentive", "qalf_ffpp4_effb0_160_8f_sbi_geometry_g2_attentive"),
+    ("G3 graph", "qalf_ffpp4_effb0_160_8f_sbi_geometry_g3_graph"),
+    ("G4 two-stream", "qalf_ffpp4_effb0_160_8f_sbi_geometry_g4_two_stream"),
+    (
+        "G5 self-supervised",
+        "qalf_ffpp4_effb0_160_8f_sbi_geometry_g5_self_supervised",
+    ),
+    ("G6 reliability", "qalf_ffpp4_effb0_160_8f_sbi_geometry_g6_reliability"),
+)
+EVALUATION_SUFFIX = "_to_celebdf_12f_3clips_mean_tta_ffpp_threshold"
+FIELDS = (
+    "ffpp_val_auc",
+    "domain_gap",
+    "auc",
+    "average_precision",
+    "eer",
+    "balanced_accuracy",
+    "acer",
+    "geometry_auc",
+    "texture_auc",
+    "fixed_average_auc",
+    "mean_geometry_weight",
+)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--experiments-root", required=True)
+    parser.add_argument("--output-prefix")
+    args = parser.parse_args()
+
+    root = Path(args.experiments_root)
+    rows: list[dict[str, str | float]] = []
+    missing: list[Path] = []
+    for profile, experiment in EXPERIMENTS:
+        metrics_path = root / f"{experiment}{EVALUATION_SUFFIX}" / "metrics.json"
+        if not metrics_path.is_file():
+            missing.append(metrics_path)
+            continue
+        with metrics_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        metrics = payload.get("metrics", payload)
+        summary_path = root / experiment / "training_summary.json"
+        ffpp_val_auc = float("nan")
+        if summary_path.is_file():
+            with summary_path.open("r", encoding="utf-8") as handle:
+                training_summary = json.load(handle)
+            ffpp_val_auc = float(training_summary.get("best_value", float("nan")))
+        row: dict[str, str | float] = {
+            "profile": profile,
+            "experiment": experiment,
+            "ffpp_val_auc": ffpp_val_auc,
+            "domain_gap": ffpp_val_auc - float(metrics["auc"]),
+        }
+        for field in FIELDS:
+            if field not in row:
+                row[field] = float(metrics[field])
+        rows.append(row)
+
+    baseline_path = root / f"{EXPERIMENTS[0][1]}{EVALUATION_SUFFIX}" / "metrics.json"
+    if not baseline_path.is_file():
+        raise SystemExit(
+            f"SBI baseline evaluation is required before computing deltas: {baseline_path}"
+        )
+    if not rows:
+        paths = "\n".join(f"  - {path}" for path in missing)
+        raise SystemExit(f"No completed evaluation metrics found:\n{paths}")
+
+    baseline_auc = float(rows[0]["auc"])
+    for row in rows:
+        row["auc_delta"] = float(row["auc"]) - baseline_auc
+
+    prefix = Path(args.output_prefix) if args.output_prefix else root / "geometry_ablation"
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = ["profile", "experiment", *FIELDS, "auc_delta"]
+    with prefix.with_suffix(".csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    header = (
+        "| Profile | FF++ val AUC | Celeb-DF AUC | Delta | Domain gap | "
+        "Geometry AUC | Texture AUC | AP | EER | "
+        "Balanced acc | ACER | Geometry weight |"
+    )
+    lines = [
+        "# QALF Geometry++ ablation",
+        "",
+        header,
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for row in rows:
+        lines.append(
+            f"| {row['profile']} | {float(row['ffpp_val_auc']):.4f} | "
+            f"{float(row['auc']):.4f} | {float(row['auc_delta']):+.4f} | "
+            f"{float(row['domain_gap']):.4f} | {float(row['geometry_auc']):.4f} | "
+            f"{float(row['texture_auc']):.4f} | "
+            f"{float(row['average_precision']):.4f} | {float(row['eer']):.4f} | "
+            f"{float(row['balanced_accuracy']):.4f} | {float(row['acer']):.4f} | "
+            f"{float(row['mean_geometry_weight']):.4f} |"
+        )
+    if missing:
+        lines.extend(
+            [
+                "",
+                "## Missing evaluations",
+                "",
+                *(f"- `{path}`" for path in missing),
+            ]
+        )
+    markdown = "\n".join(lines) + "\n"
+    prefix.with_suffix(".md").write_text(markdown, encoding="utf-8")
+    print(markdown)
+    print(f"CSV: {prefix.with_suffix('.csv')}")
+    print(f"Markdown: {prefix.with_suffix('.md')}")
+
+
+if __name__ == "__main__":
+    main()

@@ -16,6 +16,7 @@ from .geometry import (
     DEFAULT_GEOMETRY_FEATURE_MODE,
     DEFAULT_LANDMARK_INDICES,
     build_geometry_features,
+    geometry_feature_layout,
     geometry_input_dim,
 )
 from .manifest import VideoRecord, load_manifest
@@ -37,6 +38,7 @@ def texture_view_count(texture_mode: str) -> int:
     if texture_mode not in TEXTURE_MODES:
         raise ValueError(f"Unsupported texture mode: {texture_mode}")
     return 2 if texture_mode == "dual_view" else 1
+
 
 DEFAULT_GEOMETRY_AUGMENTATION = {
     "noise_probability": 0.5,
@@ -134,9 +136,7 @@ def _canonical_skin_map(
     if texture_mode in {"canonical_skin", "dual_view"}:
         skin = _apply_skin_regions(canonical)
         output = (
-            skin
-            if texture_mode == "canonical_skin"
-            else np.concatenate([canonical, skin], axis=2)
+            skin if texture_mode == "canonical_skin" else np.concatenate([canonical, skin], axis=2)
         )
         quality_image = skin if texture_mode == "canonical_skin" else canonical
     else:
@@ -377,6 +377,11 @@ class QALFVideoDataset(Dataset):
         self.landmark_indices = landmark_indices
         self.geometry_mode = geometry_mode
         self.geometry_input_dim = geometry_input_dim(landmark_indices, geometry_mode)
+        (
+            self.geometry_node_count,
+            self.geometry_node_feature_dim,
+            self.geometry_rigid_feature_dim,
+        ) = geometry_feature_layout(landmark_indices, geometry_mode)
         self.geometry_augmentation = dict(geometry_augmentation or {})
         if texture_augmentation is None:
             self.texture_augmentation = dict(DEFAULT_TEXTURE_AUGMENTATION)
@@ -433,9 +438,7 @@ class QALFVideoDataset(Dataset):
     @property
     def sampling_strata(self) -> list[str]:
         return [
-            sample_type
-            for _, sample_type in self.sample_specs
-            for _ in range(self.clips_per_video)
+            sample_type for _, sample_type in self.sample_specs for _ in range(self.clips_per_video)
         ]
 
     def __len__(self) -> int:
@@ -564,9 +567,9 @@ class QALFVideoDataset(Dataset):
                 )
             normalized = canonical.astype(np.float32) / 255.0
             view_count = texture_view_count(self.texture_mode)
-            normalized = (
-                normalized - np.tile(IMAGE_MEAN, view_count)
-            ) / np.tile(IMAGE_STD, view_count)
+            normalized = (normalized - np.tile(IMAGE_MEAN, view_count)) / np.tile(
+                IMAGE_STD, view_count
+            )
             texture_tensors.append(normalized.transpose(2, 0, 1))
             texture_qualities.append(quality)
 

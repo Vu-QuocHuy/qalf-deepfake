@@ -26,6 +26,7 @@ from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
 from qalf.engine import EMAModel, aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
 from qalf.models import SUPPORTED_TEXTURE_BACKBONES, SUPPORTED_TEXTURE_POOLING, QALFModel
+from qalf.models.geometry import SUPPORTED_GEOMETRY_ARCHITECTURES
 from qalf.reporting import collect_run_metadata, save_training_history_plot
 
 
@@ -161,8 +162,12 @@ def _epoch_messages(
         "  train | "
         f"total={train_metrics['loss']:.4f} fused={train_metrics['fused']:.4f} "
         f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f} "
+        f"reliability={train_metrics.get('reliability', 0.0):.4f} "
+        f"geometry_ssl={train_metrics.get('geometry_self_supervision', 0.0):.4f} "
         f"sbi_fraction={train_metrics.get('sbi_fraction', 0.0):.3f} "
-        f"geometry_supervision={train_metrics.get('geometry_supervision_fraction', 1.0):.3f}",
+        f"geometry_supervision={train_metrics.get('geometry_supervision_fraction', 1.0):.3f} "
+        f"reliability_supervision="
+        f"{train_metrics.get('reliability_supervision_fraction', 0.0):.3f}",
         "  val   | "
         f"auc={float(validation_metrics['auc']):.4f} "
         f"ap={float(validation_metrics['average_precision']):.4f} "
@@ -213,6 +218,12 @@ def main() -> None:
     parser.add_argument("--early-stop-patience", type=int)
     parser.add_argument("--geometry-hidden", type=int)
     parser.add_argument("--geometry-layers", type=int)
+    parser.add_argument(
+        "--geometry-architecture",
+        choices=tuple(sorted(SUPPORTED_GEOMETRY_ARCHITECTURES)),
+    )
+    parser.add_argument("--geometry-graph-neighbors", type=int)
+    parser.add_argument("--geometry-consistency-noise-std", type=float)
     parser.add_argument("--embedding-dim", type=int)
     parser.add_argument("--dropout", type=float)
     parser.add_argument(
@@ -252,6 +263,14 @@ def main() -> None:
     parser.add_argument("--texture-mixstyle-probability", type=float)
     parser.add_argument("--texture-mixstyle-alpha", type=float)
     parser.add_argument("--texture-mixstyle-layers", type=int, nargs="+")
+    parser.add_argument(
+        "--geometry-class-balanced",
+        action="store_true",
+        help="Average real and fake geometry losses independently after masking SBI.",
+    )
+    parser.add_argument("--modality-dropout-probability", type=float)
+    parser.add_argument("--reliability-gate-loss-weight", type=float)
+    parser.add_argument("--geometry-self-supervision-loss-weight", type=float)
     parser.add_argument("--no-geometry-augmentation", action="store_true")
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
@@ -285,16 +304,18 @@ def main() -> None:
     model_overrides = {
         "geometry_hidden": args.geometry_hidden,
         "geometry_layers": args.geometry_layers,
+        "geometry_architecture": args.geometry_architecture,
+        "geometry_graph_neighbors": args.geometry_graph_neighbors,
+        "geometry_consistency_noise_std": args.geometry_consistency_noise_std,
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
         "texture_gate_bias": args.texture_gate_bias,
         "texture_mixstyle_probability": args.texture_mixstyle_probability,
         "texture_mixstyle_alpha": args.texture_mixstyle_alpha,
         "texture_mixstyle_layers": args.texture_mixstyle_layers,
+        "modality_dropout_probability": args.modality_dropout_probability,
     }
-    model_config.update(
-        {key: value for key, value in model_overrides.items() if value is not None}
-    )
+    model_config.update({key: value for key, value in model_overrides.items() if value is not None})
     if args.no_geometry_augmentation:
         data["geometry_augmentation"] = {}
     if args.no_texture_augmentation:
@@ -322,11 +343,11 @@ def main() -> None:
         "texture_loss_weight": args.texture_loss_weight,
         "ema_decay": args.ema_decay,
         "early_stop_patience": args.early_stop_patience,
+        "reliability_gate_loss_weight": args.reliability_gate_loss_weight,
+        "geometry_self_supervision_loss_weight": (args.geometry_self_supervision_loss_weight),
     }
     data.update({key: value for key, value in data_overrides.items() if value is not None})
-    training.update(
-        {key: value for key, value in training_overrides.items() if value is not None}
-    )
+    training.update({key: value for key, value in training_overrides.items() if value is not None})
     if args.seed is not None:
         config["seed"] = args.seed
     if args.no_amp:
@@ -335,6 +356,8 @@ def main() -> None:
         training["balanced_sampler"] = False
     if args.deterministic:
         training["deterministic"] = True
+    if args.geometry_class_balanced:
+        training["geometry_class_balanced"] = True
     data["sbi"] = resolve_sbi_config(data.get("sbi"))
     if bool(data["sbi"]["enabled"]) and not bool(training.get("balanced_sampler", True)):
         parser.error("SBI requires the explicit three-stratum sampler")
@@ -373,11 +396,42 @@ def main() -> None:
             parser.error(f"model.{name} must be at least one")
     if not 0.0 <= float(model_config.get("dropout", 0.0)) < 1.0:
         parser.error("model.dropout must be in [0, 1)")
+    if int(model_config.get("geometry_graph_neighbors", 4)) < 1:
+        parser.error("model.geometry_graph_neighbors must be at least one")
+    geometry_architecture = str(model_config.get("geometry_architecture", "tcn_mean"))
+    geometry_mode = str(data.get("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE))
+    if geometry_architecture == "graph_attentive" and geometry_mode != "aligned_motion_3d":
+        parser.error("graph_attentive requires --geometry-mode aligned_motion_3d")
+    if (
+        geometry_architecture == "graph_rigid_attentive"
+        and geometry_mode != "aligned_motion_rigid_3d"
+    ):
+        parser.error("graph_rigid_attentive requires --geometry-mode aligned_motion_rigid_3d")
+    modality_dropout_probability = float(model_config.get("modality_dropout_probability", 0.0))
+    if not 0.0 <= modality_dropout_probability <= 0.5:
+        parser.error("model.modality_dropout_probability must be in [0, 0.5]")
+    reliability_gate_loss_weight = float(training.get("reliability_gate_loss_weight", 0.0))
+    if reliability_gate_loss_weight < 0.0:
+        parser.error("training.reliability_gate_loss_weight cannot be negative")
+    if reliability_gate_loss_weight > 0.0 and modality_dropout_probability == 0.0:
+        parser.error("Reliability gate loss requires positive modality dropout")
+    geometry_consistency_noise_std = float(model_config.get("geometry_consistency_noise_std", 0.0))
+    geometry_self_supervision_loss_weight = float(
+        training.get("geometry_self_supervision_loss_weight", 0.0)
+    )
+    if geometry_consistency_noise_std < 0.0:
+        parser.error("model.geometry_consistency_noise_std cannot be negative")
+    if geometry_self_supervision_loss_weight < 0.0:
+        parser.error("training.geometry_self_supervision_loss_weight cannot be negative")
+    if geometry_self_supervision_loss_weight > 0.0 and geometry_consistency_noise_std == 0.0:
+        parser.error("Geometry self-supervision loss requires consistency noise")
+    if modality_dropout_probability > 0.0 and str(
+        model_config.get("fusion_mode", "quality")
+    ) not in {"quality", "quality_only", "content_gate"}:
+        parser.error("Modality dropout requires a learned gated fusion mode")
     mixstyle_probability = float(model_config.get("texture_mixstyle_probability", 0.0))
     mixstyle_alpha = float(model_config.get("texture_mixstyle_alpha", 0.1))
-    mixstyle_layers = tuple(
-        int(index) for index in model_config.get("texture_mixstyle_layers", [])
-    )
+    mixstyle_layers = tuple(int(index) for index in model_config.get("texture_mixstyle_layers", []))
     if not 0.0 <= mixstyle_probability <= 1.0:
         parser.error("model.texture_mixstyle_probability must be in [0, 1]")
     if mixstyle_alpha <= 0.0:
@@ -433,12 +487,8 @@ def main() -> None:
         clips_per_video=int(data["eval_clips_per_video"]),
         **dataset_args,
     )
-    train_counts = np.bincount(
-        [record.label for record in train_dataset.records], minlength=2
-    )
-    val_counts = np.bincount(
-        [record.label for record in val_dataset.records], minlength=2
-    )
+    train_counts = np.bincount([record.label for record in train_dataset.records], minlength=2)
+    val_counts = np.bincount([record.label for record in val_dataset.records], minlength=2)
     batch_size = int(training["batch_size"])
     workers = int(training.get("num_workers", 4))
     train_loader = _loader(
@@ -463,14 +513,18 @@ def main() -> None:
         geometry_input_dim=train_dataset.geometry_input_dim,
         geometry_hidden=int(model_config.get("geometry_hidden", 96)),
         geometry_layers=int(model_config.get("geometry_layers", 3)),
+        geometry_architecture=str(model_config.get("geometry_architecture", "tcn_mean")),
+        geometry_node_count=train_dataset.geometry_node_count,
+        geometry_node_feature_dim=train_dataset.geometry_node_feature_dim,
+        geometry_rigid_feature_dim=train_dataset.geometry_rigid_feature_dim,
+        geometry_graph_neighbors=int(model_config.get("geometry_graph_neighbors", 4)),
+        geometry_consistency_noise_std=geometry_consistency_noise_std,
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
-        texture_views=texture_view_count(
-            str(data.get("texture_mode", "canonical_skin"))
-        ),
+        texture_views=texture_view_count(str(data.get("texture_mode", "canonical_skin"))),
         texture_mixstyle_probability=mixstyle_probability,
         texture_mixstyle_alpha=mixstyle_alpha,
         texture_mixstyle_layers=mixstyle_layers,
@@ -478,6 +532,7 @@ def main() -> None:
         texture_quality_dim=train_dataset.texture_quality_dim,
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
         texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
+        modality_dropout_probability=modality_dropout_probability,
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(
@@ -518,12 +573,13 @@ def main() -> None:
     logger.info("=" * 72)
     logger.info("QALF TRAINING RUN")
     logger.info(
-        "  model | device=%s backbone=%s texture_mode=%s pooling=%s "
+        "  model | device=%s backbone=%s texture_mode=%s pooling=%s geometry=%s "
         "frames=%d image_size=%d parameters=%d trainable=%d",
         device,
         model_config.get("texture_backbone", "efficientnet_b0"),
         data.get("texture_mode", "canonical_skin"),
         model_config.get("texture_temporal_pooling", "mean"),
+        model_config.get("geometry_architecture", "tcn_mean"),
         int(data["texture_frames"]),
         int(data["image_size"]),
         sum(parameter.numel() for parameter in model.parameters()),
@@ -546,13 +602,19 @@ def main() -> None:
     )
     logger.info(
         "  train | amp=%s deterministic=%s ema_decay=%.4f validation_weights=%s "
-        "loss_weights=fused:1.000 geometry:%.3f texture:%.3f patience=%d",
+        "loss_weights=fused:1.000 geometry:%.3f texture:%.3f reliability:%.3f "
+        "geometry_ssl:%.3f "
+        "geometry_class_balanced=%s modality_dropout=%.3f patience=%d",
         amp_enabled,
         deterministic,
         ema_decay,
         "ema" if ema is not None else "raw",
         geometry_loss_weight,
         texture_loss_weight,
+        reliability_gate_loss_weight,
+        geometry_self_supervision_loss_weight,
+        bool(training.get("geometry_class_balanced", False)),
+        modality_dropout_probability,
         patience,
     )
     logger.info(
@@ -582,7 +644,10 @@ def main() -> None:
             scaler,
             geometry_loss_weight,
             texture_loss_weight,
-            ema,
+            geometry_class_balanced=bool(training.get("geometry_class_balanced", False)),
+            reliability_gate_weight=reliability_gate_loss_weight,
+            geometry_self_supervision_weight=geometry_self_supervision_loss_weight,
+            ema=ema,
         )
         eval_model = ema.shadow if ema is not None else model
         validation_clips = predict(eval_model, val_loader, device)
@@ -597,9 +662,7 @@ def main() -> None:
         val_metrics = compute_metrics(labels, scores, threshold)
         geometry_scores = np.asarray(validation["geometry_score"], dtype=np.float64)
         texture_scores = np.asarray(validation["texture_score"], dtype=np.float64)
-        val_metrics["geometry_auc"] = compute_metrics(
-            labels, geometry_scores, threshold
-        )["auc"]
+        val_metrics["geometry_auc"] = compute_metrics(labels, geometry_scores, threshold)["auc"]
         val_metrics["texture_auc"] = compute_metrics(labels, texture_scores, threshold)["auc"]
         val_metrics["mean_geometry_weight"] = float(
             np.mean(np.asarray(validation["geometry_weight"], dtype=np.float64))
@@ -639,6 +702,9 @@ def main() -> None:
             "geometry_input_dim": train_dataset.geometry_input_dim,
             "geometry_quality_dim": train_dataset.geometry_quality_dim,
             "texture_quality_dim": train_dataset.texture_quality_dim,
+            "geometry_node_count": train_dataset.geometry_node_count,
+            "geometry_node_feature_dim": train_dataset.geometry_node_feature_dim,
+            "geometry_rigid_feature_dim": train_dataset.geometry_rigid_feature_dim,
             "threshold": threshold,
             "validation_metrics": val_metrics,
             "ema_decay": ema_decay,
@@ -677,11 +743,7 @@ def main() -> None:
                 logger.info("Early stopping after %d epochs", epoch)
                 break
     best_metrics = next(
-        (
-            row["validation"]
-            for row in history
-            if int(row["epoch"]) == best_epoch
-        ),
+        (row["validation"] for row in history if int(row["epoch"]) == best_epoch),
         {},
     )
     summary = {

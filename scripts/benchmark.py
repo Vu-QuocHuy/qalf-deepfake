@@ -69,17 +69,21 @@ def main() -> None:
         geometry_input_dim=int(checkpoint["geometry_input_dim"]),
         geometry_hidden=int(model_config.get("geometry_hidden", 96)),
         geometry_layers=int(model_config.get("geometry_layers", 3)),
+        geometry_architecture=str(model_config.get("geometry_architecture", "tcn_mean")),
+        geometry_node_count=int(checkpoint.get("geometry_node_count", 0)),
+        geometry_node_feature_dim=int(checkpoint.get("geometry_node_feature_dim", 0)),
+        geometry_rigid_feature_dim=int(checkpoint.get("geometry_rigid_feature_dim", 0)),
+        geometry_graph_neighbors=int(model_config.get("geometry_graph_neighbors", 4)),
+        geometry_consistency_noise_std=float(
+            model_config.get("geometry_consistency_noise_std", 0.0)
+        ),
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
-        texture_views=texture_view_count(
-            str(data.get("texture_mode", "canonical_skin"))
-        ),
-        texture_mixstyle_probability=float(
-            model_config.get("texture_mixstyle_probability", 0.0)
-        ),
+        texture_views=texture_view_count(str(data.get("texture_mode", "canonical_skin"))),
+        texture_mixstyle_probability=float(model_config.get("texture_mixstyle_probability", 0.0)),
         texture_mixstyle_alpha=float(model_config.get("texture_mixstyle_alpha", 0.1)),
         texture_mixstyle_layers=tuple(
             int(index) for index in model_config.get("texture_mixstyle_layers", [])
@@ -88,6 +92,7 @@ def main() -> None:
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
         texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
+        modality_dropout_probability=float(model_config.get("modality_dropout_probability", 0.0)),
     )
     model.load_state_dict(checkpoint["model"], strict=True)
     if args.device == "cuda" and not torch.cuda.is_available():
@@ -123,12 +128,8 @@ def main() -> None:
     report = {
         "device": str(device),
         "fusion_mode": str(model_config.get("fusion_mode", "quality")),
-        "texture_backbone": str(
-            model_config.get("texture_backbone", "efficientnet_b0")
-        ),
-        "texture_temporal_pooling": str(
-            model_config.get("texture_temporal_pooling", "mean")
-        ),
+        "texture_backbone": str(model_config.get("texture_backbone", "efficientnet_b0")),
+        "texture_temporal_pooling": str(model_config.get("texture_temporal_pooling", "mean")),
         "texture_mixstyle_probability": float(
             model_config.get("texture_mixstyle_probability", 0.0)
         ),

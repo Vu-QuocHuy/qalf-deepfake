@@ -38,9 +38,10 @@ def load_config(path: str | Path) -> dict[str, Any]:
     if int(config["data"].get("top_k", 1)) < 1:
         raise ValueError("data.top_k must be >= 1")
     config["data"]["sbi"] = resolve_sbi_config(config["data"].get("sbi"))
-    if bool(config["data"]["sbi"]["enabled"]) and config["data"].get(
-        "texture_mode", "canonical_skin"
-    ) != "full_face":
+    if (
+        bool(config["data"]["sbi"]["enabled"])
+        and config["data"].get("texture_mode", "canonical_skin") != "full_face"
+    ):
         raise ValueError("Enabled SBI requires data.texture_mode=full_face")
     fake_methods = config["data"].get("fake_methods")
     if fake_methods is not None:
@@ -53,6 +54,9 @@ def load_config(path: str | Path) -> dict[str, Any]:
     model_defaults = {
         "geometry_hidden": 96,
         "geometry_layers": 3,
+        "geometry_architecture": "tcn_mean",
+        "geometry_graph_neighbors": 4,
+        "geometry_consistency_noise_std": 0.0,
         "embedding_dim": 128,
         "dropout": 0.2,
         "texture_backbone": "efficientnet_b0",
@@ -60,6 +64,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
         "texture_mixstyle_probability": 0.0,
         "texture_mixstyle_alpha": 0.1,
         "texture_mixstyle_layers": [],
+        "modality_dropout_probability": 0.0,
     }
     for name, default in model_defaults.items():
         config["model"].setdefault(name, default)
@@ -83,14 +88,47 @@ def load_config(path: str | Path) -> dict[str, Any]:
     if len(set(mixstyle_layers)) != len(mixstyle_layers):
         raise ValueError("model.texture_mixstyle_layers must not contain duplicates")
     if mixstyle_probability > 0.0 and not mixstyle_layers:
-        raise ValueError(
-            "model.texture_mixstyle_layers cannot be empty when MixStyle is enabled"
-        )
+        raise ValueError("model.texture_mixstyle_layers cannot be empty when MixStyle is enabled")
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(config["model"].get(name, 0)) < 1:
             raise ValueError(f"model.{name} must be >= 1")
     if not 0.0 <= float(config["model"].get("dropout", 0.0)) < 1.0:
         raise ValueError("model.dropout must be in [0, 1)")
+    geometry_architecture = str(config["model"]["geometry_architecture"])
+    if geometry_architecture not in {
+        "tcn_mean",
+        "tcn_attentive",
+        "graph_attentive",
+        "graph_rigid_attentive",
+    }:
+        raise ValueError("Unsupported model.geometry_architecture")
+    if int(config["model"]["geometry_graph_neighbors"]) < 1:
+        raise ValueError("model.geometry_graph_neighbors must be >= 1")
+    if geometry_architecture == "graph_attentive" and geometry_mode != "aligned_motion_3d":
+        raise ValueError("graph_attentive requires data.geometry_mode=aligned_motion_3d")
+    if (
+        geometry_architecture == "graph_rigid_attentive"
+        and geometry_mode != "aligned_motion_rigid_3d"
+    ):
+        raise ValueError(
+            "graph_rigid_attentive requires data.geometry_mode=aligned_motion_rigid_3d"
+        )
+    modality_dropout = float(config["model"]["modality_dropout_probability"])
+    if not 0.0 <= modality_dropout <= 0.5:
+        raise ValueError("model.modality_dropout_probability must be in [0, 0.5]")
+    config["training"].setdefault("geometry_class_balanced", False)
+    config["training"].setdefault("reliability_gate_loss_weight", 0.0)
+    config["training"].setdefault("geometry_self_supervision_loss_weight", 0.0)
+    if float(config["training"]["reliability_gate_loss_weight"]) < 0.0:
+        raise ValueError("training.reliability_gate_loss_weight must be non-negative")
+    if float(config["training"]["reliability_gate_loss_weight"]) > 0.0 and modality_dropout == 0.0:
+        raise ValueError("Reliability gate loss requires modality dropout")
+    geometry_noise = float(config["model"]["geometry_consistency_noise_std"])
+    geometry_ssl_weight = float(config["training"]["geometry_self_supervision_loss_weight"])
+    if geometry_noise < 0.0 or geometry_ssl_weight < 0.0:
+        raise ValueError("Geometry consistency settings must be non-negative")
+    if geometry_ssl_weight > 0.0 and geometry_noise == 0.0:
+        raise ValueError("Geometry self-supervision loss requires consistency noise")
     return config
 
 

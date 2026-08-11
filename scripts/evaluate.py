@@ -126,6 +126,7 @@ def main() -> None:
         f"backbone={model_config.get('texture_backbone', 'efficientnet_b0')} "
         f"texture_mode={data.get('texture_mode', 'canonical_skin')} "
         f"texture_pooling={model_config.get('texture_temporal_pooling', 'mean')} "
+        f"geometry_architecture={model_config.get('geometry_architecture', 'tcn_mean')} "
         f"mixstyle_probability={float(model_config.get('texture_mixstyle_probability', 0.0)):.3f} "
         f"training_texture_frames={training_texture_frames} "
         f"image_size={int(data['image_size'])} "
@@ -185,17 +186,21 @@ def main() -> None:
         geometry_input_dim=int(checkpoint["geometry_input_dim"]),
         geometry_hidden=int(model_config.get("geometry_hidden", 96)),
         geometry_layers=int(model_config.get("geometry_layers", 3)),
+        geometry_architecture=str(model_config.get("geometry_architecture", "tcn_mean")),
+        geometry_node_count=int(checkpoint.get("geometry_node_count", 0)),
+        geometry_node_feature_dim=int(checkpoint.get("geometry_node_feature_dim", 0)),
+        geometry_rigid_feature_dim=int(checkpoint.get("geometry_rigid_feature_dim", 0)),
+        geometry_graph_neighbors=int(model_config.get("geometry_graph_neighbors", 4)),
+        geometry_consistency_noise_std=float(
+            model_config.get("geometry_consistency_noise_std", 0.0)
+        ),
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
-        texture_views=texture_view_count(
-            str(data.get("texture_mode", "canonical_skin"))
-        ),
-        texture_mixstyle_probability=float(
-            model_config.get("texture_mixstyle_probability", 0.0)
-        ),
+        texture_views=texture_view_count(str(data.get("texture_mode", "canonical_skin"))),
+        texture_mixstyle_probability=float(model_config.get("texture_mixstyle_probability", 0.0)),
         texture_mixstyle_alpha=float(model_config.get("texture_mixstyle_alpha", 0.1)),
         texture_mixstyle_layers=tuple(
             int(index) for index in model_config.get("texture_mixstyle_layers", [])
@@ -204,6 +209,7 @@ def main() -> None:
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
         texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
+        modality_dropout_probability=float(model_config.get("modality_dropout_probability", 0.0)),
     )
     model.load_state_dict(checkpoint["model"], strict=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -334,27 +340,38 @@ def main() -> None:
         "score_target": score_target,
         "model": {
             "texture_backbone": model_config.get("texture_backbone", "efficientnet_b0"),
-            "texture_temporal_pooling": model_config.get(
-                "texture_temporal_pooling", "mean"
+            "texture_temporal_pooling": model_config.get("texture_temporal_pooling", "mean"),
+            "geometry_architecture": model_config.get("geometry_architecture", "tcn_mean"),
+            "geometry_graph_neighbors": int(model_config.get("geometry_graph_neighbors", 4)),
+            "geometry_consistency_noise_std": float(
+                model_config.get("geometry_consistency_noise_std", 0.0)
             ),
             "texture_mode": data.get("texture_mode", "canonical_skin"),
             "texture_mixstyle_probability": float(
                 model_config.get("texture_mixstyle_probability", 0.0)
             ),
-            "texture_mixstyle_alpha": float(
-                model_config.get("texture_mixstyle_alpha", 0.1)
-            ),
-            "texture_mixstyle_layers": model_config.get(
-                "texture_mixstyle_layers", []
-            ),
+            "texture_mixstyle_alpha": float(model_config.get("texture_mixstyle_alpha", 0.1)),
+            "texture_mixstyle_layers": model_config.get("texture_mixstyle_layers", []),
             "model_weights": checkpoint.get("model_weights", "raw"),
             "ema_decay": float(checkpoint.get("ema_decay", 0.0)),
+            "modality_dropout_probability": float(
+                model_config.get("modality_dropout_probability", 0.0)
+            ),
         },
         "training_data": {
             "num_frames": int(data["num_frames"]),
             "texture_frames": training_texture_frames,
             "image_size": int(data["image_size"]),
             "sbi": sbi_config,
+            "geometry_class_balanced": bool(
+                config["training"].get("geometry_class_balanced", False)
+            ),
+            "geometry_self_supervision_loss_weight": float(
+                config["training"].get("geometry_self_supervision_loss_weight", 0.0)
+            ),
+            "reliability_gate_loss_weight": float(
+                config["training"].get("reliability_gate_loss_weight", 0.0)
+            ),
         },
         "inference": {
             "num_frames": int(data["num_frames"]),
@@ -369,9 +386,7 @@ def main() -> None:
             "value": threshold,
             "source": threshold_source,
             "checkpoint_value": float(checkpoint["threshold"]),
-            "selection": checkpoint.get(
-                "threshold_selection", "youden_j_ffpp_validation"
-            ),
+            "selection": checkpoint.get("threshold_selection", "youden_j_ffpp_validation"),
             "calibration_clips_per_video": int(
                 args.threshold_clips_per_video
                 if args.threshold_clips_per_video is not None
@@ -393,8 +408,7 @@ def main() -> None:
                 f"label_convention: {protocol['label_convention']}",
                 f"score_target: {protocol['score_target']}",
                 f"model: {json.dumps(protocol['model'], ensure_ascii=False)}",
-                "training_data: "
-                f"{json.dumps(protocol['training_data'], ensure_ascii=False)}",
+                f"training_data: {json.dumps(protocol['training_data'], ensure_ascii=False)}",
                 f"inference: {json.dumps(protocol['inference'], ensure_ascii=False)}",
                 f"threshold: {json.dumps(protocol['threshold'], ensure_ascii=False)}",
                 "geometry_corruption: "

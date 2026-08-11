@@ -23,6 +23,55 @@ B1/EMA wrapper scripts were also removed after their completed ablations
 underperformed. EfficientNet-B1 remains available through
 `--texture-backbone efficientnet_b1` for controlled experiments.
 
+The first locked SBI run improved Celeb-DF AUC from `0.8209` to `0.8325`
+(`texture_auc=0.8323`, `geometry_auc=0.5672`). SBI is therefore the reference
+for the cumulative Geometry++ ablation below.
+
+## Geometry++ cumulative ablation
+
+Every profile retains EfficientNet-B0, full-face input, 8 texture frames during
+training, the locked 50/25/25 SBI mixture, and 12 texture frames during
+evaluation. Each row adds only the named component to the preceding row.
+
+| Profile | Increment over SBI |
+| --- | --- |
+| `geometry_g1_balanced` | Equal real/fake class means in the SBI-masked geometry loss |
+| `geometry_g2_attentive` | Attentive mean/std/max temporal statistics instead of mean pooling |
+| `geometry_g3_graph` | Clip-local landmark k-NN graph message passing before temporal encoding |
+| `geometry_g4_two_stream` | Separate non-rigid landmark and rigid pose/scale/translation streams |
+| `geometry_g5_self_supervised` | Scale-aware noisy-view geometry consistency loss |
+| `geometry_g6_reliability` | 15% per-branch modality dropout and reliability-routing loss 0.10 |
+
+Run all six train/evaluation jobs sequentially from Git Bash:
+
+```bash
+./run_geometry_ablation.sh all
+```
+
+The suite first evaluates the locked G0 SBI baseline. It reuses its checkpoint when
+`best.pt` already exists and only retrains G0 when that checkpoint is missing. This keeps
+the known baseline intact while making a clean-machine run self-contained.
+
+Train or evaluate the suite separately:
+
+```bash
+./run_geometry_ablation.sh train
+./run_geometry_ablation.sh test
+```
+
+Run one profile only:
+
+```bash
+./run_train_cross_dataset.sh geometry_g3_graph
+./run_test_cross_dataset.sh geometry_g3_graph
+```
+
+After `test` or `all`, the suite writes `geometry_ablation.csv` and
+`geometry_ablation.md` under `E:/DeepFakeData/experiments`. The SBI baseline is
+included automatically as the reference row. The report places FF++ validation AUC,
+Celeb-DF AUC, their domain gap, branch AUCs, fusion weights, and operating-point metrics
+in the same table.
+
 ## Active profiles
 
 Train and test one profile with:

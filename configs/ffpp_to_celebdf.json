@@ -50,6 +50,9 @@
   "model": {
     "geometry_hidden": 128,
     "geometry_layers": 3,
+    "geometry_architecture": "tcn_mean",
+    "geometry_graph_neighbors": 4,
+    "geometry_consistency_noise_std": 0.0,
     "embedding_dim": 192,
     "dropout": 0.3,
     "texture_pretrained": true,
@@ -59,7 +62,8 @@
     "texture_mixstyle_alpha": 0.1,
     "texture_mixstyle_layers": [],
     "fusion_mode": "quality",
-    "texture_gate_bias": 0.0
+    "texture_gate_bias": 0.0,
+    "modality_dropout_probability": 0.0
   },
   "training": {
     "epochs": 35,
@@ -69,7 +73,10 @@
     "backbone_learning_rate": 0.00003,
     "weight_decay": 0.0003,
     "geometry_loss_weight": 0.25,
+    "geometry_class_balanced": false,
     "texture_loss_weight": 0.25,
+    "reliability_gate_loss_weight": 0.0,
+    "geometry_self_supervision_loss_weight": 0.0,
     "ema_decay": 0.0,
     "deterministic": true,
     "balanced_sampler": true,
