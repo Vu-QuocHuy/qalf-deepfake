@@ -169,6 +169,10 @@ def main() -> None:
     parser.add_argument("--texture-frames", type=int)
     parser.add_argument("--image-size", type=int)
     parser.add_argument("--eval-clips-per-video", type=int)
+    parser.add_argument(
+        "--texture-mode",
+        choices=("canonical_skin", "full_face"),
+    )
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--num-workers", type=int)
@@ -221,6 +225,9 @@ def main() -> None:
         "--texture-temporal-pooling",
         choices=tuple(sorted(SUPPORTED_TEXTURE_POOLING)),
     )
+    parser.add_argument("--texture-mixstyle-probability", type=float)
+    parser.add_argument("--texture-mixstyle-alpha", type=float)
+    parser.add_argument("--texture-mixstyle-layers", type=int, nargs="+")
     parser.add_argument("--no-geometry-augmentation", action="store_true")
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
@@ -244,12 +251,17 @@ def main() -> None:
         model_config["texture_backbone"] = args.texture_backbone
     if args.texture_temporal_pooling:
         model_config["texture_temporal_pooling"] = args.texture_temporal_pooling
+    if args.texture_mode:
+        data["texture_mode"] = args.texture_mode
     model_overrides = {
         "geometry_hidden": args.geometry_hidden,
         "geometry_layers": args.geometry_layers,
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
         "texture_gate_bias": args.texture_gate_bias,
+        "texture_mixstyle_probability": args.texture_mixstyle_probability,
+        "texture_mixstyle_alpha": args.texture_mixstyle_alpha,
+        "texture_mixstyle_layers": args.texture_mixstyle_layers,
     }
     model_config.update(
         {key: value for key, value in model_overrides.items() if value is not None}
@@ -325,6 +337,17 @@ def main() -> None:
             parser.error(f"model.{name} must be at least one")
     if not 0.0 <= float(model_config.get("dropout", 0.0)) < 1.0:
         parser.error("model.dropout must be in [0, 1)")
+    mixstyle_probability = float(model_config.get("texture_mixstyle_probability", 0.0))
+    mixstyle_alpha = float(model_config.get("texture_mixstyle_alpha", 0.1))
+    mixstyle_layers = tuple(
+        int(index) for index in model_config.get("texture_mixstyle_layers", [])
+    )
+    if not 0.0 <= mixstyle_probability <= 1.0:
+        parser.error("model.texture_mixstyle_probability must be in [0, 1]")
+    if mixstyle_alpha <= 0.0:
+        parser.error("model.texture_mixstyle_alpha must be positive")
+    if mixstyle_probability > 0.0 and not mixstyle_layers:
+        parser.error("model.texture_mixstyle_layers cannot be empty when MixStyle is enabled")
     seed = int(config.get("seed", 42))
     deterministic = bool(training.get("deterministic", False))
     _seed_everything(seed, deterministic=deterministic)
@@ -395,6 +418,9 @@ def main() -> None:
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
+        texture_mixstyle_probability=mixstyle_probability,
+        texture_mixstyle_alpha=mixstyle_alpha,
+        texture_mixstyle_layers=mixstyle_layers,
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -437,13 +463,21 @@ def main() -> None:
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
     logger.info(
-        "device=%s backbone=%s texture_pooling=%s parameters=%d trainable=%d "
+        "device=%s backbone=%s texture_mode=%s texture_frames=%d image_size=%d "
+        "texture_pooling=%s mixstyle_probability=%.3f mixstyle_alpha=%.3f "
+        "mixstyle_layers=%s parameters=%d trainable=%d "
         "amp=%s deterministic=%s "
         "ema_decay=%.4f validation_weights=%s geometry_loss_weight=%.3f "
         "texture_loss_weight=%.3f texture_gate_bias=%.3f early_stop_patience=%d",
         device,
         model_config.get("texture_backbone", "efficientnet_b0"),
+        data.get("texture_mode", "canonical_skin"),
+        int(data["texture_frames"]),
+        int(data["image_size"]),
         model_config.get("texture_temporal_pooling", "mean"),
+        mixstyle_probability,
+        mixstyle_alpha,
+        list(mixstyle_layers),
         sum(parameter.numel() for parameter in model.parameters()),
         sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
         amp_enabled,

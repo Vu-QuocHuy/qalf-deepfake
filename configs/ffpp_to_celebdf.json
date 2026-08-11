@@ -52,6 +52,9 @@
     "texture_pretrained": true,
     "texture_backbone": "efficientnet_b0",
     "texture_temporal_pooling": "mean",
+    "texture_mixstyle_probability": 0.0,
+    "texture_mixstyle_alpha": 0.1,
+    "texture_mixstyle_layers": [],
     "fusion_mode": "quality",
     "texture_gate_bias": 0.0
   },

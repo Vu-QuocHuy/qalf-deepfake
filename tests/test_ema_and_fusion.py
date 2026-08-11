@@ -7,7 +7,11 @@ from torch import nn
 
 from qalf.engine import EMAModel
 from qalf.models.fusion import QualityAwareFusion
-from qalf.models.texture import TemporalAttentionPool
+from qalf.models.texture import (
+    TemporalAttentionPool,
+    TemporalDynamicsPool,
+    VideoMixStyle,
+)
 
 
 class EMATests(unittest.TestCase):
@@ -58,6 +62,42 @@ class TemporalAttentionPoolTests(unittest.TestCase):
             pooling(frame_embeddings),
             frame_embeddings.mean(dim=1),
         )
+
+
+class TemporalDynamicsPoolTests(unittest.TestCase):
+    def test_initial_pooling_is_exact_frame_mean(self) -> None:
+        pooling = TemporalDynamicsPool(embedding_dim=8, dropout=0.0)
+        frame_embeddings = torch.randn(3, 12, 8)
+
+        torch.testing.assert_close(
+            pooling(frame_embeddings),
+            frame_embeddings.mean(dim=1),
+        )
+
+    def test_short_sequences_are_finite(self) -> None:
+        pooling = TemporalDynamicsPool(embedding_dim=8, dropout=0.0)
+        for frame_count in (1, 2):
+            with self.subTest(frame_count=frame_count):
+                output = pooling(torch.randn(3, frame_count, 8))
+                self.assertTrue(torch.isfinite(output).all())
+
+
+class VideoMixStyleTests(unittest.TestCase):
+    def test_evaluation_is_identity(self) -> None:
+        module = VideoMixStyle(probability=1.0, alpha=0.1).eval()
+        features = torch.randn(6, 4, 5, 5)
+        torch.testing.assert_close(module(features, batch_size=2, frames=3), features)
+
+    def test_training_uses_temporally_coherent_style(self) -> None:
+        torch.manual_seed(7)
+        module = VideoMixStyle(probability=1.0, alpha=0.1).train()
+        video_a = torch.ones(3, 4, 5, 5)
+        video_b = torch.full((3, 4, 5, 5), 4.0)
+        output = module(torch.cat([video_a, video_b]), batch_size=2, frames=3)
+        output = output.reshape(2, 3, 4, 5, 5)
+
+        torch.testing.assert_close(output[:, 0], output[:, 1])
+        torch.testing.assert_close(output[:, 1], output[:, 2])
 
 
 if __name__ == "__main__":

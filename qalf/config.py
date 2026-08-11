@@ -50,13 +50,38 @@ def load_config(path: str | Path) -> dict[str, Any]:
         "dropout": 0.2,
         "texture_backbone": "efficientnet_b0",
         "texture_temporal_pooling": "mean",
+        "texture_mixstyle_probability": 0.0,
+        "texture_mixstyle_alpha": 0.1,
+        "texture_mixstyle_layers": [],
     }
     for name, default in model_defaults.items():
         config["model"].setdefault(name, default)
     if config["model"]["texture_backbone"] not in {"efficientnet_b0", "efficientnet_b1"}:
         raise ValueError("model.texture_backbone must be efficientnet_b0 or efficientnet_b1")
-    if config["model"]["texture_temporal_pooling"] not in {"mean", "attention"}:
-        raise ValueError("model.texture_temporal_pooling must be mean or attention")
+    if config["model"]["texture_temporal_pooling"] not in {
+        "mean",
+        "attention",
+        "dynamics",
+    }:
+        raise ValueError(
+            "model.texture_temporal_pooling must be mean, attention, or dynamics"
+        )
+    mixstyle_probability = float(config["model"]["texture_mixstyle_probability"])
+    if not 0.0 <= mixstyle_probability <= 1.0:
+        raise ValueError("model.texture_mixstyle_probability must be in [0, 1]")
+    if float(config["model"]["texture_mixstyle_alpha"]) <= 0.0:
+        raise ValueError("model.texture_mixstyle_alpha must be positive")
+    mixstyle_layers = config["model"]["texture_mixstyle_layers"]
+    if not isinstance(mixstyle_layers, list) or not all(
+        isinstance(index, int) and index >= 0 for index in mixstyle_layers
+    ):
+        raise ValueError("model.texture_mixstyle_layers must contain non-negative integers")
+    if len(set(mixstyle_layers)) != len(mixstyle_layers):
+        raise ValueError("model.texture_mixstyle_layers must not contain duplicates")
+    if mixstyle_probability > 0.0 and not mixstyle_layers:
+        raise ValueError(
+            "model.texture_mixstyle_layers cannot be empty when MixStyle is enabled"
+        )
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(config["model"].get(name, 0)) < 1:
             raise ValueError(f"model.{name} must be >= 1")

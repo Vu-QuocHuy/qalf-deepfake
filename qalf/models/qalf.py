@@ -21,6 +21,9 @@ class QALFModel(nn.Module):
         texture_pretrained: bool = True,
         texture_backbone: str = "efficientnet_b0",
         texture_temporal_pooling: str = "mean",
+        texture_mixstyle_probability: float = 0.0,
+        texture_mixstyle_alpha: float = 0.1,
+        texture_mixstyle_layers: tuple[int, ...] = (),
         geometry_quality_dim: int = 5,
         texture_quality_dim: int = 5,
         fusion_mode: str = "quality",
@@ -59,6 +62,9 @@ class QALFModel(nn.Module):
                 texture_pretrained,
                 backbone=texture_backbone,
                 temporal_pooling=texture_temporal_pooling,
+                mixstyle_probability=texture_mixstyle_probability,
+                mixstyle_alpha=texture_mixstyle_alpha,
+                mixstyle_layers=texture_mixstyle_layers,
             )
         )
         gate_modes = {

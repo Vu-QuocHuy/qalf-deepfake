@@ -87,7 +87,9 @@ def main() -> None:
     print(
         "Checkpoint model: "
         f"backbone={model_config.get('texture_backbone', 'efficientnet_b0')} "
+        f"texture_mode={data.get('texture_mode', 'canonical_skin')} "
         f"texture_pooling={model_config.get('texture_temporal_pooling', 'mean')} "
+        f"mixstyle_probability={float(model_config.get('texture_mixstyle_probability', 0.0)):.3f} "
         f"texture_frames={texture_frames} "
         f"image_size={int(data['image_size'])} "
         f"weights={checkpoint.get('model_weights', 'raw')} "
@@ -136,6 +138,13 @@ def main() -> None:
         texture_pretrained=False,
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
+        texture_mixstyle_probability=float(
+            model_config.get("texture_mixstyle_probability", 0.0)
+        ),
+        texture_mixstyle_alpha=float(model_config.get("texture_mixstyle_alpha", 0.1)),
+        texture_mixstyle_layers=tuple(
+            int(index) for index in model_config.get("texture_mixstyle_layers", [])
+        ),
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -248,6 +257,12 @@ def main() -> None:
                 f"manifest: {args.manifest}",
                 f"texture_backbone: {model_config.get('texture_backbone', 'efficientnet_b0')}",
                 f"texture_temporal_pooling: {model_config.get('texture_temporal_pooling', 'mean')}",
+                f"texture_mode: {data.get('texture_mode', 'canonical_skin')}",
+                "texture_mixstyle_probability: "
+                f"{float(model_config.get('texture_mixstyle_probability', 0.0)):.4f}",
+                "texture_mixstyle_alpha: "
+                f"{float(model_config.get('texture_mixstyle_alpha', 0.1)):.4f}",
+                f"texture_mixstyle_layers: {model_config.get('texture_mixstyle_layers', [])}",
                 f"model_weights: {checkpoint.get('model_weights', 'raw')}",
                 f"ema_decay: {float(checkpoint.get('ema_decay', 0.0)):.4f}",
                 f"num_frames: {int(data['num_frames'])}",

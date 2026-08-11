@@ -74,6 +74,13 @@ def main() -> None:
         texture_pretrained=False,
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
+        texture_mixstyle_probability=float(
+            model_config.get("texture_mixstyle_probability", 0.0)
+        ),
+        texture_mixstyle_alpha=float(model_config.get("texture_mixstyle_alpha", 0.1)),
+        texture_mixstyle_layers=tuple(
+            int(index) for index in model_config.get("texture_mixstyle_layers", [])
+        ),
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -118,6 +125,9 @@ def main() -> None:
         ),
         "texture_temporal_pooling": str(
             model_config.get("texture_temporal_pooling", "mean")
+        ),
+        "texture_mixstyle_probability": float(
+            model_config.get("texture_mixstyle_probability", 0.0)
         ),
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
         "trainable_parameters": sum(
