@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
+from qalf.data.sbi import resolve_sbi_config
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -36,6 +37,11 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("Unsupported data.video_aggregation")
     if int(config["data"].get("top_k", 1)) < 1:
         raise ValueError("data.top_k must be >= 1")
+    config["data"]["sbi"] = resolve_sbi_config(config["data"].get("sbi"))
+    if bool(config["data"]["sbi"]["enabled"]) and config["data"].get(
+        "texture_mode", "canonical_skin"
+    ) != "full_face":
+        raise ValueError("Enabled SBI requires data.texture_mode=full_face")
     fake_methods = config["data"].get("fake_methods")
     if fake_methods is not None:
         if not isinstance(fake_methods, list) or not fake_methods:

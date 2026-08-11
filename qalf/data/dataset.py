@@ -19,6 +19,14 @@ from .geometry import (
     geometry_input_dim,
 )
 from .manifest import VideoRecord, load_manifest
+from .sbi import (
+    SAMPLE_ORIGINAL_FAKE,
+    SAMPLE_REAL,
+    SAMPLE_SBI,
+    face_mask_from_aligned_landmarks,
+    generate_self_blended_clip,
+    resolve_sbi_config,
+)
 
 IMAGE_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGE_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
@@ -92,7 +100,7 @@ def _canonical_skin_map(
     detected: bool,
     output_size: int,
     texture_mode: str,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
     texture_view_count(texture_mode)
     height, width = image_rgb.shape[:2]
     if detected and np.isfinite(landmarks).all() and landmarks.shape[0] > 386:
@@ -116,9 +124,11 @@ def _canonical_skin_map(
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_REFLECT_101,
         )
+        aligned_landmarks = cv2.transform(pixels[None, :, :2], transform)[0]
         landmark_quality = 1.0
     else:
         canonical = cv2.resize(image_rgb, (output_size, output_size), interpolation=cv2.INTER_AREA)
+        aligned_landmarks = None
         landmark_quality = 0.0
 
     if texture_mode in {"canonical_skin", "dual_view"}:
@@ -133,7 +143,7 @@ def _canonical_skin_map(
         output = canonical
         quality_image = canonical
     quality = _texture_quality(quality_image, width, height, landmark_quality)
-    return output, quality
+    return output, quality, aligned_landmarks
 
 
 def _apply_skin_regions(canonical: np.ndarray) -> np.ndarray:
@@ -323,6 +333,7 @@ class QALFVideoDataset(Dataset):
         geometry_corruption_seed: int = 12345,
         fake_methods: Sequence[str] | None = None,
         texture_augmentation: dict[str, float] | None = None,
+        sbi_config: dict[str, object] | None = None,
     ) -> None:
         records = load_manifest(manifest_path)
         self.fake_methods: tuple[str, ...] | None = None
@@ -379,6 +390,14 @@ class QALFVideoDataset(Dataset):
             raise ValueError("geometry_corruption is reserved for deterministic evaluation")
         texture_view_count(texture_mode)
         self.texture_mode = texture_mode
+        self.sbi_config = resolve_sbi_config(sbi_config)
+        self.sbi_enabled = self.training and bool(self.sbi_config["enabled"])
+        if self.sbi_enabled and self.texture_mode != "full_face":
+            raise ValueError("SBI training currently requires texture_mode=full_face")
+        if self.sbi_enabled and not any(record.label == 0 for record in self.records):
+            raise ValueError("SBI training requires real records")
+        if self.sbi_enabled and not any(record.label == 1 for record in self.records):
+            raise ValueError("SBI hybrid training requires original fake records")
         for record in self.records:
             if not record.landmark_path:
                 raise ValueError(f"Missing landmark_path in manifest: {record.video_id}")
@@ -386,16 +405,45 @@ class QALFVideoDataset(Dataset):
                 raise ValueError(
                     f"{record.video_id}: {len(record.frames)} frames, need {self.num_frames}"
                 )
+        self.sample_specs: list[tuple[int, str]] = [
+            (
+                record_index,
+                SAMPLE_REAL if record.label == 0 else SAMPLE_ORIGINAL_FAKE,
+            )
+            for record_index, record in enumerate(self.records)
+        ]
+        if self.sbi_enabled:
+            self.sample_specs.extend(
+                (record_index, SAMPLE_SBI)
+                for record_index, record in enumerate(self.records)
+                if record.label == 0
+            )
+        # Keep the number of optimizer samples per epoch comparable with the
+        # baseline even though SBI adds addressable companion entries.
+        self.samples_per_epoch = len(self.records) * self.clips_per_video
 
     @property
     def labels(self) -> list[int]:
-        return [record.label for record in self.records for _ in range(self.clips_per_video)]
+        return [
+            1 if sample_type == SAMPLE_SBI else self.records[record_index].label
+            for record_index, sample_type in self.sample_specs
+            for _ in range(self.clips_per_video)
+        ]
+
+    @property
+    def sampling_strata(self) -> list[str]:
+        return [
+            sample_type
+            for _, sample_type in self.sample_specs
+            for _ in range(self.clips_per_video)
+        ]
 
     def __len__(self) -> int:
-        return len(self.records) * self.clips_per_video
+        return len(self.sample_specs) * self.clips_per_video
 
     def __getitem__(self, item: int) -> dict[str, object]:
-        record_index, clip_index = divmod(item, self.clips_per_video)
+        sample_index, clip_index = divmod(item, self.clips_per_video)
+        record_index, sample_type = self.sample_specs[sample_index]
         record: VideoRecord = self.records[record_index]
         with np.load(self.landmark_root / str(record.landmark_path)) as cache:
             landmarks = cache["landmarks"].copy()
@@ -448,19 +496,50 @@ class QALFVideoDataset(Dataset):
         )
         texture_tensors: list[np.ndarray] = []
         texture_qualities: list[np.ndarray] = []
+        canonical_frames: list[np.ndarray] = []
+        canonical_landmarks: list[np.ndarray | None] = []
+        source_shapes: list[tuple[int, int]] = []
+        landmark_qualities: list[float] = []
         for position in texture_positions:
             source_index = int(clip[position])
             image_bgr = cv2.imread(str(self.frame_root / record.frames[source_index]))
             if image_bgr is None:
                 raise FileNotFoundError(self.frame_root / record.frames[source_index])
             image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-            canonical, quality = _canonical_skin_map(
+            canonical, quality, aligned_landmarks = _canonical_skin_map(
                 image_rgb,
                 landmarks[source_index],
                 bool(detected[source_index]),
                 self.image_size,
                 self.texture_mode,
             )
+            canonical_frames.append(canonical)
+            canonical_landmarks.append(aligned_landmarks)
+            source_shapes.append((image_rgb.shape[1], image_rgb.shape[0]))
+            landmark_qualities.append(float(quality[-1]))
+
+        if sample_type == SAMPLE_SBI:
+            aligned_landmarks = next(
+                (value for value in canonical_landmarks if value is not None),
+                None,
+            )
+            face_mask = face_mask_from_aligned_landmarks(
+                aligned_landmarks,
+                self.image_size,
+            )
+            generated, _, _ = generate_self_blended_clip(
+                np.stack(canonical_frames).astype(np.uint8),
+                face_mask,
+                self.sbi_config,
+            )
+            canonical_frames = list(generated)
+
+        for canonical, source_shape, landmark_quality in zip(
+            canonical_frames,
+            source_shapes,
+            landmark_qualities,
+            strict=True,
+        ):
             if self.training:
                 if self.texture_augmentation:
                     if self.texture_mode == "dual_view":
@@ -472,9 +551,16 @@ class QALFVideoDataset(Dataset):
                         canonical = _augment(canonical, self.texture_augmentation)
                 quality = _texture_quality(
                     canonical[:, :, :3],
-                    image_rgb.shape[1],
-                    image_rgb.shape[0],
-                    float(quality[-1]),
+                    source_shape[0],
+                    source_shape[1],
+                    landmark_quality,
+                )
+            else:
+                quality = _texture_quality(
+                    canonical[:, :, :3],
+                    source_shape[0],
+                    source_shape[1],
+                    landmark_quality,
                 )
             normalized = canonical.astype(np.float32) / 255.0
             view_count = texture_view_count(self.texture_mode)
@@ -489,9 +575,17 @@ class QALFVideoDataset(Dataset):
             "geometry_quality": torch.from_numpy(geometry_quality),
             "texture": torch.from_numpy(np.stack(texture_tensors).astype(np.float32)),
             "texture_quality": torch.from_numpy(np.mean(texture_qualities, axis=0)),
-            "label": torch.tensor(float(record.label), dtype=torch.float32),
+            "label": torch.tensor(
+                1.0 if sample_type == SAMPLE_SBI else float(record.label),
+                dtype=torch.float32,
+            ),
+            "geometry_loss_mask": torch.tensor(
+                0.0 if sample_type == SAMPLE_SBI else 1.0,
+                dtype=torch.float32,
+            ),
+            "sample_type": sample_type,
             "video_id": record.video_id,
-            "method": record.method,
+            "method": "SBI" if sample_type == SAMPLE_SBI else record.method,
             "dataset": record.dataset,
             "clip_index": torch.tensor(clip_index, dtype=torch.int64),
         }

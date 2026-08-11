@@ -16,6 +16,9 @@
     ],
     "geometry_mode": "aligned_motion_3d",
     "texture_mode": "full_face",
+    "sbi": {
+      "enabled": false
+    },
     "geometry_augmentation": {
       "noise_probability": 0.5,
       "noise_std": 0.01,

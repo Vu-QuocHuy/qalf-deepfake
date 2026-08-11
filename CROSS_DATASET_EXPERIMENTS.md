@@ -11,6 +11,7 @@ validation.
 | --- | ---: | ---: | ---: |
 | Canonical-skin control | 0.7279 | 0.7205 | 0.5810 |
 | Full face | **0.8209** | **0.8162** | 0.5616 |
+| Full face + dual view | 0.8037 | 0.8064 | 0.5906 |
 | Canonical skin + dynamics | 0.7562 | 0.7578 | 0.5506 |
 | Canonical skin + MixStyle | 0.7369 | 0.7298 | 0.5808 |
 | Full face + 224px + 16f + dynamics + MixStyle + EMA | 0.8128 | 0.8106 | **0.6233** |
@@ -31,21 +32,29 @@ Train and test one profile with:
 ./run_test_cross_dataset.sh PROFILE
 ```
 
+For `full_face_sbi`, inspect a small training-only preview before the full run:
+
+```powershell
+& ".\.venv\Scripts\python.exe" scripts/preview_sbi.py `
+  --manifest "E:/DeepFakeData/data/landmarks/ffpp-landmark/manifests/ffpp_train_landmarks.jsonl" `
+  --frame-root "E:/DeepFakeData/data/extracted/ffpp" `
+  --landmark-root "E:/DeepFakeData/data/landmarks/ffpp-landmark/landmarks" `
+  --output "E:/DeepFakeData/experiments/qalf_sbi_preview.png"
+```
+
 | Profile | Purpose |
 | --- | --- |
 | `full_face` | Reproduce the established 0.8209-AUC baseline |
+| `full_face_sbi` | Locked 50/25/25 hybrid SBI experiment; current primary profile |
 | `full_face_ema` | Isolate EMA on the full-face baseline |
 | `full_face_dynamics` | Isolate temporal dynamics on full-face inputs |
 | `full_face_mixstyle` | Isolate MixStyle on full-face inputs |
-| `dual_view` | Fuse full-face and canonical-skin evidence with one shared backbone |
+| `dual_view` | Completed negative ablation of full-face and canonical-skin fusion |
 
-`dual_view` is the next primary experiment and is the default when no profile
-is passed. Each frame contains two aligned RGB views. The same EfficientNet
-processes both views, then a small learned gate fuses their embeddings before
-temporal mean pooling. Based on the measured single-view results, the gate starts
-at 80% full face and 20% canonical skin instead of discarding the stronger
-baseline at initialization. This roughly doubles texture-branch compute and
-activation memory but adds only the small fusion gate, not a second backbone.
+Dual-view is not the next primary experiment: it reached 0.8037 Celeb-DF AUC,
+below the 0.8209 full-face baseline, and its texture AUC also decreased. It is
+retained only for reproducibility. The next controlled experiment is the
+training-only SBI hybrid defined in `SBI_IMPLEMENTATION_PLAN.md`.
 
 Run only one change at a time before combining mechanisms. Do not select epochs,
 fusion rules, or hyperparameters from Celeb-DF test AUC for a final paper; use a

@@ -12,10 +12,14 @@ case "$(uname -s)" in
     *) echo "ERROR: unsupported shell platform: $(uname -s)" >&2; exit 1 ;;
 esac
 
-PROFILE="${1:-dual_view}"
+PROFILE="${1:-full_face_sbi}"
 case "$PROFILE" in
     full_face)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_deterministic'
+        TEST_TEXTURE_FRAMES=12
+        ;;
+    full_face_sbi)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi'
         TEST_TEXTURE_FRAMES=12
         ;;
     full_face_ema)
@@ -36,7 +40,7 @@ case "$PROFILE" in
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face, full_face_ema, full_face_mixstyle, full_face_dynamics, or dual_view' >&2
+        echo 'Use: full_face, full_face_sbi, full_face_ema, full_face_mixstyle, full_face_dynamics, or dual_view' >&2
         exit 2
         ;;
 esac

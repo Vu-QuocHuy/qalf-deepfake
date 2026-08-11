@@ -73,10 +73,23 @@ def qalf_loss(
     criterion: nn.Module,
     geometry_weight: float,
     texture_weight: float,
+    geometry_loss_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    fused = criterion(outputs["logit"], labels)
-    geometry = criterion(outputs["geometry_logit"], labels)
-    texture = criterion(outputs["texture_logit"], labels)
+    def mean_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        value = criterion(logits, targets)
+        return value.mean() if value.ndim > 0 else value
+
+    fused = mean_loss(outputs["logit"], labels)
+    texture = mean_loss(outputs["texture_logit"], labels)
+    if geometry_loss_mask is None:
+        geometry = mean_loss(outputs["geometry_logit"], labels)
+    else:
+        valid = geometry_loss_mask.reshape(-1) > 0.5
+        if bool(valid.any()):
+            geometry = mean_loss(outputs["geometry_logit"][valid], labels[valid])
+        else:
+            # Preserve a differentiable graph for a hypothetical all-SBI batch.
+            geometry = outputs["geometry_logit"].sum() * 0.0
     total = fused + geometry_weight * geometry + texture_weight * texture
     return total, {
         "fused": float(fused.detach()),
@@ -105,7 +118,15 @@ def train_epoch(
         optimizer.zero_grad(set_to_none=True)
         with torch.autocast(device_type=device.type, enabled=scaler.is_enabled()):
             outputs = model(batch)
-            loss, parts = qalf_loss(outputs, labels, criterion, geometry_weight, texture_weight)
+            geometry_loss_mask = batch.get("geometry_loss_mask")
+            loss, parts = qalf_loss(
+                outputs,
+                labels,
+                criterion,
+                geometry_weight,
+                texture_weight,
+                geometry_loss_mask if torch.is_tensor(geometry_loss_mask) else None,
+            )
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -119,10 +140,24 @@ def train_epoch(
         totals["loss"] += float(loss.detach()) * batch_size
         for name, value in parts.items():
             totals[name] += value * batch_size
+        if torch.is_tensor(geometry_loss_mask):
+            totals["geometry_supervised"] += float(geometry_loss_mask.sum().detach())
+        else:
+            totals["geometry_supervised"] += batch_size
+        sample_types = batch.get("sample_type")
+        if isinstance(sample_types, (list, tuple)):
+            totals["sbi_samples"] += sum(value == "sbi" for value in sample_types)
         samples += batch_size
     if samples == 0:
         raise RuntimeError("Training loader produced no samples")
-    return {name: value / samples for name, value in totals.items()}
+    result = {
+        name: value / samples
+        for name, value in totals.items()
+        if name not in {"geometry_supervised", "sbi_samples"}
+    }
+    result["geometry_supervision_fraction"] = totals["geometry_supervised"] / samples
+    result["sbi_fraction"] = totals["sbi_samples"] / samples
+    return result
 
 
 @torch.no_grad()

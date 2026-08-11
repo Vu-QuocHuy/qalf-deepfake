@@ -131,6 +131,12 @@ def main() -> None:
         f"weights={checkpoint.get('model_weights', 'raw')} "
         f"ema_decay={float(checkpoint.get('ema_decay', 0.0)):.4f}"
     )
+    sbi_config = data.get("sbi", {"enabled": False})
+    logger.info(
+        "  train | sbi_enabled=%s sbi_mixture=%s",
+        bool(sbi_config.get("enabled", False)),
+        sbi_config.get("mixture", "legacy/default"),
+    )
     logger.info("  input | checkpoint=%s", args.checkpoint)
     logger.info("  input | manifest=%s", args.manifest)
     logger.info("=" * 72)
@@ -337,6 +343,9 @@ def main() -> None:
             "model_weights": checkpoint.get("model_weights", "raw"),
             "ema_decay": float(checkpoint.get("ema_decay", 0.0)),
         },
+        "training_data": {
+            "sbi": sbi_config,
+        },
         "inference": {
             "num_frames": int(data["num_frames"]),
             "texture_frames": texture_frames,
@@ -374,6 +383,8 @@ def main() -> None:
                 f"label_convention: {protocol['label_convention']}",
                 f"score_target: {protocol['score_target']}",
                 f"model: {json.dumps(protocol['model'], ensure_ascii=False)}",
+                "training_data: "
+                f"{json.dumps(protocol['training_data'], ensure_ascii=False)}",
                 f"inference: {json.dumps(protocol['inference'], ensure_ascii=False)}",
                 f"threshold: {json.dumps(protocol['threshold'], ensure_ascii=False)}",
                 "geometry_corruption: "

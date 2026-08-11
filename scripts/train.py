@@ -20,11 +20,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from qalf.config import load_config, save_json
-from qalf.data.dataset import QALFVideoDataset, TEXTURE_MODES, texture_view_count
+from qalf.data.dataset import TEXTURE_MODES, QALFVideoDataset, texture_view_count
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
+from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
 from qalf.engine import EMAModel, aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import QALFModel, SUPPORTED_TEXTURE_BACKBONES, SUPPORTED_TEXTURE_POOLING
+from qalf.models import SUPPORTED_TEXTURE_BACKBONES, SUPPORTED_TEXTURE_POOLING, QALFModel
 from qalf.reporting import collect_run_metadata, save_training_history_plot
 
 
@@ -64,7 +65,18 @@ def _loader(dataset, batch_size, workers, training, balanced, seed: int | None =
         worker_init_fn = _seed_worker
     sampler = None
     shuffle = training
-    if training and balanced:
+    if training and getattr(dataset, "sbi_enabled", False):
+        strata = dataset.sampling_strata
+        mixture = dataset.sbi_config["mixture"]
+        weights = stratum_sampling_weights(strata, mixture)
+        sampler = WeightedRandomSampler(
+            weights,
+            int(dataset.samples_per_epoch),
+            replacement=True,
+            generator=generator,
+        )
+        shuffle = False
+    elif training and balanced:
         counts = np.bincount(dataset.labels, minlength=2)
         if np.any(counts == 0):
             raise ValueError(f"Training manifest must contain both classes: counts={counts}")
@@ -148,7 +160,9 @@ def _epoch_messages(
         f"epoch={epoch:03d}/{epochs:03d} duration={duration_seconds:.1f}s {rate_text}",
         "  train | "
         f"total={train_metrics['loss']:.4f} fused={train_metrics['fused']:.4f} "
-        f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f}",
+        f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f} "
+        f"sbi_fraction={train_metrics.get('sbi_fraction', 0.0):.3f} "
+        f"geometry_supervision={train_metrics.get('geometry_supervision_fraction', 1.0):.3f}",
         "  val   | "
         f"auc={float(validation_metrics['auc']):.4f} "
         f"ap={float(validation_metrics['average_precision']):.4f} "
@@ -243,6 +257,11 @@ def main() -> None:
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--no-balanced-sampler", action="store_true")
     parser.add_argument(
+        "--sbi",
+        action="store_true",
+        help="Enable the locked full-face SBI hybrid training mixture.",
+    )
+    parser.add_argument(
         "--deterministic",
         action="store_true",
         help="Use deterministic CUDA algorithms and explicitly seeded data workers.",
@@ -282,6 +301,10 @@ def main() -> None:
         data["texture_augmentation"] = {}
     if args.fake_methods is not None:
         data["fake_methods"] = args.fake_methods
+    if args.sbi:
+        sbi_config = dict(data.get("sbi", {}))
+        sbi_config["enabled"] = True
+        data["sbi"] = sbi_config
     data_overrides = {
         "num_frames": args.num_frames,
         "texture_frames": args.texture_frames,
@@ -312,6 +335,9 @@ def main() -> None:
         training["balanced_sampler"] = False
     if args.deterministic:
         training["deterministic"] = True
+    data["sbi"] = resolve_sbi_config(data.get("sbi"))
+    if bool(data["sbi"]["enabled"]) and not bool(training.get("balanced_sampler", True)):
+        parser.error("SBI requires the explicit three-stratum sampler")
 
     positive_integer_fields = {
         "data.num_frames": data["num_frames"],
@@ -395,7 +421,11 @@ def main() -> None:
         "fake_methods": data.get("fake_methods"),
     }
     train_dataset = QALFVideoDataset(
-        train_manifest, training=True, clips_per_video=1, **dataset_args
+        train_manifest,
+        training=True,
+        clips_per_video=1,
+        sbi_config=data["sbi"],
+        **dataset_args,
     )
     val_dataset = QALFVideoDataset(
         val_manifest,
@@ -527,11 +557,13 @@ def main() -> None:
     )
     logger.info(
         "  extra | mixstyle_probability=%.3f mixstyle_alpha=%.3f "
-        "mixstyle_layers=%s texture_gate_bias=%.3f",
+        "mixstyle_layers=%s texture_gate_bias=%.3f sbi_enabled=%s sbi_mixture=%s",
         mixstyle_probability,
         mixstyle_alpha,
         list(mixstyle_layers),
         float(model_config.get("texture_gate_bias", 0.0)),
+        train_dataset.sbi_enabled,
+        data["sbi"]["mixture"] if train_dataset.sbi_enabled else "disabled",
     )
     logger.info("  select| best_metric=val_auc threshold=Youden-J on FF++ validation")
     logger.info("  files | output_dir=%s", output_dir)
