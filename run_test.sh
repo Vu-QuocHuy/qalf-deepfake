@@ -39,6 +39,10 @@ CELEBDF_LANDMARK_ROOT="$CELEBDF_LANDMARK_OUTPUT_ROOT/landmarks"
 CELEBDF_TEST_MANIFEST="$CELEBDF_LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
 CHECKPOINT="${QALF_TEST_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f/best.pt}"
 OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_to_celebdf_flip_tta_ffpp_threshold}"
+EXTRA_TEST_ARGS=()
+if [[ -n "${QALF_TEXTURE_FRAMES:-}" ]]; then
+    EXTRA_TEST_ARGS+=(--texture-frames "$QALF_TEXTURE_FRAMES")
+fi
 
 echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
@@ -61,4 +65,5 @@ echo "Threshold calibration: $FFPP_VAL_MANIFEST"
     --threshold-manifest "$FFPP_VAL_MANIFEST" \
     --threshold-frame-root "$FFPP_FRAME_ROOT" \
     --threshold-landmark-root "$FFPP_LANDMARK_ROOT" \
-    --threshold-clips-per-video 3
+    --threshold-clips-per-video 3 \
+    "${EXTRA_TEST_ARGS[@]}"

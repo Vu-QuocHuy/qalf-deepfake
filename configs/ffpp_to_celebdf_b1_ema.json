@@ -51,6 +51,7 @@
     "dropout": 0.3,
     "texture_pretrained": true,
     "texture_backbone": "efficientnet_b1",
+    "texture_temporal_pooling": "mean",
     "fusion_mode": "quality",
     "texture_gate_bias": 1.0
   },

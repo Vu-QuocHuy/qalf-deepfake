@@ -145,6 +145,7 @@ def main() -> None:
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
+        texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         fusion_mode=str(model_config.get("fusion_mode", "quality")),

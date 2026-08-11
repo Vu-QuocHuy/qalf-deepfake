@@ -6,7 +6,7 @@
     "train_frame_root": "/path/to/ffpp_extracted",
     "train_landmark_root": "/path/to/landmarks",
     "num_frames": 32,
-    "texture_frames": 8,
+    "texture_frames": 12,
     "image_size": 160,
     "fake_methods": [
       "Deepfakes",
@@ -51,7 +51,7 @@
     "dropout": 0.3,
     "texture_pretrained": true,
     "texture_backbone": "efficientnet_b0",
-    "texture_temporal_pooling": "mean",
+    "texture_temporal_pooling": "attention",
     "fusion_mode": "quality",
     "texture_gate_bias": 0.0
   },
@@ -64,11 +64,11 @@
     "weight_decay": 0.0003,
     "geometry_loss_weight": 0.25,
     "texture_loss_weight": 0.25,
-    "ema_decay": 0.0,
-    "deterministic": false,
+    "ema_decay": 0.999,
+    "deterministic": true,
     "balanced_sampler": true,
     "amp": true,
     "early_stop_patience": 5
   },
-  "output_dir": "outputs/qalf_ffpp4_effb0_160_8f"
+  "output_dir": "outputs/qalf_ffpp4_effb0_160_12f_attention_ema"
 }

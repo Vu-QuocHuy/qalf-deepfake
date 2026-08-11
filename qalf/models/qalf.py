@@ -20,6 +20,7 @@ class QALFModel(nn.Module):
         dropout: float = 0.2,
         texture_pretrained: bool = True,
         texture_backbone: str = "efficientnet_b0",
+        texture_temporal_pooling: str = "mean",
         geometry_quality_dim: int = 5,
         texture_quality_dim: int = 5,
         fusion_mode: str = "quality",
@@ -57,6 +58,7 @@ class QALFModel(nn.Module):
                 dropout,
                 texture_pretrained,
                 backbone=texture_backbone,
+                temporal_pooling=texture_temporal_pooling,
             )
         )
         gate_modes = {

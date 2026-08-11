@@ -23,7 +23,7 @@ from qalf.data.dataset import QALFVideoDataset
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
 from qalf.engine import EMAModel, aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import QALFModel, SUPPORTED_TEXTURE_BACKBONES
+from qalf.models import QALFModel, SUPPORTED_TEXTURE_BACKBONES, SUPPORTED_TEXTURE_POOLING
 
 
 def _seed_everything(seed: int, deterministic: bool = False) -> None:
@@ -217,6 +217,10 @@ def main() -> None:
         "--texture-backbone",
         choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES)),
     )
+    parser.add_argument(
+        "--texture-temporal-pooling",
+        choices=tuple(sorted(SUPPORTED_TEXTURE_POOLING)),
+    )
     parser.add_argument("--no-geometry-augmentation", action="store_true")
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
@@ -238,6 +242,8 @@ def main() -> None:
         model_config["fusion_mode"] = args.fusion_mode
     if args.texture_backbone:
         model_config["texture_backbone"] = args.texture_backbone
+    if args.texture_temporal_pooling:
+        model_config["texture_temporal_pooling"] = args.texture_temporal_pooling
     model_overrides = {
         "geometry_hidden": args.geometry_hidden,
         "geometry_layers": args.geometry_layers,
@@ -388,6 +394,7 @@ def main() -> None:
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
+        texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -430,11 +437,13 @@ def main() -> None:
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
     logger.info(
-        "device=%s backbone=%s parameters=%d trainable=%d amp=%s deterministic=%s "
+        "device=%s backbone=%s texture_pooling=%s parameters=%d trainable=%d "
+        "amp=%s deterministic=%s "
         "ema_decay=%.4f validation_weights=%s geometry_loss_weight=%.3f "
         "texture_loss_weight=%.3f texture_gate_bias=%.3f early_stop_patience=%d",
         device,
         model_config.get("texture_backbone", "efficientnet_b0"),
+        model_config.get("texture_temporal_pooling", "mean"),
         sum(parameter.numel() for parameter in model.parameters()),
         sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
         amp_enabled,

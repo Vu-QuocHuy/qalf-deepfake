@@ -7,6 +7,7 @@ from torch import nn
 
 from qalf.engine import EMAModel
 from qalf.models.fusion import QualityAwareFusion
+from qalf.models.texture import TemporalAttentionPool
 
 
 class EMATests(unittest.TestCase):
@@ -45,6 +46,17 @@ class TextureGateBiasTests(unittest.TestCase):
         torch.testing.assert_close(
             texture_biased.gate[-1].bias - baseline.gate[-1].bias,
             torch.tensor([0.0, 1.0]),
+        )
+
+
+class TemporalAttentionPoolTests(unittest.TestCase):
+    def test_initial_pooling_is_exact_frame_mean(self) -> None:
+        pooling = TemporalAttentionPool(embedding_dim=8)
+        frame_embeddings = torch.randn(3, 12, 8)
+
+        torch.testing.assert_close(
+            pooling(frame_embeddings),
+            frame_embeddings.mean(dim=1),
         )
 
 

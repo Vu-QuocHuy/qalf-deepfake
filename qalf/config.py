@@ -49,11 +49,14 @@ def load_config(path: str | Path) -> dict[str, Any]:
         "embedding_dim": 128,
         "dropout": 0.2,
         "texture_backbone": "efficientnet_b0",
+        "texture_temporal_pooling": "mean",
     }
     for name, default in model_defaults.items():
         config["model"].setdefault(name, default)
     if config["model"]["texture_backbone"] not in {"efficientnet_b0", "efficientnet_b1"}:
         raise ValueError("model.texture_backbone must be efficientnet_b0 or efficientnet_b1")
+    if config["model"]["texture_temporal_pooling"] not in {"mean", "attention"}:
+        raise ValueError("model.texture_temporal_pooling must be mean or attention")
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(config["model"].get(name, 0)) < 1:
             raise ValueError(f"model.{name} must be >= 1")
