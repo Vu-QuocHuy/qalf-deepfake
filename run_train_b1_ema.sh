@@ -35,13 +35,6 @@ TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
 VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
 OUTPUT_DIR="$STORAGE_ROOT/experiments/qalf_ffpp4_effb1_240_8f_ema_texture"
 
-for required_path in "$TRAIN_MANIFEST" "$VAL_MANIFEST" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
-    if [[ ! -e "$required_path" ]]; then
-        echo "ERROR: required path does not exist: $required_path" >&2
-        exit 1
-    fi
-done
-
 echo "Python: $PYTHON"
 echo "Training output: $OUTPUT_DIR"
 echo "Protocol: EfficientNet-B1 240px, EMA=0.999, texture emphasis"

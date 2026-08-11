@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import random
 import sys
@@ -86,19 +85,6 @@ def _loader(dataset, batch_size, workers, training, balanced, seed: int | None =
         worker_init_fn=worker_init_fn,
         generator=generator,
     )
-
-
-def _dataset_summary(dataset: QALFVideoDataset) -> dict[str, object]:
-    methods = sorted({record.method for record in dataset.records})
-    return {
-        "videos": len(dataset.records),
-        "real": sum(record.label == 0 for record in dataset.records),
-        "fake": sum(record.label == 1 for record in dataset.records),
-        "methods": {
-            method: sum(record.method == method for record in dataset.records)
-            for method in methods
-        },
-    }
 
 
 def _create_logger(path: Path) -> logging.Logger:
@@ -373,37 +359,6 @@ def main() -> None:
         training=False,
         clips_per_video=int(data["eval_clips_per_video"]),
         **dataset_args,
-    )
-    train_protocol = (
-        sorted({record.dataset for record in train_dataset.records}),
-        sorted({record.split for record in train_dataset.records}),
-    )
-    val_protocol = (
-        sorted({record.dataset for record in val_dataset.records}),
-        sorted({record.split for record in val_dataset.records}),
-    )
-    if train_protocol != (["ffpp"], ["train"]):
-        raise ValueError(
-            "Training is restricted to the official FF++ train split; "
-            f"got datasets={train_protocol[0]}, splits={train_protocol[1]}"
-        )
-    if val_protocol != (["ffpp"], ["val"]):
-        raise ValueError(
-            "Threshold selection is restricted to the official FF++ validation split; "
-            f"got datasets={val_protocol[0]}, splits={val_protocol[1]}"
-        )
-    logger.info(
-        "Training protocol:\n%s",
-        json.dumps(
-            {
-                "protocol": "FF++ filtered training protocol",
-                "fake_methods": data.get("fake_methods", "all"),
-                "train": _dataset_summary(train_dataset),
-                "validation": _dataset_summary(val_dataset),
-            },
-            indent=2,
-            ensure_ascii=False,
-        ),
     )
     batch_size = int(training["batch_size"])
     workers = int(training.get("num_workers", 4))

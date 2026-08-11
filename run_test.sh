@@ -40,20 +40,6 @@ CELEBDF_TEST_MANIFEST="$CELEBDF_LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_land
 CHECKPOINT="${QALF_TEST_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f/best.pt}"
 OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_to_celebdf_flip_tta_ffpp_threshold}"
 
-for required_path in \
-    "$FFPP_VAL_MANIFEST" \
-    "$FFPP_FRAME_ROOT" \
-    "$FFPP_LANDMARK_ROOT" \
-    "$CELEBDF_TEST_MANIFEST" \
-    "$CELEBDF_FRAME_ROOT" \
-    "$CELEBDF_LANDMARK_ROOT" \
-    "$CHECKPOINT"; do
-    if [[ ! -e "$required_path" ]]; then
-        echo "ERROR: required path does not exist: $required_path" >&2
-        exit 1
-    fi
-done
-
 echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
 echo "Evaluation output: $OUTPUT_DIR"

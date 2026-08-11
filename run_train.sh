@@ -40,13 +40,6 @@ if [[ -n "${QALF_EMA_DECAY:-}" ]]; then
     EXTRA_TRAIN_ARGS+=(--ema-decay "$QALF_EMA_DECAY")
 fi
 
-for required_path in "$TRAIN_MANIFEST" "$VAL_MANIFEST" "$FRAME_ROOT" "$LANDMARK_ROOT"; do
-    if [[ ! -e "$required_path" ]]; then
-        echo "ERROR: required path does not exist: $required_path" >&2
-        exit 1
-    fi
-done
-
 echo "Python: $PYTHON"
 echo "Training output: $OUTPUT_DIR"
 "$PYTHON" -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NOT AVAILABLE')"
