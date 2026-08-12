@@ -47,6 +47,28 @@ case "$PROFILE" in
         FUSION_MODE='texture'
         PROFILE_ARGS+=(--texture-mode full_face --sbi)
         ;;
+    geometry_dropout_only)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_dropout_only'
+        DESCRIPTION='geometry failure diagnostic: modality dropout without reliability loss'
+        PROFILE_ARGS+=(
+            --texture-mode full_face
+            --sbi
+            --geometry-architecture tcn_mean
+            --modality-dropout-probability 0.15
+            --reliability-gate-loss-weight 0.0
+        )
+        ;;
+    geometry_reliability_combined)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i2_reliability'
+        DESCRIPTION='geometry failure control: modality dropout plus reliability loss'
+        PROFILE_ARGS+=(
+            --texture-mode full_face
+            --sbi
+            --geometry-architecture tcn_mean
+            --modality-dropout-probability 0.15
+            --reliability-gate-loss-weight 0.10
+        )
+        ;;
     geometry_candidate)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i3_attentive_reliability'
         DESCRIPTION='retained SBI candidate with attentive geometry and reliability routing'
@@ -60,7 +82,7 @@ case "$PROFILE" in
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face, full_face_sbi, texture_only_sbi, or geometry_candidate' >&2
+        echo 'Use: full_face, full_face_sbi, texture_only_sbi, geometry_dropout_only, geometry_reliability_combined, or geometry_candidate' >&2
         exit 2
         ;;
 esac

@@ -115,21 +115,23 @@ Its near-zero geometry weight is the central unresolved issue.
 - Review this document, the active runners, and the supported architecture.
 - Do not train a new model until the cleanup commit is accepted.
 
-### P1 — texture-only SBI control (implementation ready; results pending)
+### P1 — texture-only SBI control (complete)
 
-Run the exact locked protocol for seeds 17, 42, and 73 with `fusion_mode=texture`.
-Keep the data, SBI mixture, augmentation, optimizer, checkpoint selection, and
-evaluation unchanged.
+The exact locked protocol was run for seeds 17, 42, and 73 with
+`fusion_mode=texture`. Mean Celeb-DF AUC was 0.8352 for SBI baseline, 0.8395 for
+the retained geometry candidate, and 0.8403 for texture-only SBI. Candidate
+minus texture-only was -0.0007 AUC on average and the candidate won only one of
+three seeds. Its mean geometry weight was approximately 0.0015 and its mean
+zero-geometry counterfactual gain was approximately 0.0001.
 
 The evaluator now also reports a zero-geometry counterfactual without changing
 the primary prediction or threshold. It records the counterfactual AUC, normal
 minus counterfactual AUC, score shifts, gate-weight percentiles, and separate
 real/fake mean gate weights. This is a no-retraining counterfactual diagnostic;
 because zero geometry may be out of distribution, it is not by itself a causal
-identification result. It is
-not a replacement for the texture-only control.
+identification result. It is not a replacement for the texture-only control.
 
-Run all retained checkpoints and train only missing checkpoints with:
+The archived P1 runner remains available with:
 
 ```bash
 ./run_geometry_ablation.sh all
@@ -139,16 +141,36 @@ For seeds 17 and 73, set `QALF_SEED` before the command. Existing baseline and
 candidate checkpoints are reused rather than overwritten; only the missing
 texture-only checkpoint is trained.
 
-Decision:
+Decision reached:
 
-- If texture-only is within 0.002 mean AUC of the candidate and has comparable
-  AP, geometry is not justified for the clean-data accuracy model.
-- Retain the candidate as the main clean-data model only if it exceeds
-  texture-only by at least 0.005 mean AUC and wins on at least two of three seeds.
-- Otherwise report QALF fusion as an ablation and use the simpler texture-only
-  SBI detector as the accuracy reference.
+- Texture-only is the clean-data accuracy reference under the pre-registered
+  P1 rule. The candidate does not justify a geometry contribution claim.
 
-### P2 — geometry robustness test (only after P1)
+### P1b — geometry gate failure diagnostic (implementation ready)
+
+Before closing geometry, isolate the one missing factor on seed 42 while keeping
+`tcn_mean`, full-face SBI, optimizer, data, and evaluation fixed:
+
+| Config | Modality dropout | Reliability loss |
+| --- | ---: | ---: |
+| A — SBI baseline | 0.00 | 0.00 |
+| C — dropout only | 0.15 | 0.00 |
+| D — historical I2 | 0.15 | 0.10 |
+
+Run:
+
+```bash
+./run_geometry_failure_diagnostic.sh all
+```
+
+Only C is trained. A is reused and D is retested from its completed historical
+checkpoint. If C has geometry weight below 0.01 and absolute counterfactual gain
+below 0.001, modality dropout alone reproduces collapse. If C retains geometry
+weight at least 0.05 and counterfactual gain at least 0.003, reliability
+supervision is the proximate suspect. Do not run more seeds until this diagnostic
+selects the next intervention.
+
+### P2 — geometry robustness test (only after P1b)
 
 Evaluate already-trained checkpoints under deterministic texture degradation:
 JPEG compression, blur, downsampling, noise, and partial face occlusion. Do not

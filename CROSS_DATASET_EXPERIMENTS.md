@@ -2,7 +2,7 @@
 
 The current architecture and roadmap live in
 [`CURRENT_MODEL_AND_PLAN.md`](CURRENT_MODEL_AND_PLAN.md). This file documents
-only how to reproduce the two retained profiles and their three-seed comparison.
+only how to reproduce the retained profiles and their focused comparisons.
 
 ## Retained profiles
 
@@ -12,6 +12,8 @@ only how to reproduce the two retained profiles and their three-seed comparison.
 | `full_face_sbi` | Trusted 50/25/25 SBI reference |
 | `geometry_candidate` | SBI + attentive geometry + reliability routing |
 | `texture_only_sbi` | Required P1 control: identical SBI protocol without geometry/fusion |
+| `geometry_dropout_only` | Seed-42 diagnostic: SBI baseline plus modality dropout, no reliability loss |
+| `geometry_reliability_combined` | Historical I2 control: modality dropout plus reliability loss |
 
 All profiles use EfficientNet-B0, 160-pixel full-face input, eight texture frames
 during training, and raw weights. Evaluation uses 12 texture frames, three clips,
@@ -19,16 +21,18 @@ mean aggregation, horizontal-flip TTA, and an FF++-validation threshold.
 
 ## Three-seed result
 
-| Seed | SBI baseline AUC | Geometry candidate AUC | Delta |
+| Seed | SBI baseline AUC | Geometry candidate AUC | Texture-only AUC |
 | ---: | ---: | ---: | ---: |
-| 17 | 0.8486 | 0.8464 | -0.0022 |
-| 42 | 0.8325 | 0.8323 | -0.0002 |
-| 73 | 0.8245 | 0.8399 | +0.0154 |
-| Mean ± sample SD | 0.8352 ± 0.0123 | **0.8395 ± 0.0071** | +0.0043 |
+| 17 | 0.8486 | 0.8464 | 0.8501 |
+| 42 | 0.8325 | 0.8323 | 0.8120 |
+| 73 | 0.8245 | 0.8399 | 0.8587 |
+| Mean ± sample SD | 0.8352 ± 0.0123 | 0.8395 ± 0.0071 | **0.8403 ± 0.0249** |
 
-The candidate also improves mean AP, EER, balanced accuracy, and ACER, but its
-mean geometry gate weight is only 0.0015. It remains a candidate rather than the
-final model until the texture-only SBI control is complete.
+The candidate improves mean EER, balanced accuracy, and ACER, but texture-only
+has slightly higher mean AUC/AP and the candidate's mean geometry gate weight is
+only 0.0015. Under the pre-registered P1 rule, texture-only is the clean-data
+accuracy reference. The seed-42 failure diagnostic below determines why the
+candidate gate collapsed; it does not reopen P1 model selection.
 
 ## Run one profile
 
@@ -44,6 +48,17 @@ From Git Bash:
 ./run_train_cross_dataset.sh texture_only_sbi
 ./run_test_cross_dataset.sh texture_only_sbi
 ```
+
+The focused geometry failure diagnostic is intentionally locked to seed 42. It
+trains only the missing dropout-only checkpoint, reuses the completed SBI
+baseline and historical I2 checkpoint, refreshes their diagnostics when needed,
+and writes one A-C-D comparison:
+
+```bash
+./run_geometry_failure_diagnostic.sh all
+```
+
+Output: `E:/DeepFakeData/experiments/geometry_failure_diagnostic_seed42.md`.
 
 For a non-default seed in PowerShell:
 

@@ -257,6 +257,17 @@ protocol:
 & "C:\Program Files\Git\bin\bash.exe" ./run_test_cross_dataset.sh texture_only_sbi
 ```
 
+To isolate modality dropout from reliability supervision without rerunning the
+completed three-seed P1 suite:
+
+```powershell
+Remove-Item Env:QALF_SEED -ErrorAction SilentlyContinue
+& "C:\Program Files\Git\bin\bash.exe" ./run_geometry_failure_diagnostic.sh all
+```
+
+This command is locked to seed 42 and trains only `geometry_dropout_only`. It
+requires the completed historical `geometry_i2_reliability` checkpoint.
+
 Use `QALF_SEED` for the locked seeds. Seed 42 keeps the historical path; other
 seeds receive an automatic suffix and cannot overwrite it:
 
