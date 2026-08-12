@@ -485,6 +485,7 @@ def main() -> None:
     stale_epochs = 0
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
+    run_started = time.perf_counter()
     logger.info(
         "Training started  output=%s modality_dropout=%.2f reliability=%.2f "
         "exclude_sbi_from_modality_dropout=%s",
@@ -582,6 +583,30 @@ def main() -> None:
         best_auc,
         best_threshold,
         best_path,
+    )
+    history_path = output_dir / "history.json"
+    save_json(history, history_path)
+    best_metrics = next(
+        (row["validation"] for row in history if int(row["epoch"]) == best_epoch),
+        {},
+    )
+    save_json(
+        {
+            "status": "complete",
+            "completed_epochs": len(history),
+            "best_epoch": best_epoch,
+            "best_metric": "val_auc",
+            "best_value": best_auc,
+            "best_threshold": best_threshold,
+            "best_validation_metrics": best_metrics,
+            "duration_seconds": time.perf_counter() - run_started,
+            "best_model": str(best_path),
+            "history": str(history_path),
+            "training_plot": (
+                str(training_plot_path) if training_plot_path.is_file() else None
+            ),
+        },
+        output_dir / "training_summary.json",
     )
 
 

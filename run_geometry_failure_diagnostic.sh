@@ -38,8 +38,44 @@ SBI_AWARE_EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_sbi_aware_reliability
 
 is_complete_checkpoint() {
     local experiment="$1"
-    [[ -f "$EXPERIMENTS_ROOT/$experiment/best.pt" ]] && \
-        [[ -f "$EXPERIMENTS_ROOT/$experiment/training_summary.json" ]]
+    local checkpoint="$EXPERIMENTS_ROOT/$experiment/best.pt"
+    local summary="$EXPERIMENTS_ROOT/$experiment/training_summary.json"
+    [[ -f "$checkpoint" ]] || return 1
+    if [[ ! -f "$summary" ]]; then
+        echo "Recovering missing training summary from: $checkpoint"
+        "$PYTHON" -c '
+import json
+import os
+import sys
+from pathlib import Path
+
+import torch
+
+checkpoint_path = Path(sys.argv[1])
+summary_path = Path(sys.argv[2])
+checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+metrics = checkpoint.get("validation_metrics", {})
+best_value = metrics.get("auc")
+if best_value is None:
+    raise SystemExit(f"Checkpoint has no validation AUC: {checkpoint_path}")
+payload = {
+    "status": "complete",
+    "recovered_from_checkpoint": True,
+    "completed_epochs": int(checkpoint.get("epoch", 0)),
+    "best_epoch": int(checkpoint.get("epoch", 0)),
+    "best_metric": str(checkpoint.get("best_metric", "val_auc")),
+    "best_value": float(best_value),
+    "best_threshold": float(checkpoint["threshold"]),
+    "best_validation_metrics": metrics,
+    "best_model": str(checkpoint_path),
+}
+temporary = summary_path.with_suffix(summary_path.suffix + ".tmp")
+with temporary.open("w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, ensure_ascii=False)
+os.replace(temporary, summary_path)
+' "$checkpoint" "$summary"
+    fi
+    [[ -f "$summary" ]]
 }
 
 require_complete_checkpoint() {

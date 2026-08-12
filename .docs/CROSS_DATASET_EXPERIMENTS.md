@@ -60,6 +60,8 @@ comparison:
 ```
 
 Output: `E:/DeepFakeData/experiments/geometry_failure_diagnostic_seed42.md`.
+If a completed `best.pt` predates summary generation, the runner reconstructs
+the minimal `training_summary.json` from that checkpoint instead of retraining.
 
 For a non-default seed in PowerShell:
 
