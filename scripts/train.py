@@ -144,6 +144,20 @@ def _optimizer_groups(
     return groups
 
 
+def _set_fusion_trainable(model: QALFModel, trainable: bool) -> None:
+    """Freeze the gate completely during branch-only warmup.
+
+    A zero fused-loss coefficient alone still creates zero gradients and can
+    therefore let AdamW decay fusion parameters. Toggling ``requires_grad``
+    keeps this phase genuinely branch-only.
+    """
+
+    if model.fusion is None:
+        return
+    for parameter in model.fusion.parameters():
+        parameter.requires_grad_(trainable)
+
+
 def _epoch_messages(
     epoch: int,
     epochs: int,
@@ -164,6 +178,9 @@ def _epoch_messages(
         f"tex_auc={float(validation_metrics['texture_auc']):.4f}  "
         f"weights={float(validation_metrics['mean_auxiliary_weight']):.3f}/"
         f"{float(validation_metrics['mean_texture_weight']):.3f}  "
+        f"objective={train_metrics['fused_objective_weight']:.2f}/"
+        f"{train_metrics['auxiliary_objective_weight']:.2f}/"
+        f"{train_metrics['texture_objective_weight']:.2f}  "
         f"thr={float(validation_metrics['threshold']):.4f}  lr={lr:.2e}",
     ]
 
@@ -194,6 +211,14 @@ def main() -> None:
     parser.add_argument("--auxiliary-loss-weight", type=float)
     parser.add_argument("--texture-loss-weight", type=float)
     parser.add_argument("--early-stop-patience", type=int)
+    parser.add_argument(
+        "--fusion-warmup-epochs",
+        type=int,
+        help=(
+            "Train auxiliary and texture heads independently for this many epochs before "
+            "enabling fused loss. Intended only for the registered staged-SRM diagnostic."
+        ),
+    )
     parser.add_argument("--geometry-hidden", type=int)
     parser.add_argument("--geometry-layers", type=int)
     parser.add_argument(
@@ -284,6 +309,7 @@ def main() -> None:
         "auxiliary_loss_weight": args.auxiliary_loss_weight,
         "texture_loss_weight": args.texture_loss_weight,
         "early_stop_patience": args.early_stop_patience,
+        "fusion_warmup_epochs": args.fusion_warmup_epochs,
     }
     data.update({key: value for key, value in data_overrides.items() if value is not None})
     training.update({key: value for key, value in training_overrides.items() if value is not None})
@@ -325,6 +351,9 @@ def main() -> None:
             parser.error(f"training.{name} cannot be negative")
     if int(training.get("early_stop_patience", 0)) < 0:
         parser.error("training.early_stop_patience cannot be negative")
+    fusion_warmup_epochs = int(training.get("fusion_warmup_epochs", 0))
+    if not 0 <= fusion_warmup_epochs < int(training["epochs"]):
+        parser.error("training.fusion_warmup_epochs must be in [0, training.epochs)")
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(model_config.get(name, 0)) < 1:
             parser.error(f"model.{name} must be at least one")
@@ -448,9 +477,11 @@ def main() -> None:
     epochs = int(training["epochs"])
     run_started = time.perf_counter()
     logger.info(
-        "Training started  output=%s auxiliary_branch=%s parameters=%d trainable=%d",
+        "Training started  output=%s auxiliary_branch=%s fusion_warmup_epochs=%d "
+        "parameters=%d trainable=%d",
         output_dir,
         auxiliary_branch,
+        fusion_warmup_epochs,
         sum(parameter.numel() for parameter in model.parameters()),
         sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
     )
@@ -458,6 +489,13 @@ def main() -> None:
     training_plot_path = output_dir / "plots" / "training_history.png"
     for epoch in range(1, epochs + 1):
         epoch_started = time.perf_counter()
+        warmup_active = epoch <= fusion_warmup_epochs
+        _set_fusion_trainable(model, not warmup_active)
+        epoch_fused_weight = 0.0 if warmup_active else 1.0
+        epoch_auxiliary_weight = (
+            0.5 if warmup_active and auxiliary_branch != "none" else auxiliary_loss_weight
+        )
+        epoch_texture_weight = 0.5 if warmup_active else texture_loss_weight
         train_metrics = train_epoch(
             model,
             train_loader,
@@ -465,9 +503,13 @@ def main() -> None:
             criterion,
             device,
             scaler,
-            auxiliary_loss_weight,
-            texture_loss_weight,
+            epoch_auxiliary_weight,
+            epoch_texture_weight,
+            epoch_fused_weight,
         )
+        train_metrics["fused_objective_weight"] = epoch_fused_weight
+        train_metrics["auxiliary_objective_weight"] = epoch_auxiliary_weight
+        train_metrics["texture_objective_weight"] = epoch_texture_weight
         validation_clips = predict(model, val_loader, device)
         validation = aggregate_predictions(
             validation_clips,
@@ -488,7 +530,13 @@ def main() -> None:
         val_metrics["mean_texture_weight"] = float(
             np.mean(np.asarray(validation["texture_weight"], dtype=np.float64))
         )
-        row = {"epoch": epoch, "train": train_metrics, "validation": val_metrics}
+        row = {
+            "epoch": epoch,
+            "phase": "branch_warmup" if warmup_active else "joint_fusion",
+            "selection_eligible": not warmup_active,
+            "train": train_metrics,
+            "validation": val_metrics,
+        }
         history.append(row)
         epoch_duration = time.perf_counter() - epoch_started
         if history_plot_enabled:
@@ -527,7 +575,7 @@ def main() -> None:
             "threshold_selection": "youden_j_ffpp_validation",
             "best_metric": "val_auc",
         }
-        if val_metrics["auc"] > best_auc:
+        if not warmup_active and val_metrics["auc"] > best_auc:
             best_auc = val_metrics["auc"]
             best_epoch = epoch
             best_threshold = threshold
@@ -540,7 +588,7 @@ def main() -> None:
                 best_threshold,
                 best_path,
             )
-        else:
+        elif not warmup_active:
             stale_epochs += 1
             if patience > 0:
                 logger.info(

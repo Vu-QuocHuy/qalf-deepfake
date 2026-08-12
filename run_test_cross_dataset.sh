@@ -26,9 +26,13 @@ case "$PROFILE" in
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_srm'
         TEST_TEXTURE_FRAMES=12
         ;;
+    srm_staged)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_srm_staged'
+        TEST_TEXTURE_FRAMES=12
+        ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face_sbi, texture_only_sbi, or srm_sbi' >&2
+        echo 'Use: full_face_sbi, texture_only_sbi, srm_sbi, or srm_staged' >&2
         exit 2
         ;;
 esac

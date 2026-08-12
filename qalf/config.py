@@ -80,6 +80,11 @@ def load_config(path: str | Path) -> dict[str, Any]:
         config["training"].get("geometry_loss_weight", 0.25),
     )
     config["training"].pop("geometry_loss_weight", None)
+    config["training"].setdefault("fusion_warmup_epochs", 0)
+    fusion_warmup_epochs = int(config["training"]["fusion_warmup_epochs"])
+    training_epochs = int(config["training"].get("epochs", 0))
+    if not 0 <= fusion_warmup_epochs < training_epochs:
+        raise ValueError("training.fusion_warmup_epochs must be in [0, training.epochs)")
     return config
 
 

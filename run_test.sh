@@ -41,11 +41,13 @@ CHECKPOINT="${QALF_TEST_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_1
 OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_full_face_sbi_to_celebdf_12f_3clips_mean_tta_ffpp_threshold}"
 EXTRA_TEST_ARGS=()
 EXTRA_TEST_ARGS+=(--texture-frames "${QALF_TEXTURE_FRAMES:-12}")
+SCORE_BRANCH="${QALF_SCORE_BRANCH:-fused}"
 
 echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
 echo "Evaluation output: $OUTPUT_DIR"
 echo "Texture flip TTA: enabled"
+echo "Primary score branch: $SCORE_BRANCH"
 echo "Zero-auxiliary counterfactual: enabled"
 echo "Threshold calibration: $FFPP_VAL_MANIFEST"
 
@@ -60,6 +62,7 @@ echo "Threshold calibration: $FFPP_VAL_MANIFEST"
     --clips-per-video 3 \
     --aggregation mean \
     --top-k 1 \
+    --score-branch "$SCORE_BRANCH" \
     --texture-flip-tta \
     --zero-auxiliary-counterfactual \
     --threshold-manifest "$FFPP_VAL_MANIFEST" \

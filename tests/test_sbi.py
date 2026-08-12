@@ -167,6 +167,28 @@ class SBIDatasetStrataTests(unittest.TestCase):
 
 
 class SBILossMaskTests(unittest.TestCase):
+    def test_branch_warmup_disables_fused_gradient(self) -> None:
+        fused_logit = torch.tensor([0.2, -0.1], requires_grad=True)
+        auxiliary_logit = torch.tensor([0.3, -0.2], requires_grad=True)
+        texture_logit = torch.tensor([0.4, -0.3], requires_grad=True)
+        loss, _ = qalf_loss(
+            {
+                "logit": fused_logit,
+                "auxiliary_logit": auxiliary_logit,
+                "texture_logit": texture_logit,
+            },
+            torch.tensor([0.0, 1.0]),
+            nn.BCEWithLogitsLoss(),
+            auxiliary_weight=0.5,
+            texture_weight=0.5,
+            fused_weight=0.0,
+        )
+        loss.backward()
+
+        torch.testing.assert_close(fused_logit.grad, torch.zeros_like(fused_logit))
+        self.assertGreater(float(auxiliary_logit.grad.abs().sum()), 0.0)
+        self.assertGreater(float(texture_logit.grad.abs().sum()), 0.0)
+
     def test_all_one_mask_matches_legacy_loss(self) -> None:
         outputs = {
             "logit": torch.tensor([-0.5, 0.4]),

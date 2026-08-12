@@ -70,7 +70,8 @@
     "deterministic": true,
     "balanced_sampler": true,
     "amp": true,
-    "early_stop_patience": 5
+    "early_stop_patience": 5,
+    "fusion_warmup_epochs": 0
   },
   "output_dir": "outputs/qalf_ffpp4_effb0_160_8f_full_face"
 }

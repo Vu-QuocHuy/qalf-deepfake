@@ -39,6 +39,7 @@ def qalf_loss(
     auxiliary_weight: float,
     texture_weight: float,
     auxiliary_loss_mask: torch.Tensor | None = None,
+    fused_weight: float = 1.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     def mean_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         value = criterion(logits, targets)
@@ -56,7 +57,7 @@ def qalf_loss(
             auxiliary = mean_loss(valid_logits, valid_labels)
         else:
             auxiliary = outputs["auxiliary_logit"].sum() * 0.0
-    total = fused + auxiliary_weight * auxiliary + texture_weight * texture
+    total = fused_weight * fused + auxiliary_weight * auxiliary + texture_weight * texture
     return total, {
         "fused": float(fused.detach()),
         "auxiliary": float(auxiliary.detach()),
@@ -73,6 +74,7 @@ def train_epoch(
     scaler: GradScalerProtocol,
     auxiliary_weight: float,
     texture_weight: float,
+    fused_weight: float = 1.0,
 ) -> dict[str, float]:
     model.train()
     totals: defaultdict[str, float] = defaultdict(float)
@@ -93,7 +95,10 @@ def train_epoch(
                 criterion,
                 auxiliary_weight,
                 texture_weight,
-                auxiliary_loss_mask if torch.is_tensor(auxiliary_loss_mask) else None,
+                auxiliary_loss_mask=(
+                    auxiliary_loss_mask if torch.is_tensor(auxiliary_loss_mask) else None
+                ),
+                fused_weight=fused_weight,
             )
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)

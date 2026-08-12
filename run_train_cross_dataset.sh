@@ -48,9 +48,15 @@ case "$PROFILE" in
         AUXILIARY_BRANCH='srm'
         PROFILE_ARGS+=(--texture-mode full_face --sbi)
         ;;
+    srm_staged)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_srm_staged'
+        DESCRIPTION='diagnostic SRM training with five branch-only warmup epochs'
+        AUXILIARY_BRANCH='srm'
+        PROFILE_ARGS+=(--texture-mode full_face --sbi --fusion-warmup-epochs 5)
+        ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face_sbi, texture_only_sbi, or srm_sbi' >&2
+        echo 'Use: full_face_sbi, texture_only_sbi, srm_sbi, or srm_staged' >&2
         exit 2
         ;;
 esac

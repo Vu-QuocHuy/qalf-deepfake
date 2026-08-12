@@ -9,6 +9,7 @@ and 12 evaluation frames.
 | `texture_only_sbi` | Texture-only SBI control |
 | `full_face_sbi` | Retained landmark geometry + texture baseline A |
 | `srm_sbi` | Fixed SRM residual + texture candidate |
+| `srm_staged` | Implemented staged-training diagnostic; do not run automatically |
 
 Run the complete seed-42 comparison from Git Bash:
 
@@ -36,6 +37,13 @@ After a seed-42 pass, use PowerShell for the remaining locked seeds:
 $env:QALF_SEED = "17"
 & "C:\Program Files\Git\bin\bash.exe" ./run_srm_ablation.sh all
 Remove-Item Env:QALF_SEED
+```
+
+The original SRM candidate did not pass, so the replication command above is
+historical and must not currently be run. Generate the post-hoc diagnostic with:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_srm_diagnostics.sh
 ```
 
 Training artifacts are `best.pt`, `config.json`, `run_metadata.json`,

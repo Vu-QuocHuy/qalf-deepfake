@@ -109,6 +109,18 @@ $env:QALF_SEED = "73"
 Remove-Item Env:QALF_SEED
 ```
 
+The fixed-SRM candidate failed that gate. Do not run seeds 17/73 for the
+original fusion claim. Diagnose the completed seed-42 checkpoint without
+retraining:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_srm_diagnostics.sh
+Get-Content "E:/DeepFakeData/experiments/srm_complementarity_seed42.md"
+```
+
+The `srm_staged` profile is implemented for a separately registered greedy-
+fusion diagnostic, but is deliberately not invoked by either SRM runner.
+
 Supported runner modes are `train`, `test`, and `all`. Evaluation always uses
 three clips, mean aggregation, 12 frames, horizontal-flip TTA, and a threshold
 calibrated on FF++ validation.

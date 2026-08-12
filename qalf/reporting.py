@@ -52,6 +52,7 @@ REPORT_SECTIONS = (
         (
             ("auxiliary_auc", "Auxiliary AUC"),
             ("texture_auc", "Texture AUC"),
+            ("fused_auc", "Fused AUC"),
             ("fixed_average_auc", "Fixed-average AUC"),
             ("mean_auxiliary_weight", "Mean auxiliary weight"),
             ("mean_texture_weight", "Mean texture weight"),
@@ -195,7 +196,16 @@ def save_training_history_plot(history: Sequence[Mapping[str, object]], path: st
 
     figure, axes = plt.subplots(2, 2, figsize=(14, 9), constrained_layout=True)
     loss_axis, rank_axis, operating_axis, fusion_axis = axes.flatten()
-    best_epoch = epochs[int(np.argmax(values("validation", "auc")))]
+    eligible = [
+        index for index, row in enumerate(history) if bool(row.get("selection_eligible", True))
+    ]
+    best_epoch = None
+    if eligible:
+        best_index = max(
+            eligible,
+            key=lambda index: float(history[index]["validation"]["auc"]),
+        )
+        best_epoch = epochs[best_index]
     for key, label in (
         ("loss", "Total"),
         ("fused", "Fused"),
@@ -236,7 +246,8 @@ def save_training_history_plot(history: Sequence[Mapping[str, object]], path: st
     fusion_axis.set_ylim(0.0, 1.0)
 
     for axis in axes.flatten():
-        axis.axvline(best_epoch, color="black", linestyle="--", alpha=0.35)
+        if best_epoch is not None:
+            axis.axvline(best_epoch, color="black", linestyle="--", alpha=0.35)
         axis.set_xlabel("Epoch")
         axis.grid(alpha=0.25)
         axis.legend(fontsize=8)

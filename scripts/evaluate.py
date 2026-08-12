@@ -29,6 +29,12 @@ from qalf.reporting import (
     save_evaluation_plots,
 )
 
+SCORE_FIELDS = {
+    "fused": "score",
+    "texture": "texture_score",
+    "auxiliary": "auxiliary_score",
+}
+
 
 def _create_logger(path: Path) -> logging.Logger:
     logger = logging.getLogger("qalf.evaluate")
@@ -62,6 +68,15 @@ def main() -> None:
     parser.add_argument("--aggregation", choices=("mean", "median", "topk"))
     parser.add_argument("--top-k", type=int)
     parser.add_argument(
+        "--score-branch",
+        choices=tuple(SCORE_FIELDS),
+        default="fused",
+        help=(
+            "Prediction used for the primary metrics and FF++ threshold calibration. "
+            "Branch diagnostics are always reported separately."
+        ),
+    )
+    parser.add_argument(
         "--threshold-manifest",
         help="FF++ validation manifest used to calibrate the decision threshold.",
     )
@@ -92,6 +107,10 @@ def main() -> None:
         parser.error(
             "--threshold-manifest, --threshold-frame-root, and "
             "--threshold-landmark-root must be provided together"
+        )
+    if args.score_branch != "fused" and not args.threshold_manifest:
+        parser.error(
+            "A non-fused --score-branch requires FF++ validation threshold calibration"
         )
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -141,10 +160,12 @@ def main() -> None:
         f"weights={checkpoint.get('model_weights', 'raw')}"
     )
     logger.info(
-        "  inference | num_frames=%d evaluation_texture_frames=%d clips_per_video=%d",
+        "  inference | num_frames=%d evaluation_texture_frames=%d clips_per_video=%d "
+        "score_branch=%s",
         int(data["num_frames"]),
         texture_frames,
         int(args.clips_per_video or data.get("eval_clips_per_video", 1)),
+        args.score_branch,
     )
     sbi_config = data.get("sbi", {"enabled": False})
     logger.info(
@@ -188,6 +209,7 @@ def main() -> None:
     threshold = float(checkpoint["threshold"])
     threshold_source = "checkpoint_ffpp_validation"
     threshold_calibration_metrics: dict[str, float] | None = None
+    threshold_predictions: dict[str, object] | None = None
     if args.threshold_manifest:
         threshold_dataset = QALFVideoDataset(
             args.threshold_manifest,
@@ -237,7 +259,10 @@ def main() -> None:
             top_k=int(args.top_k if args.top_k is not None else data.get("top_k", 1)),
         )
         threshold_labels = np.asarray(threshold_predictions["label"], dtype=np.int64)
-        threshold_scores = np.asarray(threshold_predictions["score"], dtype=np.float64)
+        threshold_scores = np.asarray(
+            threshold_predictions[SCORE_FIELDS[args.score_branch]],
+            dtype=np.float64,
+        )
         threshold = select_threshold(threshold_labels, threshold_scores)
         threshold_calibration_metrics = compute_metrics(
             threshold_labels,
@@ -262,7 +287,13 @@ def main() -> None:
     fused_scores = np.asarray(predictions["score"], dtype=np.float64)
     auxiliary_scores = np.asarray(predictions["auxiliary_score"], dtype=np.float64)
     texture_scores = np.asarray(predictions["texture_score"], dtype=np.float64)
-    metrics = compute_metrics(labels, fused_scores, threshold)
+    selected_scores = {
+        "fused": fused_scores,
+        "texture": texture_scores,
+        "auxiliary": auxiliary_scores,
+    }[args.score_branch]
+    metrics = compute_metrics(labels, selected_scores, threshold)
+    metrics["fused_auc"] = compute_metrics(labels, fused_scores, threshold)["auc"]
     metrics["auxiliary_auc"] = compute_metrics(labels, auxiliary_scores, threshold)["auc"]
     metrics["texture_auc"] = compute_metrics(labels, texture_scores, threshold)["auc"]
     metrics["fixed_average_auc"] = compute_metrics(
@@ -292,7 +323,7 @@ def main() -> None:
         score_shift = np.abs(fused_scores - zero_auxiliary_scores)
         metrics["zero_auxiliary_auc"] = zero_auxiliary_auc
         metrics["auc_gain_over_zero_auxiliary"] = (
-            float(metrics["auc"]) - zero_auxiliary_auc
+            float(metrics["fused_auc"]) - zero_auxiliary_auc
         )
         metrics["mean_abs_zero_auxiliary_score_shift"] = float(np.mean(score_shift))
         metrics["max_abs_zero_auxiliary_score_shift"] = float(np.max(score_shift))
@@ -316,6 +347,7 @@ def main() -> None:
         "Threshold source": threshold_context,
         "Model weights": checkpoint.get("model_weights", "raw"),
         "Auxiliary branch": getattr(model, "auxiliary_branch", "geometry"),
+        "Primary score": args.score_branch,
     }
     metrics_text = format_evaluation_report(metrics, context=report_context)
     (output_dir / "metrics.txt").write_text(metrics_text, encoding="utf-8")
@@ -324,7 +356,10 @@ def main() -> None:
             format_evaluation_report(
                 threshold_calibration_metrics,
                 title="FF++ THRESHOLD CALIBRATION",
-                context={"Manifest": args.threshold_manifest},
+                context={
+                    "Manifest": args.threshold_manifest,
+                    "Primary score": args.score_branch,
+                },
             ),
             encoding="utf-8",
         )
@@ -357,6 +392,7 @@ def main() -> None:
             "top_k": int(args.top_k if args.top_k is not None else data.get("top_k", 1)),
             "texture_flip_tta": args.texture_flip_tta,
             "zero_auxiliary_counterfactual": args.zero_auxiliary_counterfactual,
+            "score_branch": args.score_branch,
         },
         "threshold": {
             "value": threshold,
@@ -393,7 +429,10 @@ def main() -> None:
     for filename, rows in (
         ("clip_predictions.csv", clip_predictions),
         ("predictions.csv", predictions),
+        ("threshold_predictions.csv", threshold_predictions),
     ):
+        if rows is None:
+            continue
         columns = list(rows)
         with (output_dir / filename).open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=columns)
@@ -403,7 +442,7 @@ def main() -> None:
     try:
         plot_files = save_evaluation_plots(
             labels,
-            fused_scores,
+            selected_scores,
             threshold,
             output_dir / "plots",
         )

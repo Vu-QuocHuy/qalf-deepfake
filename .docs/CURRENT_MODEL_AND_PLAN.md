@@ -1,6 +1,7 @@
 # QALF current model and research plan
 
-Status: SRM seed-42 ablation implementation ready, 2026-08-12.
+Status: fixed-SRM fusion failed its registered seed-42 gate; post-hoc
+complementarity diagnosis is the next step, 2026-08-12.
 
 ## Locked protocol
 
@@ -51,9 +52,28 @@ There is no modality dropout, reliability loss, EMA, MixStyle, or learned SRM
 filter. The SRM branch is intentionally simple so the first experiment measures
 whether residual evidence is complementary at all.
 
-## Decision gate
+## Seed-42 result
 
-Run seed 42:
+| Model/score | Celeb-DF AUC |
+| --- | ---: |
+| Texture-only SBI control | 0.8120 |
+| Geometry baseline A | 0.8325 |
+| SRM fused output | 0.8481 |
+| Texture score inside SRM checkpoint | 0.8524 |
+| SRM score inside SRM checkpoint | 0.6078 |
+
+The SRM gate weight was 0.0057 and fused AUC was 0.0043 below the internal
+texture score. Fixed-SRM fusion therefore failed the registered gate even
+though SRM-assisted training produced the strongest observed texture score.
+Seeds 17 and 73 must not be run for the original fusion claim.
+
+The zero-auxiliary result is not equivalent to texture-only inference because
+zeroing changes the fusion MLP input distribution. Direct texture score and
+branch-specific FF++ thresholds are the valid diagnostic comparison.
+
+## Historical decision gate
+
+Seed 42 was run with:
 
 ```bash
 ./run_srm_ablation.sh all
@@ -66,10 +86,32 @@ SRM advances to seeds 17 and 73 only if all conditions hold:
 - mean SRM gate weight is at least 0.05;
 - fused AUC is greater than the SRM model's own texture-branch AUC.
 
-If SRM passes, run the remaining seeds and report mean ± sample SD, paired
-bootstrap confidence intervals, parameters, latency, peak memory, and threshold
-provenance. If it fails, do not tune on Celeb-DF; inspect residual activation and
-define a separate development protocol before changing the branch.
+The candidate failed because its mean SRM weight was below 0.05 and fused AUC
+was below its own texture AUC. This gate remains unchanged in the record.
+
+## Current diagnostic
+
+Run once without retraining:
+
+```bash
+./run_srm_diagnostics.sh
+```
+
+This evaluates the SRM checkpoint's texture score with a texture-specific
+threshold selected on FF++ validation and reports score correlation, error
+overlap, an FF++-selected linear blend, and gate trajectory. It is explicitly
+post-hoc and cannot serve as final confirmatory evidence.
+
+A staged SRM profile is implemented but must not be launched until this report
+is reviewed:
+
+```bash
+./run_train_cross_dataset.sh srm_staged
+```
+
+It uses five branch-only warmup epochs (`0.5 * SRM BCE + 0.5 * texture BCE`) with
+the fusion module frozen, then enables the original fused + auxiliary objectives.
+Warmup epochs are excluded from checkpoint selection and early stopping.
 
 ## Removed directions
 
