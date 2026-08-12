@@ -32,14 +32,18 @@ GEOMETRY_EXPERIMENT="qalf_ffpp4_effb0_160_8f_full_face_sbi${SEED_SUFFIX}"
 SRM_EXPERIMENT="qalf_ffpp4_effb0_160_8f_full_face_sbi_srm${SEED_SUFFIX}"
 EVALUATION_SUFFIX='_to_celebdf_12f_3clips_mean_tta_ffpp_threshold'
 
-complete_checkpoint() {
-    [[ -f "$EXPERIMENTS_ROOT/$1/best.pt" ]] && \
-        [[ -f "$EXPERIMENTS_ROOT/$1/training_summary.json" ]]
+has_checkpoint() {
+    [[ -f "$EXPERIMENTS_ROOT/$1/best.pt" ]]
 }
 
-require_checkpoint() {
-    if ! complete_checkpoint "$1"; then
-        echo "ERROR: required retained checkpoint is missing: $EXPERIMENTS_ROOT/$1" >&2
+complete_training() {
+    has_checkpoint "$1" && [[ -f "$EXPERIMENTS_ROOT/$1/training_summary.json" ]]
+}
+
+require_checkpoint_for_evaluation() {
+    if ! has_checkpoint "$1"; then
+        echo "ERROR: evaluation is missing and no checkpoint is available:" >&2
+        echo "  $EXPERIMENTS_ROOT/$1/best.pt" >&2
         exit 3
     fi
 }
@@ -49,11 +53,8 @@ echo "Seed: $SEED"
 echo "Controls: texture-only SBI, geometry baseline A"
 echo "Candidate: fixed SRM residual bank + lightweight CNN, no dropout/reliability"
 
-require_checkpoint "$TEXTURE_EXPERIMENT"
-require_checkpoint "$GEOMETRY_EXPERIMENT"
-
 if [[ "$MODE" == train || "$MODE" == all ]]; then
-    if complete_checkpoint "$SRM_EXPERIMENT"; then
+    if complete_training "$SRM_EXPERIMENT"; then
         echo "SRM: keeping completed checkpoint: $EXPERIMENTS_ROOT/$SRM_EXPERIMENT/best.pt"
     else
         "$PROJECT_ROOT/run_train_cross_dataset.sh" srm_sbi
@@ -61,7 +62,6 @@ if [[ "$MODE" == train || "$MODE" == all ]]; then
 fi
 
 if [[ "$MODE" == test || "$MODE" == all ]]; then
-    require_checkpoint "$SRM_EXPERIMENT"
     for entry in \
         "texture_only_sbi:$TEXTURE_EXPERIMENT" \
         "full_face_sbi:$GEOMETRY_EXPERIMENT" \
@@ -73,6 +73,7 @@ if [[ "$MODE" == test || "$MODE" == all ]]; then
         if [[ -f "$metrics" ]]; then
             echo "$profile: reusing existing evaluation: $metrics"
         else
+            require_checkpoint_for_evaluation "$experiment"
             "$PROJECT_ROOT/run_test_cross_dataset.sh" "$profile"
         fi
     done

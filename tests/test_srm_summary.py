@@ -54,13 +54,14 @@ class SRMSummaryTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            for experiment, model_protocol, metrics in profiles:
+            for index, (experiment, model_protocol, metrics) in enumerate(profiles):
                 training = root / experiment
                 training.mkdir()
-                (training / "training_summary.json").write_text(
-                    json.dumps({"best_value": 0.970}),
-                    encoding="utf-8",
-                )
+                if index > 0:
+                    (training / "training_summary.json").write_text(
+                        json.dumps({"best_value": 0.970}),
+                        encoding="utf-8",
+                    )
                 evaluation = root / (
                     f"{experiment}_to_celebdf_12f_3clips_mean_tta_ffpp_threshold"
                 )

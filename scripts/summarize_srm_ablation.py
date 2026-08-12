@@ -49,13 +49,12 @@ def main() -> None:
         experiment = f"{base_experiment}{suffix}"
         summary_path = root / experiment / "training_summary.json"
         metrics_path = root / f"{experiment}{EVALUATION_SUFFIX}" / "metrics.json"
-        missing = [path for path in (summary_path, metrics_path) if not path.is_file()]
-        if missing:
+        if not metrics_path.is_file():
             raise SystemExit(
                 "Missing required SRM comparison inputs:\n"
-                + "\n".join(f"  - {path}" for path in missing)
+                f"  - {metrics_path}"
             )
-        summary = _load(summary_path)
+        summary = _load(summary_path) if summary_path.is_file() else {}
         payload = _load(metrics_path)
         metrics = payload.get("metrics", payload)
         protocol = payload.get("protocol", {})
@@ -79,7 +78,7 @@ def main() -> None:
                 "profile": profile,
                 "experiment": experiment,
                 "auxiliary_branch": branch,
-                "ffpp_val_auc": float(summary["best_value"]),
+                "ffpp_val_auc": float(summary.get("best_value", float("nan"))),
                 "auc": auc,
                 "average_precision": _metric(metrics, "average_precision"),
                 "eer": _metric(metrics, "eer"),
