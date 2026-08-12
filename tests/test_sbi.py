@@ -171,66 +171,66 @@ class SBILossMaskTests(unittest.TestCase):
         outputs = {
             "logit": torch.tensor([-0.5, 0.4]),
             "texture_logit": torch.tensor([0.2, -0.3]),
-            "geometry_logit": torch.tensor([0.7, -0.9]),
+            "auxiliary_logit": torch.tensor([0.7, -0.9]),
         }
         labels = torch.tensor([0.0, 1.0])
         legacy, legacy_parts = qalf_loss(
             outputs,
             labels,
             nn.BCEWithLogitsLoss(),
-            geometry_weight=0.25,
+            auxiliary_weight=0.25,
             texture_weight=0.25,
         )
         masked, masked_parts = qalf_loss(
             outputs,
             labels,
             nn.BCEWithLogitsLoss(),
-            geometry_weight=0.25,
+            auxiliary_weight=0.25,
             texture_weight=0.25,
-            geometry_loss_mask=torch.ones(2),
+            auxiliary_loss_mask=torch.ones(2),
         )
 
         torch.testing.assert_close(masked, legacy)
         self.assertEqual(masked_parts, legacy_parts)
 
-    def test_sbi_sample_is_excluded_from_geometry_loss(self) -> None:
+    def test_sbi_sample_is_excluded_from_geometry_auxiliary_loss(self) -> None:
         outputs = {
             "logit": torch.zeros(2),
             "texture_logit": torch.zeros(2),
-            "geometry_logit": torch.tensor([0.0, -100.0], requires_grad=True),
+            "auxiliary_logit": torch.tensor([0.0, -100.0], requires_grad=True),
         }
         labels = torch.tensor([0.0, 1.0])
         loss, parts = qalf_loss(
             outputs,
             labels,
             nn.BCEWithLogitsLoss(),
-            geometry_weight=0.25,
+            auxiliary_weight=0.25,
             texture_weight=0.25,
-            geometry_loss_mask=torch.tensor([1.0, 0.0]),
+            auxiliary_loss_mask=torch.tensor([1.0, 0.0]),
         )
 
         self.assertTrue(torch.isfinite(loss))
-        self.assertAlmostEqual(parts["geometry"], float(np.log(2.0)), places=5)
+        self.assertAlmostEqual(parts["auxiliary"], float(np.log(2.0)), places=5)
 
-    def test_all_masked_geometry_loss_is_differentiable_zero(self) -> None:
-        geometry_logit = torch.tensor([2.0, -3.0], requires_grad=True)
+    def test_all_masked_auxiliary_loss_is_differentiable_zero(self) -> None:
+        auxiliary_logit = torch.tensor([2.0, -3.0], requires_grad=True)
         outputs = {
             "logit": torch.zeros(2, requires_grad=True),
             "texture_logit": torch.zeros(2, requires_grad=True),
-            "geometry_logit": geometry_logit,
+            "auxiliary_logit": auxiliary_logit,
         }
         loss, parts = qalf_loss(
             outputs,
             torch.tensor([0.0, 1.0]),
             nn.BCEWithLogitsLoss(),
-            geometry_weight=0.25,
+            auxiliary_weight=0.25,
             texture_weight=0.25,
-            geometry_loss_mask=torch.zeros(2),
+            auxiliary_loss_mask=torch.zeros(2),
         )
         loss.backward()
 
-        self.assertEqual(parts["geometry"], 0.0)
-        torch.testing.assert_close(geometry_logit.grad, torch.zeros_like(geometry_logit))
+        self.assertEqual(parts["auxiliary"], 0.0)
+        torch.testing.assert_close(auxiliary_logit.grad, torch.zeros_like(auxiliary_logit))
 
 
 if __name__ == "__main__":

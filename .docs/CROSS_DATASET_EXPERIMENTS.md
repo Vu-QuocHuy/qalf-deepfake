@@ -1,102 +1,44 @@
 # QALF cross-dataset experiments
 
-The current architecture and roadmap live in
-[`CURRENT_MODEL_AND_PLAN.md`](CURRENT_MODEL_AND_PLAN.md). This file documents
-only how to reproduce the retained profiles and their focused comparisons.
-
-## Retained profiles
+The active profiles all use EfficientNet-B0, 160-pixel full-face input, the
+locked 50/25/25 SBI distribution, raw weights, eight training texture frames,
+and 12 evaluation frames.
 
 | Profile | Purpose |
 | --- | --- |
-| `full_face` | Historical pre-SBI full-face reference (seed-42 AUC 0.8209) |
-| `full_face_sbi` | Trusted 50/25/25 SBI reference |
-| `geometry_candidate` | SBI + attentive geometry + reliability routing |
-| `texture_only_sbi` | Required P1 control: identical SBI protocol without geometry/fusion |
-| `geometry_dropout_only` | Seed-42 diagnostic: SBI baseline plus modality dropout, no reliability loss |
-| `geometry_reliability_combined` | Historical I2 control: modality dropout plus reliability loss |
-| `geometry_sbi_aware_reliability` | E control: dropout/reliability on real and original fake, never SBI |
+| `texture_only_sbi` | Texture-only SBI control |
+| `full_face_sbi` | Retained landmark geometry + texture baseline A |
+| `srm_sbi` | Fixed SRM residual + texture candidate |
 
-All profiles use EfficientNet-B0, 160-pixel full-face input, eight texture frames
-during training, and raw weights. Evaluation uses 12 texture frames, three clips,
-mean aggregation, horizontal-flip TTA, and an FF++-validation threshold.
-
-## Three-seed result
-
-| Seed | SBI baseline AUC | Geometry candidate AUC | Texture-only AUC |
-| ---: | ---: | ---: | ---: |
-| 17 | 0.8486 | 0.8464 | 0.8501 |
-| 42 | 0.8325 | 0.8323 | 0.8120 |
-| 73 | 0.8245 | 0.8399 | 0.8587 |
-| Mean ± sample SD | 0.8352 ± 0.0123 | 0.8395 ± 0.0071 | **0.8403 ± 0.0249** |
-
-The candidate improves mean EER, balanced accuracy, and ACER, but texture-only
-has slightly higher mean AUC/AP and the candidate's mean geometry gate weight is
-only 0.0015. Under the pre-registered P1 rule, texture-only is the clean-data
-accuracy reference. The seed-42 failure diagnostic below determines why the
-candidate gate collapsed; it does not reopen P1 model selection.
-
-## Run one profile
-
-From Git Bash:
+Run the complete seed-42 comparison from Git Bash:
 
 ```bash
-./run_train_cross_dataset.sh full_face_sbi
-./run_test_cross_dataset.sh full_face_sbi
-
-./run_train_cross_dataset.sh geometry_candidate
-./run_test_cross_dataset.sh geometry_candidate
-
-./run_train_cross_dataset.sh texture_only_sbi
-./run_test_cross_dataset.sh texture_only_sbi
+./run_srm_ablation.sh all
 ```
 
-The focused geometry failure diagnostic is intentionally locked to seed 42. It
-reuses the completed SBI baseline, automatically trains any missing C/D/E
-control, refreshes their diagnostics when needed, and writes one A-C-D-E
-comparison:
+The runner reuses completed controls, trains SRM only when its checkpoint is
+missing, evaluates any missing comparison row with FF++-validation threshold
+calibration, and writes:
+
+- `E:/DeepFakeData/experiments/srm_ablation_seed42.csv`
+- `E:/DeepFakeData/experiments/srm_ablation_seed42.md`
+
+Run an individual profile with:
 
 ```bash
-./run_geometry_failure_diagnostic.sh all
+./run_train_cross_dataset.sh srm_sbi
+./run_test_cross_dataset.sh srm_sbi
 ```
 
-Output: `E:/DeepFakeData/experiments/geometry_failure_diagnostic_seed42.md`.
-If a completed `best.pt` predates summary generation, the runner reconstructs
-the minimal `training_summary.json` from that checkpoint instead of retraining.
-
-For a non-default seed in PowerShell:
+After a seed-42 pass, use PowerShell for the remaining locked seeds:
 
 ```powershell
 $env:QALF_SEED = "17"
-& "C:\Program Files\Git\bin\bash.exe" ./run_geometry_ablation.sh all
+& "C:\Program Files\Git\bin\bash.exe" ./run_srm_ablation.sh all
 Remove-Item Env:QALF_SEED
 ```
 
-Seed 42 uses historical paths. Other seeds automatically receive `_seedN`, so
-checkpoints and evaluation artifacts cannot overwrite one another.
-
-## Compare outputs
-
-```bash
-./run_geometry_ablation.sh train
-./run_geometry_ablation.sh test
-./run_geometry_ablation.sh all
-```
-
-The runner writes `p1_texture_control_comparison[_seedN].csv` and `.md` under
-`E:/DeepFakeData/experiments`. It includes FF++ validation AUC, Celeb-DF AUC,
-domain gap, branch AUCs, fusion gain, gate weights, zero-geometry counterfactual AUC,
-AP, EER, balanced accuracy, and ACER. Existing checkpoints are reused during
-`train`/`all`; the runner does not overwrite completed baseline or candidate runs.
-
-Training artifacts include `best.pt`, `last.pt`, `config.json`,
-`run_metadata.json`, `training_summary.json`, `history.json`, `train.log`, and
-`plots/training_history.png`. Evaluation writes `metrics.txt`, `metrics.json`,
-`evaluation_protocol.txt`, prediction CSV files, `eval.log`, and diagnostic
-plots.
-
-## Stopped experiments
-
-Canonical-skin input, dual view, EfficientNet-B1, EMA, MixStyle, learned texture
-dynamics, graph geometry, rigid/non-rigid two-stream geometry, self-supervised
-geometry, and class-balanced geometry loss were negative ablations. Their active
-implementations were removed to keep the research code aligned with the evidence.
+Training artifacts are `best.pt`, `config.json`, `run_metadata.json`,
+`training_summary.json`, `history.json`, `train.log`, and the training plot.
+Evaluation artifacts are `metrics.txt`, `metrics.json`, protocol metadata,
+prediction CSV files, `eval.log`, and diagnostic plots.

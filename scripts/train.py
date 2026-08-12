@@ -25,7 +25,7 @@ from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_M
 from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import SUPPORTED_TEXTURE_BACKBONES, QALFModel
+from qalf.models import SUPPORTED_AUXILIARY_BRANCHES, SUPPORTED_TEXTURE_BACKBONES, QALFModel
 from qalf.models.geometry import SUPPORTED_GEOMETRY_ARCHITECTURES
 from qalf.reporting import collect_run_metadata, save_training_history_plot
 
@@ -155,13 +155,15 @@ def _epoch_messages(
     lr = float(next(iter(optimizer.param_groups))["lr"])
     return [
         f"[{epoch:03d}/{epochs}] {duration_seconds:.0f}s  "
-        f"loss={train_metrics['loss']:.4f} (geo={train_metrics['geometry']:.4f} tex={train_metrics['texture']:.4f})  "
+        f"loss={train_metrics['loss']:.4f} (aux={train_metrics['auxiliary']:.4f} tex={train_metrics['texture']:.4f})  "
         f"auc={float(validation_metrics['auc']):.4f} "
         f"ap={float(validation_metrics['average_precision']):.4f} "
         f"eer={float(validation_metrics['eer']):.4f} "
         f"bal={float(validation_metrics['balanced_accuracy']):.4f}  "
-        f"geo_auc={float(validation_metrics['geometry_auc']):.4f} "
+        f"aux_auc={float(validation_metrics['auxiliary_auc']):.4f} "
         f"tex_auc={float(validation_metrics['texture_auc']):.4f}  "
+        f"weights={float(validation_metrics['mean_auxiliary_weight']):.3f}/"
+        f"{float(validation_metrics['mean_texture_weight']):.3f}  "
         f"thr={float(validation_metrics['threshold']):.4f}  lr={lr:.2e}",
     ]
 
@@ -189,7 +191,7 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--backbone-learning-rate", type=float)
     parser.add_argument("--weight-decay", type=float)
-    parser.add_argument("--geometry-loss-weight", type=float)
+    parser.add_argument("--auxiliary-loss-weight", type=float)
     parser.add_argument("--texture-loss-weight", type=float)
     parser.add_argument("--early-stop-patience", type=int)
     parser.add_argument("--geometry-hidden", type=int)
@@ -214,25 +216,11 @@ def main() -> None:
         "--geometry-mode",
         choices=tuple(sorted(GEOMETRY_FEATURE_MODES)),
     )
-    parser.add_argument(
-        "--fusion-mode",
-        choices=("texture", "quality"),
-    )
+    parser.add_argument("--auxiliary-branch", choices=tuple(sorted(SUPPORTED_AUXILIARY_BRANCHES)))
     parser.add_argument(
         "--texture-backbone",
         choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES)),
     )
-    parser.add_argument("--modality-dropout-probability", type=float)
-    parser.add_argument(
-        "--exclude-sbi-from-modality-dropout",
-        action="store_true",
-        default=None,
-        help=(
-            "Do not modality-drop SBI samples; consequently exclude them from "
-            "reliability-gate supervision."
-        ),
-    )
-    parser.add_argument("--reliability-gate-loss-weight", type=float)
     parser.add_argument("--no-geometry-augmentation", action="store_true")
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
@@ -255,8 +243,8 @@ def main() -> None:
     model_config = config["model"]
     if args.geometry_mode:
         data["geometry_mode"] = args.geometry_mode
-    if args.fusion_mode:
-        model_config["fusion_mode"] = args.fusion_mode
+    if args.auxiliary_branch:
+        model_config["auxiliary_branch"] = args.auxiliary_branch
     if args.texture_backbone:
         model_config["texture_backbone"] = args.texture_backbone
     if args.texture_mode:
@@ -268,8 +256,6 @@ def main() -> None:
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
         "texture_gate_bias": args.texture_gate_bias,
-        "modality_dropout_probability": args.modality_dropout_probability,
-        "exclude_sbi_from_modality_dropout": args.exclude_sbi_from_modality_dropout,
     }
     model_config.update({key: value for key, value in model_overrides.items() if value is not None})
     if args.no_geometry_augmentation:
@@ -295,10 +281,9 @@ def main() -> None:
         "learning_rate": args.learning_rate,
         "backbone_learning_rate": args.backbone_learning_rate,
         "weight_decay": args.weight_decay,
-        "geometry_loss_weight": args.geometry_loss_weight,
+        "auxiliary_loss_weight": args.auxiliary_loss_weight,
         "texture_loss_weight": args.texture_loss_weight,
         "early_stop_patience": args.early_stop_patience,
-        "reliability_gate_loss_weight": args.reliability_gate_loss_weight,
     }
     data.update({key: value for key, value in data_overrides.items() if value is not None})
     training.update({key: value for key, value in training_overrides.items() if value is not None})
@@ -335,7 +320,7 @@ def main() -> None:
         parser.error("training.learning_rate must be positive")
     if float(training.get("backbone_learning_rate", training["learning_rate"])) <= 0:
         parser.error("training.backbone_learning_rate must be positive")
-    for name in ("weight_decay", "geometry_loss_weight", "texture_loss_weight"):
+    for name in ("weight_decay", "auxiliary_loss_weight", "texture_loss_weight"):
         if float(training.get(name, 0.0)) < 0:
             parser.error(f"training.{name} cannot be negative")
     if int(training.get("early_stop_patience", 0)) < 0:
@@ -345,26 +330,6 @@ def main() -> None:
             parser.error(f"model.{name} must be at least one")
     if not 0.0 <= float(model_config.get("dropout", 0.0)) < 1.0:
         parser.error("model.dropout must be in [0, 1)")
-    modality_dropout_probability = float(model_config.get("modality_dropout_probability", 0.0))
-    if not 0.0 <= modality_dropout_probability <= 0.5:
-        parser.error("model.modality_dropout_probability must be in [0, 0.5]")
-    reliability_gate_loss_weight = float(training.get("reliability_gate_loss_weight", 0.0))
-    if reliability_gate_loss_weight < 0.0:
-        parser.error("training.reliability_gate_loss_weight cannot be negative")
-    if reliability_gate_loss_weight > 0.0 and modality_dropout_probability == 0.0:
-        parser.error("Reliability gate loss requires positive modality dropout")
-    exclude_sbi_dropout = bool(
-        model_config.get("exclude_sbi_from_modality_dropout", False)
-    )
-    if exclude_sbi_dropout and modality_dropout_probability == 0.0:
-        parser.error("SBI-aware routing requires positive modality dropout")
-    if exclude_sbi_dropout and not bool(data["sbi"]["enabled"]):
-        parser.error("SBI-aware routing requires enabled SBI training")
-    if (
-        modality_dropout_probability > 0.0
-        and str(model_config.get("fusion_mode", "quality")) != "quality"
-    ):
-        parser.error("Modality dropout requires quality fusion")
     seed = int(config.get("seed", 42))
     deterministic = bool(training.get("deterministic", False))
     _seed_everything(seed, deterministic=deterministic)
@@ -445,12 +410,8 @@ def main() -> None:
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
-        fusion_mode=str(model_config.get("fusion_mode", "quality")),
+        auxiliary_branch=str(model_config.get("auxiliary_branch", "geometry")),
         texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
-        modality_dropout_probability=modality_dropout_probability,
-        exclude_sbi_from_modality_dropout=bool(
-            model_config.get("exclude_sbi_from_modality_dropout", False)
-        ),
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(
@@ -471,11 +432,11 @@ def main() -> None:
     amp_enabled = bool(training.get("amp", True)) and device.type == "cuda"
     scaler = _make_grad_scaler(amp_enabled)
     criterion = nn.BCEWithLogitsLoss()
-    geometry_loss_weight = float(training.get("geometry_loss_weight", 0.25))
+    auxiliary_loss_weight = float(training.get("auxiliary_loss_weight", 0.25))
     texture_loss_weight = float(training.get("texture_loss_weight", 0.25))
-    fusion_mode = str(model_config.get("fusion_mode", "quality"))
-    if fusion_mode == "texture":
-        geometry_loss_weight = 0.0
+    auxiliary_branch = str(model_config.get("auxiliary_branch", "geometry"))
+    if auxiliary_branch == "none":
+        auxiliary_loss_weight = 0.0
 
     history: list[dict[str, object]] = []
     best_auc = -float("inf")
@@ -487,12 +448,11 @@ def main() -> None:
     epochs = int(training["epochs"])
     run_started = time.perf_counter()
     logger.info(
-        "Training started  output=%s modality_dropout=%.2f reliability=%.2f "
-        "exclude_sbi_from_modality_dropout=%s",
+        "Training started  output=%s auxiliary_branch=%s parameters=%d trainable=%d",
         output_dir,
-        modality_dropout_probability,
-        reliability_gate_loss_weight,
-        bool(model_config.get("exclude_sbi_from_modality_dropout", False)),
+        auxiliary_branch,
+        sum(parameter.numel() for parameter in model.parameters()),
+        sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
     )
     history_plot_enabled = True
     training_plot_path = output_dir / "plots" / "training_history.png"
@@ -505,9 +465,8 @@ def main() -> None:
             criterion,
             device,
             scaler,
-            geometry_loss_weight,
+            auxiliary_loss_weight,
             texture_loss_weight,
-            reliability_gate_weight=reliability_gate_loss_weight,
         )
         validation_clips = predict(model, val_loader, device)
         validation = aggregate_predictions(
@@ -519,10 +478,16 @@ def main() -> None:
         scores = np.asarray(validation["score"], dtype=np.float64)
         threshold = select_threshold(labels, scores)
         val_metrics = compute_metrics(labels, scores, threshold)
-        geometry_scores = np.asarray(validation["geometry_score"], dtype=np.float64)
+        auxiliary_scores = np.asarray(validation["auxiliary_score"], dtype=np.float64)
         texture_scores = np.asarray(validation["texture_score"], dtype=np.float64)
-        val_metrics["geometry_auc"] = compute_metrics(labels, geometry_scores, threshold)["auc"]
+        val_metrics["auxiliary_auc"] = compute_metrics(labels, auxiliary_scores, threshold)["auc"]
         val_metrics["texture_auc"] = compute_metrics(labels, texture_scores, threshold)["auc"]
+        val_metrics["mean_auxiliary_weight"] = float(
+            np.mean(np.asarray(validation["auxiliary_weight"], dtype=np.float64))
+        )
+        val_metrics["mean_texture_weight"] = float(
+            np.mean(np.asarray(validation["texture_weight"], dtype=np.float64))
+        )
         row = {"epoch": epoch, "train": train_metrics, "validation": val_metrics}
         history.append(row)
         epoch_duration = time.perf_counter() - epoch_started
@@ -568,11 +533,23 @@ def main() -> None:
             best_threshold = threshold
             stale_epochs = 0
             torch.save(checkpoint, best_path)
-            logger.info("  ★ best  epoch=%03d  val_auc=%.4f  thr=%.4f  → %s", best_epoch, best_auc, best_threshold, best_path)
+            logger.info(
+                "  ★ best  epoch=%03d  val_auc=%.4f  thr=%.4f  → %s",
+                best_epoch,
+                best_auc,
+                best_threshold,
+                best_path,
+            )
         else:
             stale_epochs += 1
             if patience > 0:
-                logger.info("  patience %d/%d  best_epoch=%03d  best_auc=%.4f", stale_epochs, patience, best_epoch, best_auc)
+                logger.info(
+                    "  patience %d/%d  best_epoch=%03d  best_auc=%.4f",
+                    stale_epochs,
+                    patience,
+                    best_epoch,
+                    best_auc,
+                )
             if patience > 0 and stale_epochs >= patience:
                 logger.info("Early stopping at epoch %d", epoch)
                 break

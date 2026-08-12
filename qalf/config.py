@@ -8,6 +8,7 @@ from typing import Any
 
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
 from qalf.data.sbi import resolve_sbi_config
+from qalf.models.qalf import SUPPORTED_AUXILIARY_BRANCHES
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -54,36 +55,31 @@ def load_config(path: str | Path) -> dict[str, Any]:
         "embedding_dim": 128,
         "dropout": 0.2,
         "texture_backbone": "efficientnet_b0",
-        "modality_dropout_probability": 0.0,
-        "exclude_sbi_from_modality_dropout": False,
+        "auxiliary_branch": None,
     }
     for name, default in model_defaults.items():
         config["model"].setdefault(name, default)
     if config["model"]["texture_backbone"] != "efficientnet_b0":
         raise ValueError("model.texture_backbone must be efficientnet_b0")
-    if config["model"].get("fusion_mode", "quality") not in {"quality", "texture"}:
-        raise ValueError("model.fusion_mode must be quality or texture")
+    if config["model"]["auxiliary_branch"] is None:
+        legacy_mode = str(config["model"].get("fusion_mode", "quality"))
+        config["model"]["auxiliary_branch"] = "none" if legacy_mode == "texture" else "geometry"
+    if config["model"]["auxiliary_branch"] not in SUPPORTED_AUXILIARY_BRANCHES:
+        raise ValueError("Unsupported model.auxiliary_branch")
+    config["model"].pop("fusion_mode", None)
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(config["model"].get(name, 0)) < 1:
             raise ValueError(f"model.{name} must be >= 1")
     if not 0.0 <= float(config["model"].get("dropout", 0.0)) < 1.0:
         raise ValueError("model.dropout must be in [0, 1)")
     geometry_architecture = str(config["model"]["geometry_architecture"])
-    if geometry_architecture not in {
-        "tcn_mean",
-        "tcn_attentive",
-    }:
+    if geometry_architecture != "tcn_mean":
         raise ValueError("Unsupported model.geometry_architecture")
-    modality_dropout = float(config["model"]["modality_dropout_probability"])
-    if not 0.0 <= modality_dropout <= 0.5:
-        raise ValueError("model.modality_dropout_probability must be in [0, 0.5]")
-    if not isinstance(config["model"]["exclude_sbi_from_modality_dropout"], bool):
-        raise ValueError("model.exclude_sbi_from_modality_dropout must be boolean")
-    config["training"].setdefault("reliability_gate_loss_weight", 0.0)
-    if float(config["training"]["reliability_gate_loss_weight"]) < 0.0:
-        raise ValueError("training.reliability_gate_loss_weight must be non-negative")
-    if float(config["training"]["reliability_gate_loss_weight"]) > 0.0 and modality_dropout == 0.0:
-        raise ValueError("Reliability gate loss requires modality dropout")
+    config["training"].setdefault(
+        "auxiliary_loss_weight",
+        config["training"].get("geometry_loss_weight", 0.25),
+    )
+    config["training"].pop("geometry_loss_weight", None)
     return config
 
 

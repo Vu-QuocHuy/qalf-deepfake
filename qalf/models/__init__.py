@@ -3,8 +3,7 @@
 from typing import Any
 
 from .geometry import SUPPORTED_GEOMETRY_ARCHITECTURES
-from .qalf import QALFModel
-from .scheduler import TextureRefreshPolicy
+from .qalf import SUPPORTED_AUXILIARY_BRANCHES, QALFModel
 from .texture import SUPPORTED_TEXTURE_BACKBONES
 
 
@@ -15,6 +14,13 @@ def build_model_from_checkpoint(
 
     config = checkpoint["config"]
     model_config = config["model"]
+    legacy_fusion_mode = str(model_config.get("fusion_mode", "quality"))
+    auxiliary_branch = str(
+        model_config.get(
+            "auxiliary_branch",
+            "none" if legacy_fusion_mode == "texture" else "geometry",
+        )
+    )
     model = QALFModel(
         geometry_input_dim=int(checkpoint["geometry_input_dim"]),
         geometry_hidden=int(model_config.get("geometry_hidden", 96)),
@@ -26,12 +32,8 @@ def build_model_from_checkpoint(
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
-        fusion_mode=str(model_config.get("fusion_mode", "quality")),
+        auxiliary_branch=auxiliary_branch,
         texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
-        modality_dropout_probability=float(model_config.get("modality_dropout_probability", 0.0)),
-        exclude_sbi_from_modality_dropout=bool(
-            model_config.get("exclude_sbi_from_modality_dropout", False)
-        ),
     )
     if load_weights:
         model.load_state_dict(checkpoint["model"], strict=True)
@@ -43,5 +45,5 @@ __all__ = [
     "build_model_from_checkpoint",
     "SUPPORTED_GEOMETRY_ARCHITECTURES",
     "SUPPORTED_TEXTURE_BACKBONES",
-    "TextureRefreshPolicy",
+    "SUPPORTED_AUXILIARY_BRANCHES",
 ]

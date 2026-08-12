@@ -98,7 +98,7 @@ def main() -> None:
 
     report = {
         "device": str(device),
-        "fusion_mode": str(model_config.get("fusion_mode", "quality")),
+        "auxiliary_branch": str(getattr(model, "auxiliary_branch", "geometry")),
         "texture_backbone": str(model_config.get("texture_backbone", "efficientnet_b0")),
         "texture_temporal_pooling": "mean",
         "parameters": sum(parameter.numel() for parameter in model.parameters()),

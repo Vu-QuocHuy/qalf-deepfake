@@ -6,10 +6,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-SUPPORTED_GEOMETRY_ARCHITECTURES = {
-    "tcn_mean",
-    "tcn_attentive",
-}
+SUPPORTED_GEOMETRY_ARCHITECTURES = {"tcn_mean"}
 
 
 class CausalDepthwiseBlock(nn.Module):
@@ -39,31 +36,6 @@ class CausalDepthwiseBlock(nn.Module):
         return residual + output
 
 
-class AttentiveStatisticsPooling(nn.Module):
-    """Retain persistent, variable, and transient temporal evidence."""
-
-    def __init__(self, channels: int) -> None:
-        super().__init__()
-        self.attention = nn.Sequential(
-            nn.Linear(channels, max(channels // 2, 1)),
-            nn.Tanh(),
-            nn.Linear(max(channels // 2, 1), 1),
-        )
-        self.output = nn.Sequential(
-            nn.Linear(channels * 3, channels),
-            nn.LayerNorm(channels),
-            nn.SiLU(),
-        )
-
-    def forward(self, sequence: torch.Tensor) -> torch.Tensor:
-        weights = torch.softmax(self.attention(sequence), dim=1)
-        mean = torch.sum(weights * sequence, dim=1)
-        variance = torch.sum(weights * (sequence - mean[:, None, :]).square(), dim=1)
-        standard_deviation = torch.sqrt(variance.clamp_min(1e-6))
-        maximum = sequence.amax(dim=1)
-        return self.output(torch.cat([mean, standard_deviation, maximum], dim=1))
-
-
 class GeometryEncoder(nn.Module):
     def __init__(
         self,
@@ -87,9 +59,6 @@ class GeometryEncoder(nn.Module):
         self.temporal = nn.Sequential(
             *(CausalDepthwiseBlock(hidden_dim, 2**layer, dropout) for layer in range(num_layers))
         )
-        self.statistics_pooling = (
-            AttentiveStatisticsPooling(hidden_dim) if architecture == "tcn_attentive" else None
-        )
         self.projection = nn.Sequential(
             nn.Linear(hidden_dim, embedding_dim),
             nn.LayerNorm(embedding_dim),
@@ -101,10 +70,6 @@ class GeometryEncoder(nn.Module):
     def forward(self, geometry: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         sequence = self.input_projection(geometry)
         sequence = self.temporal(sequence.transpose(1, 2)).transpose(1, 2)
-        pooled = (
-            sequence.mean(dim=1)
-            if self.statistics_pooling is None
-            else self.statistics_pooling(sequence)
-        )
+        pooled = sequence.mean(dim=1)
         embedding = self.projection(pooled)
         return embedding, self.classifier(embedding).squeeze(-1)

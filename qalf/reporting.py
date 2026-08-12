@@ -50,27 +50,27 @@ REPORT_SECTIONS = (
     (
         "QALF BRANCH DIAGNOSTICS",
         (
-            ("geometry_auc", "Geometry AUC"),
+            ("auxiliary_auc", "Auxiliary AUC"),
             ("texture_auc", "Texture AUC"),
             ("fixed_average_auc", "Fixed-average AUC"),
-            ("mean_geometry_weight", "Mean geometry weight"),
+            ("mean_auxiliary_weight", "Mean auxiliary weight"),
             ("mean_texture_weight", "Mean texture weight"),
-            ("median_geometry_weight", "Median geometry weight"),
-            ("p90_geometry_weight", "P90 geometry weight"),
-            ("p95_geometry_weight", "P95 geometry weight"),
-            ("max_geometry_weight", "Maximum geometry weight"),
-            ("geometry_weight_above_0_05_fraction", "Geometry weight > 0.05 fraction"),
-            ("mean_geometry_weight_real", "Mean geometry weight — real"),
-            ("mean_geometry_weight_fake", "Mean geometry weight — fake"),
+            ("median_auxiliary_weight", "Median auxiliary weight"),
+            ("p90_auxiliary_weight", "P90 auxiliary weight"),
+            ("p95_auxiliary_weight", "P95 auxiliary weight"),
+            ("max_auxiliary_weight", "Maximum auxiliary weight"),
+            ("auxiliary_weight_above_0_05_fraction", "Auxiliary weight > 0.05 fraction"),
+            ("mean_auxiliary_weight_real", "Mean auxiliary weight — real"),
+            ("mean_auxiliary_weight_fake", "Mean auxiliary weight — fake"),
         ),
     ),
     (
-        "ZERO-GEOMETRY COUNTERFACTUAL",
+        "ZERO-AUXILIARY COUNTERFACTUAL",
         (
-            ("zero_geometry_auc", "AUC with geometry zeroed"),
-            ("auc_gain_over_zero_geometry", "Normal minus zero-geometry AUC"),
-            ("mean_abs_zero_geometry_score_shift", "Mean absolute score shift"),
-            ("max_abs_zero_geometry_score_shift", "Maximum absolute score shift"),
+            ("zero_auxiliary_auc", "AUC with auxiliary zeroed"),
+            ("auc_gain_over_zero_auxiliary", "Normal minus zero-auxiliary AUC"),
+            ("mean_abs_zero_auxiliary_score_shift", "Mean absolute score shift"),
+            ("max_abs_zero_auxiliary_score_shift", "Maximum absolute score shift"),
         ),
     ),
     (
@@ -199,7 +199,7 @@ def save_training_history_plot(history: Sequence[Mapping[str, object]], path: st
     for key, label in (
         ("loss", "Total"),
         ("fused", "Fused"),
-        ("geometry", "Geometry"),
+        ("auxiliary", "Auxiliary"),
         ("texture", "Texture"),
     ):
         loss_axis.plot(epochs, values("train", key), label=label)
@@ -209,7 +209,7 @@ def save_training_history_plot(history: Sequence[Mapping[str, object]], path: st
     for key, label in (
         ("auc", "Fused AUC"),
         ("average_precision", "Average precision"),
-        ("geometry_auc", "Geometry AUC"),
+        ("auxiliary_auc", "Auxiliary AUC"),
         ("texture_auc", "Texture AUC"),
     ):
         rank_axis.plot(epochs, values("validation", key), label=label)
@@ -227,7 +227,7 @@ def save_training_history_plot(history: Sequence[Mapping[str, object]], path: st
     operating_axis.set_ylim(0.0, 1.0)
 
     for key, label in (
-        ("mean_geometry_weight", "Geometry weight"),
+        ("mean_auxiliary_weight", "Auxiliary weight"),
         ("mean_texture_weight", "Texture weight"),
         ("threshold", "Decision threshold"),
     ):

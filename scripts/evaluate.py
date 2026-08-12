@@ -74,15 +74,10 @@ def main() -> None:
         help="Average predictions from original and horizontally flipped texture inputs.",
     )
     parser.add_argument(
-        "--geometry-corruption-json",
-        help="Optional deterministic geometry corruption config for robustness evaluation.",
-    )
-    parser.add_argument("--geometry-corruption-seed", type=int, default=12345)
-    parser.add_argument(
-        "--zero-geometry-counterfactual",
+        "--zero-auxiliary-counterfactual",
         action="store_true",
         help=(
-            "Also recompute fused scores with zero geometry embedding/logit/quality; "
+            "Also recompute fused scores with the auxiliary embedding/logit/quality zeroed; "
             "this does not change the primary prediction or threshold."
         ),
     )
@@ -121,6 +116,12 @@ def main() -> None:
         output_dir / "run_metadata.json",
     )
     data, model_config = config["data"], config["model"]
+    configured_auxiliary = str(
+        model_config.get(
+            "auxiliary_branch",
+            "none" if model_config.get("fusion_mode") == "texture" else "geometry",
+        )
+    )
     training_texture_frames = int(data["texture_frames"])
     texture_frames = int(
         args.texture_frames if args.texture_frames is not None else data["texture_frames"]
@@ -134,8 +135,7 @@ def main() -> None:
         f"backbone={model_config.get('texture_backbone', 'efficientnet_b0')} "
         f"texture_mode={data.get('texture_mode', 'full_face')} "
         "texture_pooling=mean "
-        f"geometry_architecture={model_config.get('geometry_architecture', 'tcn_mean')} "
-        f"fusion_mode={model_config.get('fusion_mode', 'quality')} "
+        f"auxiliary_branch={configured_auxiliary} "
         f"training_texture_frames={training_texture_frames} "
         f"image_size={int(data['image_size'])} "
         f"weights={checkpoint.get('model_weights', 'raw')}"
@@ -155,12 +155,6 @@ def main() -> None:
     logger.info("  input | checkpoint=%s", args.checkpoint)
     logger.info("  input | manifest=%s", args.manifest)
     logger.info("=" * 72)
-    geometry_corruption = {}
-    if args.geometry_corruption_json:
-        with Path(args.geometry_corruption_json).open("r", encoding="utf-8") as handle:
-            geometry_corruption = json.load(handle)
-        if not isinstance(geometry_corruption, dict):
-            parser.error("--geometry-corruption-json must contain a JSON object")
     dataset = QALFVideoDataset(
         args.manifest,
         args.frame_root,
@@ -176,8 +170,6 @@ def main() -> None:
             if args.clips_per_video is not None
             else data.get("eval_clips_per_video", 1)
         ),
-        geometry_corruption=geometry_corruption,
-        geometry_corruption_seed=args.geometry_corruption_seed,
     )
     if dataset.geometry_input_dim != int(checkpoint["geometry_input_dim"]):
         raise ValueError("Evaluation geometry feature dimension differs from checkpoint")
@@ -259,7 +251,7 @@ def main() -> None:
         loader,
         device,
         texture_flip_tta=args.texture_flip_tta,
-        zero_geometry_counterfactual=args.zero_geometry_counterfactual,
+        zero_auxiliary_counterfactual=args.zero_auxiliary_counterfactual,
     )
     predictions = aggregate_predictions(
         clip_predictions,
@@ -268,34 +260,42 @@ def main() -> None:
     )
     labels = np.asarray(predictions["label"], dtype=np.int64)
     fused_scores = np.asarray(predictions["score"], dtype=np.float64)
-    geometry_scores = np.asarray(predictions["geometry_score"], dtype=np.float64)
+    auxiliary_scores = np.asarray(predictions["auxiliary_score"], dtype=np.float64)
     texture_scores = np.asarray(predictions["texture_score"], dtype=np.float64)
     metrics = compute_metrics(labels, fused_scores, threshold)
-    metrics["geometry_auc"] = compute_metrics(labels, geometry_scores, threshold)["auc"]
+    metrics["auxiliary_auc"] = compute_metrics(labels, auxiliary_scores, threshold)["auc"]
     metrics["texture_auc"] = compute_metrics(labels, texture_scores, threshold)["auc"]
     metrics["fixed_average_auc"] = compute_metrics(
         labels,
-        0.5 * (geometry_scores + texture_scores),
+        0.5 * (auxiliary_scores + texture_scores),
         threshold,
     )["auc"]
-    metrics["mean_geometry_weight"] = float(np.mean(predictions["geometry_weight"]))
+    metrics["mean_auxiliary_weight"] = float(np.mean(predictions["auxiliary_weight"]))
     metrics["mean_texture_weight"] = float(np.mean(predictions["texture_weight"]))
-    geometry_weights = np.asarray(predictions["geometry_weight"], dtype=np.float64)
-    metrics["median_geometry_weight"] = float(np.median(geometry_weights))
-    metrics["p90_geometry_weight"] = float(np.quantile(geometry_weights, 0.90))
-    metrics["p95_geometry_weight"] = float(np.quantile(geometry_weights, 0.95))
-    metrics["max_geometry_weight"] = float(np.max(geometry_weights))
-    metrics["geometry_weight_above_0_05_fraction"] = float(np.mean(geometry_weights > 0.05))
-    metrics["mean_geometry_weight_real"] = float(np.mean(geometry_weights[labels == 0]))
-    metrics["mean_geometry_weight_fake"] = float(np.mean(geometry_weights[labels == 1]))
-    if args.zero_geometry_counterfactual:
-        zero_geometry_scores = np.asarray(predictions["zero_geometry_score"], dtype=np.float64)
-        zero_geometry_auc = float(compute_metrics(labels, zero_geometry_scores, threshold)["auc"])
-        score_shift = np.abs(fused_scores - zero_geometry_scores)
-        metrics["zero_geometry_auc"] = zero_geometry_auc
-        metrics["auc_gain_over_zero_geometry"] = float(metrics["auc"]) - zero_geometry_auc
-        metrics["mean_abs_zero_geometry_score_shift"] = float(np.mean(score_shift))
-        metrics["max_abs_zero_geometry_score_shift"] = float(np.max(score_shift))
+    auxiliary_weights = np.asarray(predictions["auxiliary_weight"], dtype=np.float64)
+    metrics["median_auxiliary_weight"] = float(np.median(auxiliary_weights))
+    metrics["p90_auxiliary_weight"] = float(np.quantile(auxiliary_weights, 0.90))
+    metrics["p95_auxiliary_weight"] = float(np.quantile(auxiliary_weights, 0.95))
+    metrics["max_auxiliary_weight"] = float(np.max(auxiliary_weights))
+    metrics["auxiliary_weight_above_0_05_fraction"] = float(
+        np.mean(auxiliary_weights > 0.05)
+    )
+    metrics["mean_auxiliary_weight_real"] = float(np.mean(auxiliary_weights[labels == 0]))
+    metrics["mean_auxiliary_weight_fake"] = float(np.mean(auxiliary_weights[labels == 1]))
+    if args.zero_auxiliary_counterfactual:
+        zero_auxiliary_scores = np.asarray(
+            predictions["zero_auxiliary_score"], dtype=np.float64
+        )
+        zero_auxiliary_auc = float(
+            compute_metrics(labels, zero_auxiliary_scores, threshold)["auc"]
+        )
+        score_shift = np.abs(fused_scores - zero_auxiliary_scores)
+        metrics["zero_auxiliary_auc"] = zero_auxiliary_auc
+        metrics["auc_gain_over_zero_auxiliary"] = (
+            float(metrics["auc"]) - zero_auxiliary_auc
+        )
+        metrics["mean_abs_zero_auxiliary_score_shift"] = float(np.mean(score_shift))
+        metrics["max_abs_zero_auxiliary_score_shift"] = float(np.max(score_shift))
     dataset_names = sorted({str(value) for value in predictions["dataset"]})
     aggregation = str(args.aggregation or data.get("video_aggregation", "mean"))
     threshold_context = (
@@ -315,6 +315,7 @@ def main() -> None:
         ),
         "Threshold source": threshold_context,
         "Model weights": checkpoint.get("model_weights", "raw"),
+        "Auxiliary branch": getattr(model, "auxiliary_branch", "geometry"),
     }
     metrics_text = format_evaluation_report(metrics, context=report_context)
     (output_dir / "metrics.txt").write_text(metrics_text, encoding="utf-8")
@@ -337,24 +338,15 @@ def main() -> None:
             "texture_backbone": model_config.get("texture_backbone", "efficientnet_b0"),
             "texture_temporal_pooling": "mean",
             "geometry_architecture": model_config.get("geometry_architecture", "tcn_mean"),
-            "fusion_mode": model_config.get("fusion_mode", "quality"),
+            "auxiliary_branch": getattr(model, "auxiliary_branch", "geometry"),
             "texture_mode": data.get("texture_mode", "full_face"),
             "model_weights": checkpoint.get("model_weights", "raw"),
-            "modality_dropout_probability": float(
-                model_config.get("modality_dropout_probability", 0.0)
-            ),
-            "exclude_sbi_from_modality_dropout": bool(
-                model_config.get("exclude_sbi_from_modality_dropout", False)
-            ),
         },
         "training_data": {
             "num_frames": int(data["num_frames"]),
             "texture_frames": training_texture_frames,
             "image_size": int(data["image_size"]),
             "sbi": sbi_config,
-            "reliability_gate_loss_weight": float(
-                config["training"].get("reliability_gate_loss_weight", 0.0)
-            ),
         },
         "inference": {
             "num_frames": int(data["num_frames"]),
@@ -364,7 +356,7 @@ def main() -> None:
             "aggregation": aggregation,
             "top_k": int(args.top_k if args.top_k is not None else data.get("top_k", 1)),
             "texture_flip_tta": args.texture_flip_tta,
-            "zero_geometry_counterfactual": args.zero_geometry_counterfactual,
+            "zero_auxiliary_counterfactual": args.zero_auxiliary_counterfactual,
         },
         "threshold": {
             "value": threshold,
@@ -377,8 +369,6 @@ def main() -> None:
                 else data.get("eval_clips_per_video", 1)
             ),
         },
-        "geometry_corruption": geometry_corruption,
-        "geometry_corruption_seed": args.geometry_corruption_seed,
     }
     save_json({"metrics": metrics, "protocol": protocol}, output_dir / "metrics.json")
     (output_dir / "evaluation_protocol.txt").write_text(
@@ -395,9 +385,6 @@ def main() -> None:
                 f"training_data: {json.dumps(protocol['training_data'], ensure_ascii=False)}",
                 f"inference: {json.dumps(protocol['inference'], ensure_ascii=False)}",
                 f"threshold: {json.dumps(protocol['threshold'], ensure_ascii=False)}",
-                "geometry_corruption: "
-                f"{json.dumps(protocol['geometry_corruption'], ensure_ascii=False)}",
-                f"geometry_corruption_seed: {protocol['geometry_corruption_seed']}",
             )
         )
         + "\n",

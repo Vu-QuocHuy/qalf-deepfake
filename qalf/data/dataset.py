@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import random
 from pathlib import Path
 from typing import Sequence
@@ -213,17 +212,13 @@ def _augment_geometry_landmarks(
     landmarks: np.ndarray,
     detected: np.ndarray,
     config: dict[str, float],
-    python_rng=None,
-    numpy_rng=None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Apply branch-specific tracking corruptions before geometry construction."""
+    """Apply training-only tracking augmentations before geometry construction."""
 
     unknown = set(config) - set(DEFAULT_GEOMETRY_AUGMENTATION)
     if unknown:
         raise ValueError(f"Unknown geometry augmentation keys: {sorted(unknown)}")
     settings = {**DEFAULT_GEOMETRY_AUGMENTATION, **config}
-    python_rng = python_rng or random
-    numpy_rng = numpy_rng or np.random
     for name, value in settings.items():
         if value < 0:
             raise ValueError(f"Geometry augmentation {name} must be non-negative")
@@ -244,26 +239,26 @@ def _augment_geometry_landmarks(
     fallback_scale = float(np.median(valid_scales)) if valid_scales.size else 1.0
     scales = np.where(np.isfinite(interocular) & (interocular > 1e-6), interocular, fallback_scale)
 
-    if python_rng.random() < settings["noise_probability"] and settings["noise_std"] > 0:
-        noise = numpy_rng.normal(size=output.shape).astype(np.float32)
+    if random.random() < settings["noise_probability"] and settings["noise_std"] > 0:
+        noise = np.random.normal(size=output.shape).astype(np.float32)
         output += noise * scales[:, None, None] * settings["noise_std"]
 
-    if python_rng.random() < settings["drift_probability"] and settings["drift_std"] > 0:
-        increments = numpy_rng.normal(size=output.shape).astype(np.float32)
+    if random.random() < settings["drift_probability"] and settings["drift_std"] > 0:
+        increments = np.random.normal(size=output.shape).astype(np.float32)
         drift = np.cumsum(increments, axis=0)
         drift -= drift.mean(axis=0, keepdims=True)
         output += drift * scales[:, None, None] * settings["drift_std"]
 
     point_probability = settings["point_dropout_probability"]
     if point_probability > 0:
-        point_mask = numpy_rng.random(size=output.shape[:2]) < point_probability
+        point_mask = np.random.random(size=output.shape[:2]) < point_probability
         output[point_mask] = np.nan
 
-    if python_rng.random() < settings["frame_dropout_probability"] and len(output) > 1:
+    if random.random() < settings["frame_dropout_probability"] and len(output) > 1:
         maximum = max(1, int(round(len(output) * settings["max_frame_dropout_ratio"])))
         maximum = min(maximum, len(output) - 1)
-        span = python_rng.randint(1, maximum)
-        start = python_rng.randint(0, len(output) - span)
+        span = random.randint(1, maximum)
+        start = random.randint(0, len(output) - span)
         output[start : start + span] = np.nan
         output_detected[start : start + span] = False
     return output, output_detected
@@ -287,8 +282,6 @@ class QALFVideoDataset(Dataset):
         texture_mode: str = "full_face",
         landmark_indices: tuple[int, ...] = DEFAULT_LANDMARK_INDICES,
         geometry_augmentation: dict[str, float] | None = None,
-        geometry_corruption: dict[str, float] | None = None,
-        geometry_corruption_seed: int = 12345,
         fake_methods: Sequence[str] | None = None,
         texture_augmentation: dict[str, float] | None = None,
         sbi_config: dict[str, object] | None = None,
@@ -342,10 +335,6 @@ class QALFVideoDataset(Dataset):
             self.texture_augmentation = _resolve_texture_augmentation(texture_augmentation)
         else:
             self.texture_augmentation = {}
-        self.geometry_corruption = dict(geometry_corruption or {})
-        self.geometry_corruption_seed = int(geometry_corruption_seed)
-        if self.training and self.geometry_corruption:
-            raise ValueError("geometry_corruption is reserved for deterministic evaluation")
         if texture_mode not in TEXTURE_MODES:
             raise ValueError(
                 f"Unsupported texture mode: {texture_mode}; only full_face is retained"
@@ -428,19 +417,6 @@ class QALFVideoDataset(Dataset):
                 geometry_landmarks,
                 geometry_detected,
                 self.geometry_augmentation,
-            )
-        elif self.geometry_corruption:
-            identity = (
-                f"{self.geometry_corruption_seed}:{record.dataset}:{record.method}:"
-                f"{record.video_id}:{clip_index}"
-            )
-            seed = int.from_bytes(hashlib.sha256(identity.encode("utf-8")).digest()[:8], "big")
-            geometry_landmarks, geometry_detected = _augment_geometry_landmarks(
-                geometry_landmarks,
-                geometry_detected,
-                self.geometry_corruption,
-                python_rng=random.Random(seed),
-                numpy_rng=np.random.default_rng(seed),
             )
         geometry, geometry_quality = build_geometry_features(
             geometry_landmarks,

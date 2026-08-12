@@ -39,7 +39,7 @@ class ONNXQALFWrapper(nn.Module):
         )
         return (
             outputs["logit"],
-            outputs["geometry_logit"],
+            outputs["auxiliary_logit"],
             outputs["texture_logit"],
             outputs["fusion_weights"],
         )
@@ -80,14 +80,14 @@ def main() -> None:
         examples,
         output,
         input_names=("geometry", "texture", "geometry_quality", "texture_quality"),
-        output_names=("logit", "geometry_logit", "texture_logit", "fusion_weights"),
+        output_names=("logit", "auxiliary_logit", "texture_logit", "fusion_weights"),
         dynamic_axes={
             "geometry": {0: "batch", 1: "geometry_frames"},
             "texture": {0: "batch", 1: "texture_frames"},
             "geometry_quality": {0: "batch"},
             "texture_quality": {0: "batch"},
             "logit": {0: "batch"},
-            "geometry_logit": {0: "batch"},
+            "auxiliary_logit": {0: "batch"},
             "texture_logit": {0: "batch"},
             "fusion_weights": {0: "batch"},
         },

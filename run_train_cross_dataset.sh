@@ -29,72 +29,28 @@ fi
 
 PROFILE="${1:-full_face_sbi}"
 PROFILE_ARGS=()
-FUSION_MODE='quality'
+AUXILIARY_BRANCH='geometry'
 case "$PROFILE" in
-    full_face)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_deterministic'
-        DESCRIPTION='established 0.8209 AUC full-face baseline'
-        PROFILE_ARGS+=(--texture-mode full_face)
-        ;;
     full_face_sbi)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi'
-        DESCRIPTION='locked full-face baseline with 50/25/25 SBI hybrid training'
+        DESCRIPTION='retained geometry + texture SBI baseline'
         PROFILE_ARGS+=(--texture-mode full_face --sbi)
         ;;
     texture_only_sbi)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_texture_only'
-        DESCRIPTION='required P1 texture-only control with locked SBI training'
-        FUSION_MODE='texture'
+        DESCRIPTION='retained texture-only SBI control'
+        AUXILIARY_BRANCH='none'
         PROFILE_ARGS+=(--texture-mode full_face --sbi)
         ;;
-    geometry_dropout_only)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_dropout_only'
-        DESCRIPTION='geometry failure diagnostic: modality dropout without reliability loss'
-        PROFILE_ARGS+=(
-            --texture-mode full_face
-            --sbi
-            --geometry-architecture tcn_mean
-            --modality-dropout-probability 0.15
-            --reliability-gate-loss-weight 0.0
-        )
-        ;;
-    geometry_reliability_combined)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i2_reliability'
-        DESCRIPTION='geometry failure control: modality dropout plus reliability loss'
-        PROFILE_ARGS+=(
-            --texture-mode full_face
-            --sbi
-            --geometry-architecture tcn_mean
-            --modality-dropout-probability 0.15
-            --reliability-gate-loss-weight 0.10
-        )
-        ;;
-    geometry_sbi_aware_reliability)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_sbi_aware_reliability'
-        DESCRIPTION='seed-42 E diagnostic: dropout and reliability only on non-SBI samples'
-        PROFILE_ARGS+=(
-            --texture-mode full_face
-            --sbi
-            --geometry-architecture tcn_mean
-            --modality-dropout-probability 0.15
-            --reliability-gate-loss-weight 0.10
-            --exclude-sbi-from-modality-dropout
-        )
-        ;;
-    geometry_candidate)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i3_attentive_reliability'
-        DESCRIPTION='retained SBI candidate with attentive geometry and reliability routing'
-        PROFILE_ARGS+=(
-            --texture-mode full_face
-            --sbi
-            --geometry-architecture tcn_attentive
-            --modality-dropout-probability 0.15
-            --reliability-gate-loss-weight 0.10
-        )
+    srm_sbi)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_srm'
+        DESCRIPTION='fixed SRM residual bank + lightweight CNN + texture SBI candidate'
+        AUXILIARY_BRANCH='srm'
+        PROFILE_ARGS+=(--texture-mode full_face --sbi)
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face, full_face_sbi, texture_only_sbi, geometry_dropout_only, geometry_reliability_combined, geometry_sbi_aware_reliability, or geometry_candidate' >&2
+        echo 'Use: full_face_sbi, texture_only_sbi, or srm_sbi' >&2
         exit 2
         ;;
 esac
@@ -152,8 +108,8 @@ echo "Batch size: $BATCH_SIZE"
     --embedding-dim 192 \
     --dropout 0.3 \
     --geometry-mode aligned_motion_3d \
-    --fusion-mode "$FUSION_MODE" \
-    --geometry-loss-weight 0.25 \
+    --auxiliary-branch "$AUXILIARY_BRANCH" \
+    --auxiliary-loss-weight 0.25 \
     --texture-loss-weight 0.25 \
     --texture-gate-bias 0.0 \
     --deterministic \

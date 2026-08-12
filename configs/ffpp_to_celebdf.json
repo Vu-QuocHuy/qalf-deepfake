@@ -55,10 +55,8 @@
     "dropout": 0.3,
     "texture_pretrained": true,
     "texture_backbone": "efficientnet_b0",
-    "fusion_mode": "quality",
-    "texture_gate_bias": 0.0,
-    "modality_dropout_probability": 0.0,
-    "exclude_sbi_from_modality_dropout": false
+    "auxiliary_branch": "geometry",
+    "texture_gate_bias": 0.0
   },
   "training": {
     "epochs": 35,
@@ -67,9 +65,8 @@
     "learning_rate": 0.0003,
     "backbone_learning_rate": 0.00003,
     "weight_decay": 0.0003,
-    "geometry_loss_weight": 0.25,
+    "auxiliary_loss_weight": 0.25,
     "texture_loss_weight": 0.25,
-    "reliability_gate_loss_weight": 0.0,
     "deterministic": true,
     "balanced_sampler": true,
     "amp": true,
