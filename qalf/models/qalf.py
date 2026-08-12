@@ -10,6 +10,30 @@ from .geometry import GeometryEncoder
 from .texture import TextureEncoder
 
 
+def _modality_dropout_masks(
+    draws: torch.Tensor,
+    probability: float,
+    geometry_supervision: torch.Tensor | None,
+    exclude_unsupervised_geometry: bool,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Select missing modalities while respecting texture-only SBI labels.
+
+    SBI samples have authentic geometry and a synthetic fake texture. Texture
+    may therefore never be removed from them. In the SBI-aware diagnostic,
+    neither modality is removed, which also excludes SBI from reliability
+    supervision without changing the ordinary fused loss.
+    """
+
+    geometry_missing = draws < probability
+    texture_missing = (draws >= probability) & (draws < 2.0 * probability)
+    if geometry_supervision is not None:
+        geometry_valid = geometry_supervision.reshape(-1) > 0.5
+        texture_missing &= geometry_valid
+        if exclude_unsupervised_geometry:
+            geometry_missing &= geometry_valid
+    return geometry_missing, texture_missing
+
+
 class QALFModel(nn.Module):
     def __init__(
         self,
@@ -26,6 +50,7 @@ class QALFModel(nn.Module):
         fusion_mode: str = "quality",
         texture_gate_bias: float = 0.0,
         modality_dropout_probability: float = 0.0,
+        exclude_sbi_from_modality_dropout: bool = False,
     ) -> None:
         super().__init__()
         if fusion_mode not in {"quality", "texture"}:
@@ -34,7 +59,12 @@ class QALFModel(nn.Module):
         self.embedding_dim = embedding_dim
         if not 0.0 <= modality_dropout_probability <= 0.5:
             raise ValueError("modality_dropout_probability must be in [0, 0.5]")
+        if exclude_sbi_from_modality_dropout and modality_dropout_probability == 0.0:
+            raise ValueError(
+                "exclude_sbi_from_modality_dropout requires positive modality dropout"
+            )
         self.modality_dropout_probability = float(modality_dropout_probability)
+        self.exclude_sbi_from_modality_dropout = bool(exclude_sbi_from_modality_dropout)
         self.geometry_encoder = (
             None
             if fusion_mode == "texture"
@@ -126,13 +156,13 @@ class QALFModel(nn.Module):
         if self.training and self.modality_dropout_probability > 0.0 and self.fusion is not None:
             probability = self.modality_dropout_probability
             draws = torch.rand(geometry_logit.shape[0], device=geometry_logit.device)
-            geometry_missing = draws < probability
-            texture_missing = (draws >= probability) & (draws < 2.0 * probability)
-            # SBI has authentic geometry paired with a synthetic fake texture. Dropping its
-            # texture would create an impossible fake target for the geometry branch.
             geometry_supervision = batch.get("geometry_loss_mask")
-            if geometry_supervision is not None:
-                texture_missing &= geometry_supervision.reshape(-1) > 0.5
+            geometry_missing, texture_missing = _modality_dropout_masks(
+                draws,
+                probability,
+                geometry_supervision,
+                self.exclude_sbi_from_modality_dropout,
+            )
             fusion_geometry_embedding = geometry_embedding.masked_fill(
                 geometry_missing[:, None], 0.0
             )

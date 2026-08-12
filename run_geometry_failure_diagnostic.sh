@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Isolate modality dropout from reliability supervision on the locked SBI baseline.
+# Isolate dropout, reliability, and SBI-aware routing on the locked SBI baseline.
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
@@ -34,6 +34,7 @@ EVALUATION_SUFFIX='_to_celebdf_12f_3clips_mean_tta_ffpp_threshold'
 BASELINE_EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi'
 DROPOUT_EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_dropout_only'
 COMBINED_EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i2_reliability'
+SBI_AWARE_EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_sbi_aware_reliability'
 
 is_complete_checkpoint() {
     local experiment="$1"
@@ -71,6 +72,19 @@ required = {
     "median_geometry_weight",
     "p90_geometry_weight",
 }
+
+evaluate_if_needed() {
+    local experiment="$1"
+    local profile="$2"
+    local label="$3"
+    local metrics_path="$EXPERIMENTS_ROOT/${experiment}${EVALUATION_SUFFIX}/metrics.json"
+    if has_counterfactual_diagnostics "$metrics_path"; then
+        echo "$label: reusing existing evaluation: $metrics_path"
+    else
+        echo "$label: diagnostics missing; evaluating existing checkpoint"
+        "$PROJECT_ROOT/run_test_cross_dataset.sh" "$profile"
+    fi
+}
 raise SystemExit(0 if required.issubset(metrics) else 1)
 ' "$metrics_path"
 }
@@ -80,6 +94,7 @@ echo "Seed: 42 (locked)"
 echo "A: SBI baseline                 dropout=0.00 reliability=0.00"
 echo "C: modality dropout only       dropout=0.15 reliability=0.00"
 echo "D: dropout + reliability       dropout=0.15 reliability=0.10"
+echo "E: SBI-aware reliability       dropout=0.15 reliability=0.10 SBI excluded"
 
 if [[ "$MODE" == all ]]; then
     # The locked baseline must already exist; missing diagnostic controls are
@@ -101,23 +116,25 @@ if [[ "$MODE" == train || "$MODE" == all ]]; then
         echo "D: completed checkpoint missing; training dropout-plus-reliability control"
         "$PROJECT_ROOT/run_train_cross_dataset.sh" geometry_reliability_combined
     fi
+
+    if is_complete_checkpoint "$SBI_AWARE_EXPERIMENT"; then
+        echo "E: keeping completed checkpoint: $EXPERIMENTS_ROOT/$SBI_AWARE_EXPERIMENT/best.pt"
+    else
+        echo "E: completed checkpoint missing; training SBI-aware reliability control"
+        "$PROJECT_ROOT/run_train_cross_dataset.sh" geometry_sbi_aware_reliability
+    fi
 fi
 
 if [[ "$MODE" == test || "$MODE" == all ]]; then
     require_complete_checkpoint "$BASELINE_EXPERIMENT" full_face_sbi
     require_complete_checkpoint "$DROPOUT_EXPERIMENT" geometry_dropout_only
     require_complete_checkpoint "$COMBINED_EXPERIMENT" geometry_reliability_combined
+    require_complete_checkpoint "$SBI_AWARE_EXPERIMENT" geometry_sbi_aware_reliability
 
-    BASELINE_METRICS="$EXPERIMENTS_ROOT/${BASELINE_EXPERIMENT}${EVALUATION_SUFFIX}/metrics.json"
-    if ! has_counterfactual_diagnostics "$BASELINE_METRICS"; then
-        echo "A: baseline diagnostics missing; evaluating existing checkpoint"
-        "$PROJECT_ROOT/run_test_cross_dataset.sh" full_face_sbi
-    else
-        echo "A: reusing existing evaluation: $BASELINE_METRICS"
-    fi
-
-    "$PROJECT_ROOT/run_test_cross_dataset.sh" geometry_dropout_only
-    "$PROJECT_ROOT/run_test_cross_dataset.sh" geometry_reliability_combined
+    evaluate_if_needed "$BASELINE_EXPERIMENT" full_face_sbi A
+    evaluate_if_needed "$DROPOUT_EXPERIMENT" geometry_dropout_only C
+    evaluate_if_needed "$COMBINED_EXPERIMENT" geometry_reliability_combined D
+    evaluate_if_needed "$SBI_AWARE_EXPERIMENT" geometry_sbi_aware_reliability E
 
     "$PYTHON" scripts/summarize_geometry_failure.py \
         --experiments-root "$EXPERIMENTS_ROOT"

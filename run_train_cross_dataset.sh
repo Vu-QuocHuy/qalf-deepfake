@@ -69,6 +69,18 @@ case "$PROFILE" in
             --reliability-gate-loss-weight 0.10
         )
         ;;
+    geometry_sbi_aware_reliability)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_sbi_aware_reliability'
+        DESCRIPTION='seed-42 E diagnostic: dropout and reliability only on non-SBI samples'
+        PROFILE_ARGS+=(
+            --texture-mode full_face
+            --sbi
+            --geometry-architecture tcn_mean
+            --modality-dropout-probability 0.15
+            --reliability-gate-loss-weight 0.10
+            --exclude-sbi-from-modality-dropout
+        )
+        ;;
     geometry_candidate)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i3_attentive_reliability'
         DESCRIPTION='retained SBI candidate with attentive geometry and reliability routing'
@@ -82,7 +94,7 @@ case "$PROFILE" in
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face, full_face_sbi, texture_only_sbi, geometry_dropout_only, geometry_reliability_combined, or geometry_candidate' >&2
+        echo 'Use: full_face, full_face_sbi, texture_only_sbi, geometry_dropout_only, geometry_reliability_combined, geometry_sbi_aware_reliability, or geometry_candidate' >&2
         exit 2
         ;;
 esac

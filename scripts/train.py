@@ -223,6 +223,15 @@ def main() -> None:
         choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES)),
     )
     parser.add_argument("--modality-dropout-probability", type=float)
+    parser.add_argument(
+        "--exclude-sbi-from-modality-dropout",
+        action="store_true",
+        default=None,
+        help=(
+            "Do not modality-drop SBI samples; consequently exclude them from "
+            "reliability-gate supervision."
+        ),
+    )
     parser.add_argument("--reliability-gate-loss-weight", type=float)
     parser.add_argument("--no-geometry-augmentation", action="store_true")
     parser.add_argument("--no-texture-augmentation", action="store_true")
@@ -260,6 +269,7 @@ def main() -> None:
         "dropout": args.dropout,
         "texture_gate_bias": args.texture_gate_bias,
         "modality_dropout_probability": args.modality_dropout_probability,
+        "exclude_sbi_from_modality_dropout": args.exclude_sbi_from_modality_dropout,
     }
     model_config.update({key: value for key, value in model_overrides.items() if value is not None})
     if args.no_geometry_augmentation:
@@ -343,6 +353,13 @@ def main() -> None:
         parser.error("training.reliability_gate_loss_weight cannot be negative")
     if reliability_gate_loss_weight > 0.0 and modality_dropout_probability == 0.0:
         parser.error("Reliability gate loss requires positive modality dropout")
+    exclude_sbi_dropout = bool(
+        model_config.get("exclude_sbi_from_modality_dropout", False)
+    )
+    if exclude_sbi_dropout and modality_dropout_probability == 0.0:
+        parser.error("SBI-aware routing requires positive modality dropout")
+    if exclude_sbi_dropout and not bool(data["sbi"]["enabled"]):
+        parser.error("SBI-aware routing requires enabled SBI training")
     if (
         modality_dropout_probability > 0.0
         and str(model_config.get("fusion_mode", "quality")) != "quality"
@@ -431,6 +448,9 @@ def main() -> None:
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
         texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
         modality_dropout_probability=modality_dropout_probability,
+        exclude_sbi_from_modality_dropout=bool(
+            model_config.get("exclude_sbi_from_modality_dropout", False)
+        ),
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(
@@ -465,7 +485,14 @@ def main() -> None:
     stale_epochs = 0
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
-    logger.info("Training started  output=%s", output_dir)
+    logger.info(
+        "Training started  output=%s modality_dropout=%.2f reliability=%.2f "
+        "exclude_sbi_from_modality_dropout=%s",
+        output_dir,
+        modality_dropout_probability,
+        reliability_gate_loss_weight,
+        bool(model_config.get("exclude_sbi_from_modality_dropout", False)),
+    )
     history_plot_enabled = True
     training_plot_path = output_dir / "plots" / "training_history.png"
     for epoch in range(1, epochs + 1):

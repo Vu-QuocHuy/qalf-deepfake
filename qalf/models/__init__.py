@@ -29,6 +29,9 @@ def build_model_from_checkpoint(
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
         texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
         modality_dropout_probability=float(model_config.get("modality_dropout_probability", 0.0)),
+        exclude_sbi_from_modality_dropout=bool(
+            model_config.get("exclude_sbi_from_modality_dropout", False)
+        ),
     )
     if load_weights:
         model.load_state_dict(checkpoint["model"], strict=True)

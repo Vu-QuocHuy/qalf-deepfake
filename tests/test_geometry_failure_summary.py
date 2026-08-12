@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.summarize_geometry_failure import _interpret
+from scripts.summarize_geometry_failure import _interpret, _interpret_sbi_aware
 
 
 class GeometryFailureSummaryTests(unittest.TestCase):
@@ -16,14 +16,17 @@ class GeometryFailureSummaryTests(unittest.TestCase):
         self.assertIn("DROP-ONLY COLLAPSE", _interpret(0.005, 0.0005))
         self.assertIn("GEOMETRY PRESERVED", _interpret(0.08, 0.004))
         self.assertIn("MIXED RESULT", _interpret(0.03, 0.002))
+        self.assertIn("E PASSES", _interpret_sbi_aware(0.8325, 0.8300, 0.06, 0.004))
+        self.assertIn("E FAILS", _interpret_sbi_aware(0.8325, 0.8200, 0.06, 0.004))
 
     def test_summary_validates_protocol_and_interprets_preserved_geometry(self) -> None:
         experiments = (
-            ("qalf_ffpp4_effb0_160_8f_full_face_sbi", 0.0, 0.0, 0.09, 0.004),
+            ("qalf_ffpp4_effb0_160_8f_full_face_sbi", 0.0, 0.0, False, 0.09, 0.004),
             (
                 "qalf_ffpp4_effb0_160_8f_sbi_geometry_dropout_only",
                 0.15,
                 0.0,
+                False,
                 0.08,
                 0.004,
             ),
@@ -31,8 +34,17 @@ class GeometryFailureSummaryTests(unittest.TestCase):
                 "qalf_ffpp4_effb0_160_8f_sbi_geometry_i2_reliability",
                 0.15,
                 0.10,
+                False,
                 0.002,
                 0.0,
+            ),
+            (
+                "qalf_ffpp4_effb0_160_8f_sbi_geometry_sbi_aware_reliability",
+                0.15,
+                0.10,
+                True,
+                0.06,
+                0.004,
             ),
         )
         project_root = Path(__file__).resolve().parents[1]
@@ -42,6 +54,7 @@ class GeometryFailureSummaryTests(unittest.TestCase):
                 experiment,
                 dropout,
                 reliability,
+                sbi_aware,
                 geometry_weight,
                 counterfactual_gain,
             ) in experiments:
@@ -73,6 +86,7 @@ class GeometryFailureSummaryTests(unittest.TestCase):
                         "geometry_architecture": "tcn_mean",
                         "fusion_mode": "quality",
                         "modality_dropout_probability": dropout,
+                        "exclude_sbi_from_modality_dropout": sbi_aware,
                     },
                     "training_data": {
                         "reliability_gate_loss_weight": reliability,
@@ -102,8 +116,9 @@ class GeometryFailureSummaryTests(unittest.TestCase):
             self.assertIn("GEOMETRY PRESERVED", result.stdout)
             with output_prefix.with_suffix(".csv").open(encoding="utf-8", newline="") as handle:
                 rows = list(csv.DictReader(handle))
-            self.assertEqual(len(rows), 3)
+            self.assertEqual(len(rows), 4)
             self.assertEqual(rows[1]["profile"], "C — dropout only")
+            self.assertEqual(rows[3]["profile"], "E — SBI-aware reliability")
 
 
 if __name__ == "__main__":

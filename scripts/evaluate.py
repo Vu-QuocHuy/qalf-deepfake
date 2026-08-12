@@ -343,6 +343,9 @@ def main() -> None:
             "modality_dropout_probability": float(
                 model_config.get("modality_dropout_probability", 0.0)
             ),
+            "exclude_sbi_from_modality_dropout": bool(
+                model_config.get("exclude_sbi_from_modality_dropout", False)
+            ),
         },
         "training_data": {
             "num_frames": int(data["num_frames"]),

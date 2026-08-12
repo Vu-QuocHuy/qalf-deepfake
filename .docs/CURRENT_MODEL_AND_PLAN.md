@@ -146,7 +146,7 @@ Decision reached:
 - Texture-only is the clean-data accuracy reference under the pre-registered
   P1 rule. The candidate does not justify a geometry contribution claim.
 
-### P1b — geometry gate failure diagnostic (implementation ready)
+### P1b — geometry gate failure diagnostic (E implementation ready)
 
 Before closing geometry, isolate the one missing factor on seed 42 while keeping
 `tcn_mean`, full-face SBI, optimizer, data, and evaluation fixed:
@@ -156,6 +156,7 @@ Before closing geometry, isolate the one missing factor on seed 42 while keeping
 | A — SBI baseline | 0.00 | 0.00 |
 | C — dropout only | 0.15 | 0.00 |
 | D — historical I2 | 0.15 | 0.10 |
+| E — SBI-aware reliability | 0.15, non-SBI only | 0.10, non-SBI only |
 
 Run:
 
@@ -163,15 +164,14 @@ Run:
 ./run_geometry_failure_diagnostic.sh all
 ```
 
-A is always reused. C and D reuse completed checkpoints when available and are
-trained automatically when either checkpoint is missing, so the `all` command
-is self-contained. If C has geometry weight below 0.01 and absolute
-counterfactual gain below 0.001, modality dropout alone reproduces collapse. If
-C retains geometry weight at least 0.05 and counterfactual gain at least 0.003,
-reliability supervision is the proximate suspect. Do not run more seeds until
-this diagnostic selects the next intervention.
+A is always reused. C, D, and E reuse completed checkpoints when available and
+are trained automatically when missing, so the `all` command is self-contained.
+Seed 42 showed that C weakens geometry while D collapses the gate; E tests the
+remaining SBI-label asymmetry without changing the ordinary fused loss. E passes
+only if geometry weight is at least 0.05, counterfactual gain is at least 0.003,
+and Celeb-DF AUC is no more than 0.005 below A. Run seeds 17/73 only after a pass.
 
-### P2 — geometry robustness test (only after P1b)
+### P2 — geometry robustness or SRM branch (only after P1b)
 
 Evaluate already-trained checkpoints under deterministic texture degradation:
 JPEG compression, blur, downsampling, noise, and partial face occlusion. Do not
@@ -180,6 +180,11 @@ retrain and do not tune corruption severity on Celeb-DF.
 Geometry earns a robustness claim only if the fused candidate consistently
 beats texture-only and the gate shifts toward geometry as texture quality falls.
 Clean AUC alone cannot support that claim.
+
+If E fails, reject reliability routing, retain A for the geometry robustness
+study, and begin the pre-registered lightweight SRM/residual-branch comparison.
+Do not combine SRM with reliability or modality dropout until the plain SRM
+branch demonstrates positive cross-dataset and counterfactual gains.
 
 ### P3 — final reporting
 

@@ -8,6 +8,7 @@ from torch import nn
 
 from qalf.engine import qalf_loss
 from qalf.models.geometry import GeometryEncoder
+from qalf.models.qalf import _modality_dropout_masks
 
 
 class GeometryEncoderTests(unittest.TestCase):
@@ -29,6 +30,28 @@ class GeometryEncoderTests(unittest.TestCase):
 
 
 class GeometryLossTests(unittest.TestCase):
+    def test_sbi_aware_dropout_excludes_sbi_from_both_missing_modalities(self) -> None:
+        draws = torch.tensor([0.05, 0.20, 0.05, 0.20, 0.80])
+        geometry_supervision = torch.tensor([1.0, 1.0, 0.0, 0.0, 0.0])
+
+        ordinary_geometry, ordinary_texture = _modality_dropout_masks(
+            draws,
+            probability=0.15,
+            geometry_supervision=geometry_supervision,
+            exclude_unsupervised_geometry=False,
+        )
+        aware_geometry, aware_texture = _modality_dropout_masks(
+            draws,
+            probability=0.15,
+            geometry_supervision=geometry_supervision,
+            exclude_unsupervised_geometry=True,
+        )
+
+        self.assertEqual(ordinary_geometry.tolist(), [True, False, True, False, False])
+        self.assertEqual(ordinary_texture.tolist(), [False, True, False, False, False])
+        self.assertEqual(aware_geometry.tolist(), [True, False, False, False, False])
+        self.assertEqual(aware_texture.tolist(), [False, True, False, False, False])
+
     def test_reliability_gate_loss_uses_only_corrupted_samples(self) -> None:
         outputs = {
             "logit": torch.zeros(3),

@@ -57,7 +57,8 @@
     "texture_backbone": "efficientnet_b0",
     "fusion_mode": "quality",
     "texture_gate_bias": 0.0,
-    "modality_dropout_probability": 0.0
+    "modality_dropout_probability": 0.0,
+    "exclude_sbi_from_modality_dropout": false
   },
   "training": {
     "epochs": 35,

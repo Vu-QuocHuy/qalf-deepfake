@@ -55,6 +55,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
         "dropout": 0.2,
         "texture_backbone": "efficientnet_b0",
         "modality_dropout_probability": 0.0,
+        "exclude_sbi_from_modality_dropout": False,
     }
     for name, default in model_defaults.items():
         config["model"].setdefault(name, default)
@@ -76,6 +77,8 @@ def load_config(path: str | Path) -> dict[str, Any]:
     modality_dropout = float(config["model"]["modality_dropout_probability"])
     if not 0.0 <= modality_dropout <= 0.5:
         raise ValueError("model.modality_dropout_probability must be in [0, 0.5]")
+    if not isinstance(config["model"]["exclude_sbi_from_modality_dropout"], bool):
+        raise ValueError("model.exclude_sbi_from_modality_dropout must be boolean")
     config["training"].setdefault("reliability_gate_loss_weight", 0.0)
     if float(config["training"]["reliability_gate_loss_weight"]) < 0.0:
         raise ValueError("training.reliability_gate_loss_weight must be non-negative")

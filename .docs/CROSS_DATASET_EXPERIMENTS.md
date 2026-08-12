@@ -14,6 +14,7 @@ only how to reproduce the retained profiles and their focused comparisons.
 | `texture_only_sbi` | Required P1 control: identical SBI protocol without geometry/fusion |
 | `geometry_dropout_only` | Seed-42 diagnostic: SBI baseline plus modality dropout, no reliability loss |
 | `geometry_reliability_combined` | Historical I2 control: modality dropout plus reliability loss |
+| `geometry_sbi_aware_reliability` | E control: dropout/reliability on real and original fake, never SBI |
 
 All profiles use EfficientNet-B0, 160-pixel full-face input, eight texture frames
 during training, and raw weights. Evaluation uses 12 texture frames, three clips,
@@ -50,8 +51,8 @@ From Git Bash:
 ```
 
 The focused geometry failure diagnostic is intentionally locked to seed 42. It
-reuses the completed SBI baseline, automatically trains either missing C/D
-control, refreshes their diagnostics when needed, and writes one A-C-D
+reuses the completed SBI baseline, automatically trains any missing C/D/E
+control, refreshes their diagnostics when needed, and writes one A-C-D-E
 comparison:
 
 ```bash
