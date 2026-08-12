@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Shared storage roots. Hyperparameters are edited directly in the train command below.
+# Canonical texture-only + SBI + EMA training entry point.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 
@@ -34,13 +34,13 @@ LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
 VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
-OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi}"
+OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema}"
 SEED="${QALF_SEED:-42}"
+EPOCHS="${QALF_EPOCHS:-50}"
 
 export CUBLAS_WORKSPACE_CONFIG=':4096:8'
 echo "Python: $PYTHON"
 echo "Training output: $OUTPUT_DIR"
-"$PYTHON" -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NOT AVAILABLE')"
 
 "$PYTHON" scripts/train.py \
     --config configs/ffpp_to_celebdf.json \
@@ -50,15 +50,15 @@ echo "Training output: $OUTPUT_DIR"
     --landmark-root "$LANDMARK_ROOT" \
     --output-dir "$OUTPUT_DIR" \
     --seed "$SEED" \
-    --epochs 35 \
+    --epochs "$EPOCHS" \
     --batch-size 8 \
     --num-workers 4 \
     --learning-rate 0.0003 \
     --backbone-learning-rate 0.00003 \
     --weight-decay 0.0003 \
     --early-stop-patience 5 \
-    --ema-decay "${QALF_EMA_DECAY:-0}" \
-    --validation-weights "${QALF_VALIDATION_WEIGHTS:-raw}" \
+    --ema-decay 0.999 \
+    --validation-weights ema \
     --num-frames 32 \
     --texture-frames 8 \
     --image-size 160 \

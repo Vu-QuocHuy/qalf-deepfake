@@ -38,13 +38,13 @@ features and are not passed to the model.
 ## Commands
 
 ```bash
-./run_train_cross_dataset.sh
-./run_test_cross_dataset.sh
+./run_train.sh
+./run_test.sh
 ```
 
 Geometry, fixed/learned SRM, fusion gates, reliability loss, modality dropout,
 MixStyle, EfficientNet-B1, and their diagnostic profiles are retired from the
-active codebase. The baseline remains raw-weight training; `run_train_ema.sh`
-and `run_test_ema.sh` provide one controlled EMA comparison using decay 0.999.
-Historical experiment outputs can be described as negative ablations in the
-paper, but are no longer loadable by the cleaned source tree.
+active codebase. The active baseline is texture-only full-face RGB with SBI,
+EfficientNet-B0, EMA decay 0.999, 50 maximum epochs, and early stopping
+patience 5. Landmark caches remain only for preprocessing alignment and SBI
+mask generation; they are not used as learned features.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Shared storage roots. Evaluation options are edited directly in the command below.
+# Canonical texture-only + SBI + EMA evaluation entry point.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 
@@ -37,10 +37,8 @@ CELEBDF_FRAME_ROOT="$DATA_ROOT/extracted/celebdf"
 CELEBDF_LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
 CELEBDF_LANDMARK_ROOT="$CELEBDF_LANDMARK_OUTPUT_ROOT/landmarks"
 CELEBDF_TEST_MANIFEST="$CELEBDF_LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
-CHECKPOINT="${QALF_TEST_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi/best.pt}"
-OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_to_celebdf_12f_3clips_mean_tta_ffpp_threshold}"
-EXTRA_TEST_ARGS=()
-EXTRA_TEST_ARGS+=(--texture-frames "${QALF_TEXTURE_FRAMES:-12}")
+CHECKPOINT="${QALF_TEST_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema/best.pt}"
+OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_to_celebdf_12f_3clips_mean_tta_ffpp_threshold}"
 
 echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
@@ -63,5 +61,4 @@ echo "Threshold calibration: $FFPP_VAL_MANIFEST"
     --threshold-manifest "$FFPP_VAL_MANIFEST" \
     --threshold-frame-root "$FFPP_FRAME_ROOT" \
     --threshold-landmark-root "$FFPP_LANDMARK_ROOT" \
-    --threshold-clips-per-video 3 \
-    "${EXTRA_TEST_ARGS[@]}"
+    --threshold-clips-per-video 3

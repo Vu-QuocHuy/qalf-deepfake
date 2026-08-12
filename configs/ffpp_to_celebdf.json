@@ -16,7 +16,7 @@
     ],
     "texture_mode": "full_face",
     "sbi": {
-      "enabled": false
+      "enabled": true
     },
     "texture_augmentation": {
       "flip_probability": 0.5,
@@ -44,7 +44,7 @@
     "texture_backbone": "efficientnet_b0"
   },
   "training": {
-    "epochs": 35,
+    "epochs": 50,
     "batch_size": 8,
     "num_workers": 4,
     "learning_rate": 0.0003,
@@ -54,8 +54,8 @@
     "balanced_sampler": true,
     "amp": true,
     "early_stop_patience": 5,
-    "ema_decay": 0.0,
-    "validation_weights": "raw"
+    "ema_decay": 0.999,
+    "validation_weights": "ema"
   },
-  "output_dir": "outputs/qalf_ffpp4_effb0_160_8f_texture_sbi"
+  "output_dir": "outputs/qalf_ffpp4_effb0_160_8f_texture_sbi_ema"
 }
