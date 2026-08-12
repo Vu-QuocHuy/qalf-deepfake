@@ -163,12 +163,13 @@ Run:
 ./run_geometry_failure_diagnostic.sh all
 ```
 
-Only C is trained. A is reused and D is retested from its completed historical
-checkpoint. If C has geometry weight below 0.01 and absolute counterfactual gain
-below 0.001, modality dropout alone reproduces collapse. If C retains geometry
-weight at least 0.05 and counterfactual gain at least 0.003, reliability
-supervision is the proximate suspect. Do not run more seeds until this diagnostic
-selects the next intervention.
+A is always reused. C and D reuse completed checkpoints when available and are
+trained automatically when either checkpoint is missing, so the `all` command
+is self-contained. If C has geometry weight below 0.01 and absolute
+counterfactual gain below 0.001, modality dropout alone reproduces collapse. If
+C retains geometry weight at least 0.05 and counterfactual gain at least 0.003,
+reliability supervision is the proximate suspect. Do not run more seeds until
+this diagnostic selects the next intervention.
 
 ### P2 — geometry robustness test (only after P1b)
 

@@ -82,16 +82,24 @@ echo "C: modality dropout only       dropout=0.15 reliability=0.00"
 echo "D: dropout + reliability       dropout=0.15 reliability=0.10"
 
 if [[ "$MODE" == all ]]; then
-    # Fail before the only new training job if either historical control is absent.
+    # The locked baseline must already exist; missing diagnostic controls are
+    # trained below so a single `all` command remains self-contained.
     require_complete_checkpoint "$BASELINE_EXPERIMENT" full_face_sbi
-    require_complete_checkpoint "$COMBINED_EXPERIMENT" geometry_reliability_combined
 fi
 
 if [[ "$MODE" == train || "$MODE" == all ]]; then
     if is_complete_checkpoint "$DROPOUT_EXPERIMENT"; then
         echo "C: keeping completed checkpoint: $EXPERIMENTS_ROOT/$DROPOUT_EXPERIMENT/best.pt"
     else
+        echo "C: completed checkpoint missing; training modality-dropout-only control"
         "$PROJECT_ROOT/run_train_cross_dataset.sh" geometry_dropout_only
+    fi
+
+    if is_complete_checkpoint "$COMBINED_EXPERIMENT"; then
+        echo "D: keeping completed checkpoint: $EXPERIMENTS_ROOT/$COMBINED_EXPERIMENT/best.pt"
+    else
+        echo "D: completed checkpoint missing; training dropout-plus-reliability control"
+        "$PROJECT_ROOT/run_train_cross_dataset.sh" geometry_reliability_combined
     fi
 fi
 

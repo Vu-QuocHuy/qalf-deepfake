@@ -50,9 +50,9 @@ From Git Bash:
 ```
 
 The focused geometry failure diagnostic is intentionally locked to seed 42. It
-trains only the missing dropout-only checkpoint, reuses the completed SBI
-baseline and historical I2 checkpoint, refreshes their diagnostics when needed,
-and writes one A-C-D comparison:
+reuses the completed SBI baseline, automatically trains either missing C/D
+control, refreshes their diagnostics when needed, and writes one A-C-D
+comparison:
 
 ```bash
 ./run_geometry_failure_diagnostic.sh all
