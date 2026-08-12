@@ -108,6 +108,9 @@ required = {
     "median_geometry_weight",
     "p90_geometry_weight",
 }
+raise SystemExit(0 if required.issubset(metrics) else 1)
+' "$metrics_path"
+}
 
 evaluate_if_needed() {
     local experiment="$1"
@@ -120,9 +123,6 @@ evaluate_if_needed() {
         echo "$label: diagnostics missing; evaluating existing checkpoint"
         "$PROJECT_ROOT/run_test_cross_dataset.sh" "$profile"
     fi
-}
-raise SystemExit(0 if required.issubset(metrics) else 1)
-' "$metrics_path"
 }
 
 echo "Geometry failure diagnostic mode: $MODE"
