@@ -152,35 +152,17 @@ def _epoch_messages(
     validation_metrics: dict[str, float | int],
     duration_seconds: float,
 ) -> list[str]:
-    learning_rates = {
-        str(group.get("name", index)): float(group["lr"])
-        for index, group in enumerate(optimizer.param_groups)
-    }
-    rate_text = " ".join(f"{name}_lr={rate:.4e}" for name, rate in learning_rates.items())
+    lr = float(next(iter(optimizer.param_groups))["lr"])
     return [
-        f"epoch={epoch:03d}/{epochs:03d} duration={duration_seconds:.1f}s {rate_text}",
-        "  train | "
-        f"total={train_metrics['loss']:.4f} fused={train_metrics['fused']:.4f} "
-        f"geometry={train_metrics['geometry']:.4f} texture={train_metrics['texture']:.4f} "
-        f"reliability={train_metrics.get('reliability', 0.0):.4f} "
-        f"sbi_fraction={train_metrics.get('sbi_fraction', 0.0):.3f} "
-        f"geometry_supervision={train_metrics.get('geometry_supervision_fraction', 1.0):.3f} "
-        f"reliability_supervision="
-        f"{train_metrics.get('reliability_supervision_fraction', 0.0):.3f}",
-        "  val   | "
+        f"[{epoch:03d}/{epochs}] {duration_seconds:.0f}s  "
+        f"loss={train_metrics['loss']:.4f} (geo={train_metrics['geometry']:.4f} tex={train_metrics['texture']:.4f})  "
         f"auc={float(validation_metrics['auc']):.4f} "
         f"ap={float(validation_metrics['average_precision']):.4f} "
         f"eer={float(validation_metrics['eer']):.4f} "
-        f"balanced_acc={float(validation_metrics['balanced_accuracy']):.4f} "
-        f"accuracy={float(validation_metrics['accuracy']):.4f} "
-        f"f1={float(validation_metrics['f1']):.4f} "
-        f"threshold={float(validation_metrics['threshold']):.4f}",
-        "  branch| "
-        f"geometry_auc={float(validation_metrics['geometry_auc']):.4f} "
-        f"texture_auc={float(validation_metrics['texture_auc']):.4f} "
-        f"weights_geometry/texture="
-        f"{float(validation_metrics['mean_geometry_weight']):.4f}/"
-        f"{float(validation_metrics['mean_texture_weight']):.4f}",
+        f"bal={float(validation_metrics['balanced_accuracy']):.4f}  "
+        f"geo_auc={float(validation_metrics['geometry_auc']):.4f} "
+        f"tex_auc={float(validation_metrics['texture_auc']):.4f}  "
+        f"thr={float(validation_metrics['threshold']):.4f}  lr={lr:.2e}",
     ]
 
 
@@ -415,8 +397,6 @@ def main() -> None:
         clips_per_video=int(data["eval_clips_per_video"]),
         **dataset_args,
     )
-    train_counts = np.bincount([record.label for record in train_dataset.records], minlength=2)
-    val_counts = np.bincount([record.label for record in val_dataset.records], minlength=2)
     batch_size = int(training["batch_size"])
     workers = int(training.get("num_workers", 4))
     train_loader = _loader(
@@ -485,58 +465,7 @@ def main() -> None:
     stale_epochs = 0
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
-    logger.info("=" * 72)
-    logger.info("QALF TRAINING RUN")
-    logger.info(
-        "  model | device=%s backbone=%s texture_mode=%s pooling=mean geometry=%s fusion=%s "
-        "frames=%d image_size=%d parameters=%d trainable=%d",
-        device,
-        model_config.get("texture_backbone", "efficientnet_b0"),
-        data.get("texture_mode", "full_face"),
-        model_config.get("geometry_architecture", "tcn_mean"),
-        fusion_mode,
-        int(data["texture_frames"]),
-        int(data["image_size"]),
-        sum(parameter.numel() for parameter in model.parameters()),
-        sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
-    )
-    logger.info(
-        "  data  | train_videos=%d (real=%d fake=%d) "
-        "val_videos=%d (real=%d fake=%d) val_samples=%d "
-        "num_frames=%d clips_per_video=%d aggregation=%s",
-        len(train_dataset.records),
-        int(train_counts[0]),
-        int(train_counts[1]),
-        len(val_dataset.records),
-        int(val_counts[0]),
-        int(val_counts[1]),
-        len(val_dataset),
-        int(data["num_frames"]),
-        int(data["eval_clips_per_video"]),
-        data["video_aggregation"],
-    )
-    logger.info(
-        "  train | amp=%s deterministic=%s validation_weights=raw "
-        "loss_weights=fused:1.000 geometry:%.3f texture:%.3f reliability:%.3f "
-        "modality_dropout=%.3f patience=%d",
-        amp_enabled,
-        deterministic,
-        geometry_loss_weight,
-        texture_loss_weight,
-        reliability_gate_loss_weight,
-        modality_dropout_probability,
-        patience,
-    )
-    logger.info(
-        "  extra | texture_gate_bias=%.3f sbi_enabled=%s sbi_mixture=%s",
-        float(model_config.get("texture_gate_bias", 0.0)),
-        train_dataset.sbi_enabled,
-        data["sbi"]["mixture"] if train_dataset.sbi_enabled else "disabled",
-    )
-    logger.info("  select| best_metric=val_auc threshold=Youden-J on FF++ validation")
-    logger.info("  files | output_dir=%s", output_dir)
-    logger.info("=" * 72)
-    run_started = time.perf_counter()
+    logger.info("Training started  output=%s", output_dir)
     history_plot_enabled = True
     training_plot_path = output_dir / "plots" / "training_history.png"
     for epoch in range(1, epochs + 1):
@@ -566,15 +495,8 @@ def main() -> None:
         texture_scores = np.asarray(validation["texture_score"], dtype=np.float64)
         val_metrics["geometry_auc"] = compute_metrics(labels, geometry_scores, threshold)["auc"]
         val_metrics["texture_auc"] = compute_metrics(labels, texture_scores, threshold)["auc"]
-        val_metrics["mean_geometry_weight"] = float(
-            np.mean(np.asarray(validation["geometry_weight"], dtype=np.float64))
-        )
-        val_metrics["mean_texture_weight"] = float(
-            np.mean(np.asarray(validation["texture_weight"], dtype=np.float64))
-        )
         row = {"epoch": epoch, "train": train_metrics, "validation": val_metrics}
         history.append(row)
-        save_json(history, output_dir / "history.json")
         epoch_duration = time.perf_counter() - epoch_started
         if history_plot_enabled:
             try:
@@ -612,76 +534,28 @@ def main() -> None:
             "threshold_selection": "youden_j_ffpp_validation",
             "best_metric": "val_auc",
         }
-        torch.save(checkpoint, output_dir / "last.pt")
         if val_metrics["auc"] > best_auc:
             best_auc = val_metrics["auc"]
             best_epoch = epoch
             best_threshold = threshold
             stale_epochs = 0
             torch.save(checkpoint, best_path)
-            logger.info(
-                "best_model_saved epoch=%03d val_auc=%.4f threshold=%.4f weights=%s path=%s",
-                best_epoch,
-                best_auc,
-                best_threshold,
-                "raw",
-                best_path,
-            )
+            logger.info("  ★ best  epoch=%03d  val_auc=%.4f  thr=%.4f  → %s", best_epoch, best_auc, best_threshold, best_path)
         else:
             stale_epochs += 1
             if patience > 0:
-                logger.info(
-                    "early_stop_wait stale_epochs=%d/%d best_epoch=%03d best_val_auc=%.4f",
-                    stale_epochs,
-                    patience,
-                    best_epoch,
-                    best_auc,
-                )
+                logger.info("  patience %d/%d  best_epoch=%03d  best_auc=%.4f", stale_epochs, patience, best_epoch, best_auc)
             if patience > 0 and stale_epochs >= patience:
-                logger.info("Early stopping after %d epochs", epoch)
+                logger.info("Early stopping at epoch %d", epoch)
                 break
-    best_metrics = next(
-        (row["validation"] for row in history if int(row["epoch"]) == best_epoch),
-        {},
-    )
-    summary = {
-        "status": "complete",
-        "completed_epochs": len(history),
-        "best_epoch": best_epoch,
-        "best_metric": "val_auc",
-        "best_value": best_auc,
-        "best_threshold": best_threshold,
-        "best_validation_metrics": best_metrics,
-        "duration_seconds": time.perf_counter() - run_started,
-        "best_model": str(best_path),
-        "last_model": str(output_dir / "last.pt"),
-        "history": str(output_dir / "history.json"),
-        "training_plot": str(training_plot_path) if training_plot_path.is_file() else None,
-    }
-    save_json(summary, output_dir / "training_summary.json")
-    logger.info("=" * 72)
     logger.info(
-        "training_complete epochs=%d duration=%.1fs best_epoch=%03d best_val_auc=%.4f",
+        "Done  epochs=%d  best_epoch=%03d  best_auc=%.4f  thr=%.4f  model=%s",
         len(history),
-        float(summary["duration_seconds"]),
         best_epoch,
         best_auc,
-    )
-    logger.info(
-        "  result| auc=%.4f ap=%.4f eer=%.4f balanced_acc=%.4f threshold=%.4f",
-        float(best_metrics.get("auc", best_auc)),
-        float(best_metrics.get("average_precision", float("nan"))),
-        float(best_metrics.get("eer", float("nan"))),
-        float(best_metrics.get("balanced_accuracy", float("nan"))),
         best_threshold,
-    )
-    logger.info(
-        "  model | weights=%s best_model=%s",
-        "raw",
         best_path,
     )
-    logger.info("  files | summary=%s", output_dir / "training_summary.json")
-    logger.info("=" * 72)
 
 
 if __name__ == "__main__":

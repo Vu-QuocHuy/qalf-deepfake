@@ -377,7 +377,6 @@ def main() -> None:
         "geometry_corruption": geometry_corruption,
         "geometry_corruption_seed": args.geometry_corruption_seed,
     }
-    save_json({"metrics": metrics, "protocol": protocol}, output_dir / "metrics.json")
     (output_dir / "evaluation_protocol.txt").write_text(
         "\n".join(
             (
@@ -422,8 +421,7 @@ def main() -> None:
         logger.warning("Could not generate evaluation plots: %s", error)
     logger.info("\n%s", metrics_text.rstrip())
     logger.info(
-        "evaluation_complete metrics=%s predictions=%s plots=%s",
-        output_dir / "metrics.json",
+        "evaluation_complete predictions=%s plots=%s",
         output_dir / "predictions.csv",
         ",".join(plot_files),
     )
