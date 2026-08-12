@@ -1,4 +1,4 @@
-"""PyTorch dataset for paired temporal geometry and aligned face textures."""
+"""PyTorch dataset for aligned full-face video clips."""
 
 from __future__ import annotations
 
@@ -11,12 +11,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .geometry import (
-    DEFAULT_GEOMETRY_FEATURE_MODE,
-    DEFAULT_LANDMARK_INDICES,
-    build_geometry_features,
-    geometry_input_dim,
-)
 from .manifest import VideoRecord, load_manifest
 from .sbi import (
     SAMPLE_ORIGINAL_FAKE,
@@ -31,16 +25,6 @@ IMAGE_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGE_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
 TEXTURE_MODES = frozenset({"full_face"})
 
-
-DEFAULT_GEOMETRY_AUGMENTATION = {
-    "noise_probability": 0.5,
-    "noise_std": 0.01,
-    "drift_probability": 0.25,
-    "drift_std": 0.002,
-    "frame_dropout_probability": 0.25,
-    "max_frame_dropout_ratio": 0.15,
-    "point_dropout_probability": 0.01,
-}
 
 DEFAULT_TEXTURE_AUGMENTATION = {
     "flip_probability": 0.5,
@@ -93,7 +77,7 @@ def _aligned_full_face(
     landmarks: np.ndarray,
     detected: bool,
     output_size: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+) -> tuple[np.ndarray, np.ndarray | None]:
     height, width = image_rgb.shape[:2]
     if detected and np.isfinite(landmarks).all() and landmarks.shape[0] > 386:
         pixels = landmarks[:, :2] * np.asarray([width, height], dtype=np.float32)
@@ -117,30 +101,10 @@ def _aligned_full_face(
             borderMode=cv2.BORDER_REFLECT_101,
         )
         aligned_landmarks = cv2.transform(pixels[None, :, :2], transform)[0]
-        landmark_quality = 1.0
     else:
         canonical = cv2.resize(image_rgb, (output_size, output_size), interpolation=cv2.INTER_AREA)
         aligned_landmarks = None
-        landmark_quality = 0.0
-
-    quality = _texture_quality(canonical, width, height, landmark_quality)
-    return canonical, quality, aligned_landmarks
-
-
-def _texture_quality(
-    image: np.ndarray, source_width: int, source_height: int, landmark_quality: float
-) -> np.ndarray:
-    gray = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_RGB2GRAY)
-    return np.asarray(
-        [
-            gray.mean() / 255.0,
-            gray.std() / 128.0,
-            min(np.log1p(cv2.Laplacian(gray, cv2.CV_64F).var()) / 10.0, 1.0),
-            min(min(source_width, source_height) / 512.0, 1.0),
-            landmark_quality,
-        ],
-        dtype=np.float32,
-    )
+    return canonical, aligned_landmarks
 
 
 def _resolve_texture_augmentation(config: dict[str, float]) -> dict[str, float]:
@@ -208,66 +172,7 @@ def _augment(image: np.ndarray, settings: dict[str, float]) -> np.ndarray:
     return output.astype(np.uint8)
 
 
-def _augment_geometry_landmarks(
-    landmarks: np.ndarray,
-    detected: np.ndarray,
-    config: dict[str, float],
-) -> tuple[np.ndarray, np.ndarray]:
-    """Apply training-only tracking augmentations before geometry construction."""
-
-    unknown = set(config) - set(DEFAULT_GEOMETRY_AUGMENTATION)
-    if unknown:
-        raise ValueError(f"Unknown geometry augmentation keys: {sorted(unknown)}")
-    settings = {**DEFAULT_GEOMETRY_AUGMENTATION, **config}
-    for name, value in settings.items():
-        if value < 0:
-            raise ValueError(f"Geometry augmentation {name} must be non-negative")
-    for name in (
-        "noise_probability",
-        "drift_probability",
-        "frame_dropout_probability",
-        "max_frame_dropout_ratio",
-        "point_dropout_probability",
-    ):
-        if settings[name] > 1:
-            raise ValueError(f"Geometry augmentation {name} must not exceed one")
-
-    output = landmarks.copy()
-    output_detected = detected.astype(bool, copy=True)
-    interocular = np.linalg.norm(output[:, 33, :2] - output[:, 263, :2], axis=1)
-    valid_scales = interocular[np.isfinite(interocular) & (interocular > 1e-6)]
-    fallback_scale = float(np.median(valid_scales)) if valid_scales.size else 1.0
-    scales = np.where(np.isfinite(interocular) & (interocular > 1e-6), interocular, fallback_scale)
-
-    if random.random() < settings["noise_probability"] and settings["noise_std"] > 0:
-        noise = np.random.normal(size=output.shape).astype(np.float32)
-        output += noise * scales[:, None, None] * settings["noise_std"]
-
-    if random.random() < settings["drift_probability"] and settings["drift_std"] > 0:
-        increments = np.random.normal(size=output.shape).astype(np.float32)
-        drift = np.cumsum(increments, axis=0)
-        drift -= drift.mean(axis=0, keepdims=True)
-        output += drift * scales[:, None, None] * settings["drift_std"]
-
-    point_probability = settings["point_dropout_probability"]
-    if point_probability > 0:
-        point_mask = np.random.random(size=output.shape[:2]) < point_probability
-        output[point_mask] = np.nan
-
-    if random.random() < settings["frame_dropout_probability"] and len(output) > 1:
-        maximum = max(1, int(round(len(output) * settings["max_frame_dropout_ratio"])))
-        maximum = min(maximum, len(output) - 1)
-        span = random.randint(1, maximum)
-        start = random.randint(0, len(output) - span)
-        output[start : start + span] = np.nan
-        output_detected[start : start + span] = False
-    return output, output_detected
-
-
 class QALFVideoDataset(Dataset):
-    geometry_quality_dim = 5
-    texture_quality_dim = 5
-
     def __init__(
         self,
         manifest_path: str | Path,
@@ -278,10 +183,7 @@ class QALFVideoDataset(Dataset):
         image_size: int = 128,
         training: bool = False,
         clips_per_video: int = 1,
-        geometry_mode: str = DEFAULT_GEOMETRY_FEATURE_MODE,
         texture_mode: str = "full_face",
-        landmark_indices: tuple[int, ...] = DEFAULT_LANDMARK_INDICES,
-        geometry_augmentation: dict[str, float] | None = None,
         fake_methods: Sequence[str] | None = None,
         texture_augmentation: dict[str, float] | None = None,
         sbi_config: dict[str, object] | None = None,
@@ -325,10 +227,6 @@ class QALFVideoDataset(Dataset):
             raise ValueError("clips_per_video must be at least one")
         if self.training and self.clips_per_video != 1:
             raise ValueError("Training uses one randomly sampled clip per video and epoch")
-        self.landmark_indices = landmark_indices
-        self.geometry_mode = geometry_mode
-        self.geometry_input_dim = geometry_input_dim(landmark_indices, geometry_mode)
-        self.geometry_augmentation = dict(geometry_augmentation or {})
         if texture_augmentation is None:
             self.texture_augmentation = dict(DEFAULT_TEXTURE_AUGMENTATION)
         elif texture_augmentation:
@@ -396,13 +294,10 @@ class QALFVideoDataset(Dataset):
         with np.load(self.landmark_root / str(record.landmark_path)) as cache:
             landmarks = cache["landmarks"].copy()
             detected = cache["detected"].copy()
-            timestamps = cache["timestamps_sec"].copy() if "timestamps_sec" in cache.files else None
         if len(landmarks) != len(record.frames) or len(detected) != len(record.frames):
             raise ValueError(
                 f"{record.video_id}: landmark cache length does not match manifest frames"
             )
-        if timestamps is not None and len(timestamps) not in {0, len(record.frames)}:
-            raise ValueError(f"{record.video_id}: timestamp cache length mismatch")
         clip = _clip_indices(
             len(record.frames),
             self.num_frames,
@@ -410,38 +305,19 @@ class QALFVideoDataset(Dataset):
             clip_index,
             self.clips_per_video,
         )
-        geometry_landmarks = landmarks[clip].copy()
-        geometry_detected = detected[clip].copy()
-        if self.training and self.geometry_augmentation:
-            geometry_landmarks, geometry_detected = _augment_geometry_landmarks(
-                geometry_landmarks,
-                geometry_detected,
-                self.geometry_augmentation,
-            )
-        geometry, geometry_quality = build_geometry_features(
-            geometry_landmarks,
-            geometry_detected,
-            timestamps[clip] if timestamps is not None and len(timestamps) else None,
-            self.landmark_indices,
-            self.geometry_mode,
-        )
-
         texture_positions = np.rint(np.linspace(0, len(clip) - 1, self.texture_frames)).astype(
             np.int64
         )
         texture_tensors: list[np.ndarray] = []
-        texture_qualities: list[np.ndarray] = []
         canonical_frames: list[np.ndarray] = []
         canonical_landmarks: list[np.ndarray | None] = []
-        source_shapes: list[tuple[int, int]] = []
-        landmark_qualities: list[float] = []
         for position in texture_positions:
             source_index = int(clip[position])
             image_bgr = cv2.imread(str(self.frame_root / record.frames[source_index]))
             if image_bgr is None:
                 raise FileNotFoundError(self.frame_root / record.frames[source_index])
             image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-            canonical, quality, aligned_landmarks = _aligned_full_face(
+            canonical, aligned_landmarks = _aligned_full_face(
                 image_rgb,
                 landmarks[source_index],
                 bool(detected[source_index]),
@@ -449,8 +325,6 @@ class QALFVideoDataset(Dataset):
             )
             canonical_frames.append(canonical)
             canonical_landmarks.append(aligned_landmarks)
-            source_shapes.append((image_rgb.shape[1], image_rgb.shape[0]))
-            landmark_qualities.append(float(quality[-1]))
 
         if sample_type == SAMPLE_SBI:
             aligned_landmarks = next(
@@ -468,44 +342,18 @@ class QALFVideoDataset(Dataset):
             )
             canonical_frames = list(generated)
 
-        for canonical, source_shape, landmark_quality in zip(
-            canonical_frames,
-            source_shapes,
-            landmark_qualities,
-            strict=True,
-        ):
+        for canonical in canonical_frames:
             if self.training:
                 if self.texture_augmentation:
                     canonical = _augment(canonical, self.texture_augmentation)
-                quality = _texture_quality(
-                    canonical[:, :, :3],
-                    source_shape[0],
-                    source_shape[1],
-                    landmark_quality,
-                )
-            else:
-                quality = _texture_quality(
-                    canonical[:, :, :3],
-                    source_shape[0],
-                    source_shape[1],
-                    landmark_quality,
-                )
             normalized = canonical.astype(np.float32) / 255.0
             normalized = (normalized - IMAGE_MEAN) / IMAGE_STD
             texture_tensors.append(normalized.transpose(2, 0, 1))
-            texture_qualities.append(quality)
 
         return {
-            "geometry": torch.from_numpy(geometry),
-            "geometry_quality": torch.from_numpy(geometry_quality),
             "texture": torch.from_numpy(np.stack(texture_tensors).astype(np.float32)),
-            "texture_quality": torch.from_numpy(np.mean(texture_qualities, axis=0)),
             "label": torch.tensor(
                 1.0 if sample_type == SAMPLE_SBI else float(record.label),
-                dtype=torch.float32,
-            ),
-            "geometry_loss_mask": torch.tensor(
-                0.0 if sample_type == SAMPLE_SBI else 1.0,
                 dtype=torch.float32,
             ),
             "sample_type": sample_type,

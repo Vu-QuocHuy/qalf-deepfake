@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train QALF on FF++ manifests."""
+"""Train the texture-only QALF video classifier on FF++."""
 
 from __future__ import annotations
 
@@ -21,17 +21,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from qalf.config import load_config, save_json
 from qalf.data.dataset import TEXTURE_MODES, QALFVideoDataset
-from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
 from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
 from qalf.engine import aggregate_predictions, predict, train_epoch
+from qalf.ema import ModelEMA
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import (
-    SUPPORTED_AUXILIARY_BRANCHES,
-    SUPPORTED_FUSION_ARCHITECTURES,
-    SUPPORTED_TEXTURE_BACKBONES,
-    QALFModel,
-)
-from qalf.models.geometry import SUPPORTED_GEOMETRY_ARCHITECTURES
+from qalf.models import SUPPORTED_TEXTURE_BACKBONES, QALFModel
 from qalf.reporting import collect_run_metadata, save_training_history_plot
 
 
@@ -54,15 +48,20 @@ def _seed_worker(_: int) -> None:
 
 
 def _make_grad_scaler(enabled: bool):
-    """Use the current AMP API with a fallback for older development environments."""
-
     grad_scaler = getattr(torch.amp, "GradScaler", None)
     if grad_scaler is not None:
         return grad_scaler("cuda", enabled=enabled)
     return torch.cuda.amp.GradScaler(enabled=enabled)
 
 
-def _loader(dataset, batch_size, workers, training, balanced, seed: int | None = None):
+def _loader(
+    dataset: QALFVideoDataset,
+    batch_size: int,
+    workers: int,
+    training: bool,
+    balanced: bool,
+    seed: int | None = None,
+) -> DataLoader:
     generator = None
     worker_init_fn = None
     if seed is not None:
@@ -71,10 +70,8 @@ def _loader(dataset, batch_size, workers, training, balanced, seed: int | None =
         worker_init_fn = _seed_worker
     sampler = None
     shuffle = training
-    if training and getattr(dataset, "sbi_enabled", False):
-        strata = dataset.sampling_strata
-        mixture = dataset.sbi_config["mixture"]
-        weights = stratum_sampling_weights(strata, mixture)
+    if training and dataset.sbi_enabled:
+        weights = stratum_sampling_weights(dataset.sampling_strata, dataset.sbi_config["mixture"])
         sampler = WeightedRandomSampler(
             weights,
             int(dataset.samples_per_epoch),
@@ -88,10 +85,7 @@ def _loader(dataset, batch_size, workers, training, balanced, seed: int | None =
             raise ValueError(f"Training manifest must contain both classes: counts={counts}")
         weights = [1.0 / counts[label] for label in dataset.labels]
         sampler = WeightedRandomSampler(
-            weights,
-            len(weights),
-            replacement=True,
-            generator=generator,
+            weights, len(weights), replacement=True, generator=generator
         )
         shuffle = False
     return DataLoader(
@@ -126,67 +120,20 @@ def _optimizer_groups(
     learning_rate: float,
     backbone_learning_rate: float,
 ) -> list[dict[str, object]]:
-    backbone_parameters: list[nn.Parameter] = []
-    if model.texture_encoder is not None:
-        backbone_parameters = list(model.texture_encoder.features.parameters())
+    backbone_parameters = list(model.texture_encoder.features.parameters())
     backbone_ids = {id(parameter) for parameter in backbone_parameters}
     head_parameters = [
         parameter
         for parameter in model.parameters()
         if parameter.requires_grad and id(parameter) not in backbone_ids
     ]
-    groups: list[dict[str, object]] = []
-    if head_parameters:
-        groups.append({"params": head_parameters, "lr": learning_rate, "name": "head"})
-    if backbone_parameters:
-        groups.append(
-            {
-                "params": backbone_parameters,
-                "lr": backbone_learning_rate,
-                "name": "texture_backbone",
-            }
-        )
-    return groups
-
-
-def _set_fusion_trainable(model: QALFModel, trainable: bool) -> None:
-    """Freeze the gate completely during branch-only warmup.
-
-    A zero fused-loss coefficient alone still creates zero gradients and can
-    therefore let AdamW decay fusion parameters. Toggling ``requires_grad``
-    keeps this phase genuinely branch-only.
-    """
-
-    if model.fusion is None:
-        return
-    for parameter in model.fusion.parameters():
-        parameter.requires_grad_(trainable)
-
-
-def _epoch_messages(
-    epoch: int,
-    epochs: int,
-    optimizer: torch.optim.Optimizer,
-    train_metrics: dict[str, float],
-    validation_metrics: dict[str, float | int],
-    duration_seconds: float,
-) -> list[str]:
-    lr = float(next(iter(optimizer.param_groups))["lr"])
     return [
-        f"[{epoch:03d}/{epochs}] {duration_seconds:.0f}s  "
-        f"loss={train_metrics['loss']:.4f} (aux={train_metrics['auxiliary']:.4f} tex={train_metrics['texture']:.4f})  "
-        f"auc={float(validation_metrics['auc']):.4f} "
-        f"ap={float(validation_metrics['average_precision']):.4f} "
-        f"eer={float(validation_metrics['eer']):.4f} "
-        f"bal={float(validation_metrics['balanced_accuracy']):.4f}  "
-        f"aux_auc={float(validation_metrics['auxiliary_auc']):.4f} "
-        f"tex_auc={float(validation_metrics['texture_auc']):.4f}  "
-        f"weights={float(validation_metrics['mean_auxiliary_weight']):.3f}/"
-        f"{float(validation_metrics['mean_texture_weight']):.3f}  "
-        f"objective={train_metrics['fused_objective_weight']:.2f}/"
-        f"{train_metrics['auxiliary_objective_weight']:.2f}/"
-        f"{train_metrics['texture_objective_weight']:.2f}  "
-        f"thr={float(validation_metrics['threshold']):.4f}  lr={lr:.2e}",
+        {"params": head_parameters, "lr": learning_rate, "name": "head"},
+        {
+            "params": backbone_parameters,
+            "lr": backbone_learning_rate,
+            "name": "texture_backbone",
+        },
     ]
 
 
@@ -203,102 +150,41 @@ def main() -> None:
     parser.add_argument("--texture-frames", type=int)
     parser.add_argument("--image-size", type=int)
     parser.add_argument("--eval-clips-per-video", type=int)
-    parser.add_argument(
-        "--texture-mode",
-        choices=tuple(sorted(TEXTURE_MODES)),
-    )
+    parser.add_argument("--texture-mode", choices=tuple(sorted(TEXTURE_MODES)))
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--num-workers", type=int)
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--backbone-learning-rate", type=float)
     parser.add_argument("--weight-decay", type=float)
-    parser.add_argument("--auxiliary-loss-weight", type=float)
-    parser.add_argument("--texture-loss-weight", type=float)
     parser.add_argument("--early-stop-patience", type=int)
-    parser.add_argument(
-        "--fusion-warmup-epochs",
-        type=int,
-        help=(
-            "Train auxiliary and texture heads independently for this many epochs before "
-            "enabling fused loss. Intended only for the registered staged-SRM diagnostic."
-        ),
-    )
-    parser.add_argument("--geometry-hidden", type=int)
-    parser.add_argument("--geometry-layers", type=int)
-    parser.add_argument(
-        "--geometry-architecture",
-        choices=tuple(sorted(SUPPORTED_GEOMETRY_ARCHITECTURES)),
-    )
+    parser.add_argument("--ema-decay", type=float)
+    parser.add_argument("--validation-weights", choices=("raw", "ema"))
     parser.add_argument("--embedding-dim", type=int)
     parser.add_argument("--dropout", type=float)
+    parser.add_argument("--fake-methods", nargs="+")
     parser.add_argument(
-        "--texture-gate-bias",
-        type=float,
-        help="Initial trainable logit bias toward the texture fusion branch.",
+        "--texture-backbone", choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES))
     )
-    parser.add_argument(
-        "--fake-methods",
-        nargs="+",
-        help="FF++ fake methods to retain; real/original records are always retained.",
-    )
-    parser.add_argument(
-        "--geometry-mode",
-        choices=tuple(sorted(GEOMETRY_FEATURE_MODES)),
-    )
-    parser.add_argument("--auxiliary-branch", choices=tuple(sorted(SUPPORTED_AUXILIARY_BRANCHES)))
-    parser.add_argument(
-        "--fusion-architecture",
-        choices=tuple(sorted(SUPPORTED_FUSION_ARCHITECTURES)),
-    )
-    parser.add_argument("--component-initialization-seed", type=int)
-    parser.add_argument(
-        "--texture-backbone",
-        choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES)),
-    )
-    parser.add_argument("--no-geometry-augmentation", action="store_true")
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--no-balanced-sampler", action="store_true")
-    parser.add_argument(
-        "--sbi",
-        action="store_true",
-        help="Enable the locked full-face SBI hybrid training mixture.",
-    )
-    parser.add_argument(
-        "--deterministic",
-        action="store_true",
-        help="Use deterministic CUDA algorithms and explicitly seeded data workers.",
-    )
+    parser.add_argument("--sbi", action="store_true")
+    parser.add_argument("--deterministic", action="store_true")
     args = parser.parse_args()
 
     config = load_config(args.config)
-    data = config["data"]
-    training = config["training"]
-    model_config = config["model"]
-    if args.geometry_mode:
-        data["geometry_mode"] = args.geometry_mode
-    if args.auxiliary_branch:
-        model_config["auxiliary_branch"] = args.auxiliary_branch
-    if args.fusion_architecture:
-        model_config["fusion_architecture"] = args.fusion_architecture
-    if args.component_initialization_seed is not None:
-        model_config["component_initialization_seed"] = args.component_initialization_seed
-    if args.texture_backbone:
-        model_config["texture_backbone"] = args.texture_backbone
+    data, model_config, training = config["data"], config["model"], config["training"]
     if args.texture_mode:
         data["texture_mode"] = args.texture_mode
-    model_overrides = {
-        "geometry_hidden": args.geometry_hidden,
-        "geometry_layers": args.geometry_layers,
-        "geometry_architecture": args.geometry_architecture,
+    if args.texture_backbone:
+        model_config["texture_backbone"] = args.texture_backbone
+    for key, value in {
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
-        "texture_gate_bias": args.texture_gate_bias,
-    }
-    model_config.update({key: value for key, value in model_overrides.items() if value is not None})
-    if args.no_geometry_augmentation:
-        data["geometry_augmentation"] = {}
+    }.items():
+        if value is not None:
+            model_config[key] = value
     if args.no_texture_augmentation:
         data["texture_augmentation"] = {}
     if args.fake_methods is not None:
@@ -307,26 +193,27 @@ def main() -> None:
         sbi_config = dict(data.get("sbi", {}))
         sbi_config["enabled"] = True
         data["sbi"] = sbi_config
-    data_overrides = {
+    for key, value in {
         "num_frames": args.num_frames,
         "texture_frames": args.texture_frames,
         "image_size": args.image_size,
         "eval_clips_per_video": args.eval_clips_per_video,
-    }
-    training_overrides = {
+    }.items():
+        if value is not None:
+            data[key] = value
+    for key, value in {
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "num_workers": args.num_workers,
         "learning_rate": args.learning_rate,
         "backbone_learning_rate": args.backbone_learning_rate,
         "weight_decay": args.weight_decay,
-        "auxiliary_loss_weight": args.auxiliary_loss_weight,
-        "texture_loss_weight": args.texture_loss_weight,
         "early_stop_patience": args.early_stop_patience,
-        "fusion_warmup_epochs": args.fusion_warmup_epochs,
-    }
-    data.update({key: value for key, value in data_overrides.items() if value is not None})
-    training.update({key: value for key, value in training_overrides.items() if value is not None})
+        "ema_decay": args.ema_decay,
+        "validation_weights": args.validation_weights,
+    }.items():
+        if value is not None:
+            training[key] = value
     if args.seed is not None:
         config["seed"] = args.seed
     if args.no_amp:
@@ -336,54 +223,30 @@ def main() -> None:
     if args.deterministic:
         training["deterministic"] = True
     data["sbi"] = resolve_sbi_config(data.get("sbi"))
-    if bool(data["sbi"]["enabled"]) and not bool(training.get("balanced_sampler", True)):
+    if data["sbi"]["enabled"] and not training.get("balanced_sampler", True):
         parser.error("SBI requires the explicit three-stratum sampler")
-
-    positive_integer_fields = {
-        "data.num_frames": data["num_frames"],
-        "data.texture_frames": data["texture_frames"],
-        "data.image_size": data["image_size"],
-        "data.eval_clips_per_video": data.get("eval_clips_per_video", 2),
-        "training.epochs": training["epochs"],
-        "training.batch_size": training["batch_size"],
-    }
-    for name, value in positive_integer_fields.items():
-        if int(value) < 1:
-            parser.error(f"{name} must be at least one")
-    if int(data["num_frames"]) < 2:
-        parser.error("data.num_frames must be at least two")
-    if int(data["texture_frames"]) > int(data["num_frames"]):
-        parser.error("data.texture_frames cannot exceed data.num_frames")
+    if not 1 <= int(data["texture_frames"]) <= int(data["num_frames"]):
+        parser.error("texture_frames must be in [1, num_frames]")
     if int(training.get("num_workers", 4)) < 0:
-        parser.error("training.num_workers cannot be negative")
-    if float(training.get("learning_rate", 0.0)) <= 0:
-        parser.error("training.learning_rate must be positive")
-    if float(training.get("backbone_learning_rate", training["learning_rate"])) <= 0:
-        parser.error("training.backbone_learning_rate must be positive")
-    for name in ("weight_decay", "auxiliary_loss_weight", "texture_loss_weight"):
-        if float(training.get(name, 0.0)) < 0:
-            parser.error(f"training.{name} cannot be negative")
+        parser.error("num_workers cannot be negative")
+    if float(training["learning_rate"]) <= 0 or float(training["backbone_learning_rate"]) <= 0:
+        parser.error("learning rates must be positive")
     if int(training.get("early_stop_patience", 0)) < 0:
-        parser.error("training.early_stop_patience cannot be negative")
-    fusion_warmup_epochs = int(training.get("fusion_warmup_epochs", 0))
-    if not 0 <= fusion_warmup_epochs < int(training["epochs"]):
-        parser.error("training.fusion_warmup_epochs must be in [0, training.epochs)")
-    for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
-        if int(model_config.get(name, 0)) < 1:
-            parser.error(f"model.{name} must be at least one")
-    if not 0.0 <= float(model_config.get("dropout", 0.0)) < 1.0:
-        parser.error("model.dropout must be in [0, 1)")
-    component_seed = model_config.get("component_initialization_seed")
-    if component_seed is not None and int(component_seed) < 0:
-        parser.error("model.component_initialization_seed cannot be negative")
-    if (
-        model_config.get("auxiliary_branch") == "none"
-        and model_config.get("fusion_architecture", "quality") != "quality"
-    ):
-        parser.error("texture-only mode requires model.fusion_architecture=quality")
+        parser.error("early_stop_patience cannot be negative")
+    ema_decay = float(training.get("ema_decay", 0.0))
+    validation_weights = str(
+        training.get("validation_weights", "ema" if ema_decay > 0.0 else "raw")
+    )
+    if not 0.0 <= ema_decay < 1.0:
+        parser.error("ema_decay must be in [0, 1)")
+    if validation_weights not in {"raw", "ema"}:
+        parser.error("validation_weights must be raw or ema")
+    if validation_weights == "ema" and ema_decay <= 0.0:
+        parser.error("validation_weights=ema requires ema_decay > 0")
+
     seed = int(config.get("seed", 42))
     deterministic = bool(training.get("deterministic", False))
-    _seed_everything(seed, deterministic=deterministic)
+    _seed_everything(seed, deterministic)
     train_manifest = args.train_manifest or data["train_manifest"]
     val_manifest = args.val_manifest or data["val_manifest"]
     frame_root = args.frame_root or data["train_frame_root"]
@@ -391,19 +254,20 @@ def main() -> None:
     output_dir = Path(args.output_dir or config.get("output_dir", "outputs/qalf"))
     output_dir.mkdir(parents=True, exist_ok=True)
     logger = _create_logger(output_dir / "train.log")
-    data["train_manifest"] = str(train_manifest)
-    data["val_manifest"] = str(val_manifest)
-    data["train_frame_root"] = str(frame_root)
-    data["train_landmark_root"] = str(landmark_root)
+    data.update(
+        {
+            "train_manifest": str(train_manifest),
+            "val_manifest": str(val_manifest),
+            "train_frame_root": str(frame_root),
+            "train_landmark_root": str(landmark_root),
+        }
+    )
     config["output_dir"] = str(output_dir)
-    data.setdefault("eval_clips_per_video", 2)
+    data.setdefault("eval_clips_per_video", 3)
     data.setdefault("video_aggregation", "mean")
     data.setdefault("top_k", 1)
     save_json(config, output_dir / "config.json")
-    save_json(
-        collect_run_metadata(sys.argv, config, PROJECT_ROOT),
-        output_dir / "run_metadata.json",
-    )
+    save_json(collect_run_metadata(sys.argv, config, PROJECT_ROOT), output_dir / "run_metadata.json")
 
     dataset_args = {
         "frame_root": frame_root,
@@ -411,18 +275,12 @@ def main() -> None:
         "num_frames": int(data["num_frames"]),
         "texture_frames": int(data["texture_frames"]),
         "image_size": int(data["image_size"]),
-        "geometry_mode": str(data.get("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE)),
         "texture_mode": str(data.get("texture_mode", "full_face")),
-        "geometry_augmentation": data.get("geometry_augmentation", {}),
         "texture_augmentation": data.get("texture_augmentation"),
         "fake_methods": data.get("fake_methods"),
     }
     train_dataset = QALFVideoDataset(
-        train_manifest,
-        training=True,
-        clips_per_video=1,
-        sbi_config=data["sbi"],
-        **dataset_args,
+        train_manifest, training=True, clips_per_video=1, sbi_config=data["sbi"], **dataset_args
     )
     val_dataset = QALFVideoDataset(
         val_manifest,
@@ -441,56 +299,30 @@ def main() -> None:
         seed if deterministic else None,
     )
     val_loader = _loader(
-        val_dataset,
-        batch_size,
-        workers,
-        False,
-        False,
-        seed + 1 if deterministic else None,
+        val_dataset, batch_size, workers, False, False, seed + 1 if deterministic else None
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = QALFModel(
-        geometry_input_dim=train_dataset.geometry_input_dim,
-        geometry_hidden=int(model_config.get("geometry_hidden", 96)),
-        geometry_layers=int(model_config.get("geometry_layers", 3)),
-        geometry_architecture=str(model_config.get("geometry_architecture", "tcn_mean")),
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
-        geometry_quality_dim=train_dataset.geometry_quality_dim,
-        texture_quality_dim=train_dataset.texture_quality_dim,
-        auxiliary_branch=str(model_config.get("auxiliary_branch", "geometry")),
-        fusion_architecture=str(model_config.get("fusion_architecture", "quality")),
-        texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
-        component_initialization_seed=model_config.get("component_initialization_seed"),
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(
             model,
             float(training.get("learning_rate", 3e-4)),
-            float(
-                training.get(
-                    "backbone_learning_rate",
-                    training.get("learning_rate", 3e-4),
-                )
-            ),
+            float(training.get("backbone_learning_rate", 3e-5)),
         ),
         weight_decay=float(training.get("weight_decay", 1e-4)),
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=max(1, int(training["epochs"]))
     )
-    amp_enabled = bool(training.get("amp", True)) and device.type == "cuda"
-    scaler = _make_grad_scaler(amp_enabled)
+    scaler = _make_grad_scaler(bool(training.get("amp", True)) and device.type == "cuda")
     criterion = nn.BCEWithLogitsLoss()
-    auxiliary_loss_weight = float(training.get("auxiliary_loss_weight", 0.25))
-    texture_loss_weight = float(training.get("texture_loss_weight", 0.25))
-    auxiliary_branch = str(model_config.get("auxiliary_branch", "geometry"))
-    if auxiliary_branch == "none":
-        auxiliary_loss_weight = 0.0
-
+    ema = ModelEMA(model, ema_decay) if ema_decay > 0.0 else None
     history: list[dict[str, object]] = []
     best_auc = -float("inf")
     best_epoch = 0
@@ -501,108 +333,87 @@ def main() -> None:
     epochs = int(training["epochs"])
     run_started = time.perf_counter()
     logger.info(
-        "Training started  output=%s auxiliary_branch=%s fusion=%s "
-        "fusion_warmup_epochs=%d "
-        "parameters=%d trainable=%d",
+        "Training started  output=%s model=texture_only backbone=%s frames=%d/%d "
+        "parameters=%d trainable=%d ema_decay=%.4f validation_weights=%s",
         output_dir,
-        auxiliary_branch,
-        model_config.get("fusion_architecture", "quality"),
-        fusion_warmup_epochs,
+        model_config.get("texture_backbone", "efficientnet_b0"),
+        int(data["texture_frames"]),
+        int(data["num_frames"]),
         sum(parameter.numel() for parameter in model.parameters()),
         sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
+        ema_decay,
+        validation_weights,
     )
-    history_plot_enabled = True
     training_plot_path = output_dir / "plots" / "training_history.png"
+    plot_enabled = True
     for epoch in range(1, epochs + 1):
         epoch_started = time.perf_counter()
-        warmup_active = epoch <= fusion_warmup_epochs
-        _set_fusion_trainable(model, not warmup_active)
-        epoch_fused_weight = 0.0 if warmup_active else 1.0
-        epoch_auxiliary_weight = (
-            0.5 if warmup_active and auxiliary_branch != "none" else auxiliary_loss_weight
-        )
-        epoch_texture_weight = 0.5 if warmup_active else texture_loss_weight
         train_metrics = train_epoch(
-            model,
-            train_loader,
-            optimizer,
-            criterion,
-            device,
-            scaler,
-            epoch_auxiliary_weight,
-            epoch_texture_weight,
-            epoch_fused_weight,
+            model, train_loader, optimizer, criterion, device, scaler, ema=ema
         )
-        train_metrics["fused_objective_weight"] = epoch_fused_weight
-        train_metrics["auxiliary_objective_weight"] = epoch_auxiliary_weight
-        train_metrics["texture_objective_weight"] = epoch_texture_weight
-        validation_clips = predict(model, val_loader, device)
-        validation = aggregate_predictions(
-            validation_clips,
-            method=str(data["video_aggregation"]),
-            top_k=int(data["top_k"]),
-        )
+        raw_state = None
+        if validation_weights == "ema":
+            if ema is None:
+                raise RuntimeError("EMA validation requested without EMA state")
+            raw_state = {
+                name: value.detach().clone() for name, value in model.state_dict().items()
+            }
+            ema.copy_to(model)
+        try:
+            validation = aggregate_predictions(
+                predict(model, val_loader, device),
+                method=str(data["video_aggregation"]),
+                top_k=int(data["top_k"]),
+            )
+        finally:
+            if raw_state is not None:
+                model.load_state_dict(raw_state, strict=True)
         labels = np.asarray(validation["label"], dtype=np.int64)
         scores = np.asarray(validation["score"], dtype=np.float64)
         threshold = select_threshold(labels, scores)
         val_metrics = compute_metrics(labels, scores, threshold)
-        auxiliary_scores = np.asarray(validation["auxiliary_score"], dtype=np.float64)
-        texture_scores = np.asarray(validation["texture_score"], dtype=np.float64)
-        val_metrics["auxiliary_auc"] = compute_metrics(labels, auxiliary_scores, threshold)["auc"]
-        val_metrics["texture_auc"] = compute_metrics(labels, texture_scores, threshold)["auc"]
-        val_metrics["mean_auxiliary_weight"] = float(
-            np.mean(np.asarray(validation["auxiliary_weight"], dtype=np.float64))
-        )
-        val_metrics["mean_texture_weight"] = float(
-            np.mean(np.asarray(validation["texture_weight"], dtype=np.float64))
-        )
-        row = {
-            "epoch": epoch,
-            "phase": "branch_warmup" if warmup_active else "joint_fusion",
-            "selection_eligible": not warmup_active,
-            "train": train_metrics,
-            "validation": val_metrics,
-        }
-        history.append(row)
-        epoch_duration = time.perf_counter() - epoch_started
-        if history_plot_enabled:
+        history.append({"epoch": epoch, "train": train_metrics, "validation": val_metrics})
+        if plot_enabled:
             try:
-                save_training_history_plot(
-                    history,
-                    training_plot_path,
-                )
+                save_training_history_plot(history, training_plot_path)
             except Exception as error:
-                history_plot_enabled = False
+                plot_enabled = False
                 logger.warning("Training history plots disabled: %s", error)
-        for message in _epoch_messages(
+        logger.info(
+            "[%03d/%03d] %.0fs  loss=%.4f  auc=%.4f ap=%.4f eer=%.4f bal=%.4f "
+            "thr=%.4f  lr=%.2e  sbi=%.3f",
             epoch,
             epochs,
-            optimizer,
-            train_metrics,
-            val_metrics,
-            epoch_duration,
-        ):
-            logger.info(message)
+            time.perf_counter() - epoch_started,
+            train_metrics["loss"],
+            val_metrics["auc"],
+            val_metrics["average_precision"],
+            val_metrics["eer"],
+            val_metrics["balanced_accuracy"],
+            threshold,
+            float(optimizer.param_groups[0]["lr"]),
+            train_metrics["sbi_fraction"],
+        )
         scheduler.step()
-
         checkpoint = {
             "epoch": epoch,
-            "model": model.state_dict(),
+            "model": ema.state_dict() if validation_weights == "ema" and ema else {
+                name: value.detach().clone() for name, value in model.state_dict().items()
+            },
             "optimizer": optimizer.state_dict(),
             "config": config,
-            "geometry_input_dim": train_dataset.geometry_input_dim,
-            "geometry_quality_dim": train_dataset.geometry_quality_dim,
-            "texture_quality_dim": train_dataset.texture_quality_dim,
             "threshold": threshold,
             "validation_metrics": val_metrics,
-            "model_weights": "raw",
+            "model_weights": validation_weights,
+            "ema_decay": ema_decay,
             "label_convention": "real=0,fake=1",
             "score_target": "fake",
             "threshold_selection": "youden_j_ffpp_validation",
             "best_metric": "val_auc",
+            "architecture": "texture_only",
         }
-        if not warmup_active and val_metrics["auc"] > best_auc:
-            best_auc = val_metrics["auc"]
+        if val_metrics["auc"] > best_auc:
+            best_auc = float(val_metrics["auc"])
             best_epoch = epoch
             best_threshold = threshold
             stale_epochs = 0
@@ -614,7 +425,7 @@ def main() -> None:
                 best_threshold,
                 best_path,
             )
-        elif not warmup_active:
+        else:
             stale_epochs += 1
             if patience > 0:
                 logger.info(
@@ -627,19 +438,11 @@ def main() -> None:
             if patience > 0 and stale_epochs >= patience:
                 logger.info("Early stopping at epoch %d", epoch)
                 break
-    logger.info(
-        "Done  epochs=%d  best_epoch=%03d  best_auc=%.4f  thr=%.4f  model=%s",
-        len(history),
-        best_epoch,
-        best_auc,
-        best_threshold,
-        best_path,
-    )
+
     history_path = output_dir / "history.json"
     save_json(history, history_path)
     best_metrics = next(
-        (row["validation"] for row in history if int(row["epoch"]) == best_epoch),
-        {},
+        (row["validation"] for row in history if int(row["epoch"]) == best_epoch), {}
     )
     save_json(
         {
@@ -650,14 +453,22 @@ def main() -> None:
             "best_value": best_auc,
             "best_threshold": best_threshold,
             "best_validation_metrics": best_metrics,
+            "ema_decay": ema_decay,
+            "validation_weights": validation_weights,
             "duration_seconds": time.perf_counter() - run_started,
             "best_model": str(best_path),
             "history": str(history_path),
-            "training_plot": (
-                str(training_plot_path) if training_plot_path.is_file() else None
-            ),
+            "training_plot": str(training_plot_path) if training_plot_path.is_file() else None,
         },
         output_dir / "training_summary.json",
+    )
+    logger.info(
+        "Done  epochs=%d  best_epoch=%03d  best_auc=%.4f  thr=%.4f  model=%s",
+        len(history),
+        best_epoch,
+        best_auc,
+        best_threshold,
+        best_path,
     )
 
 

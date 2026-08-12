@@ -34,7 +34,8 @@ LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
 VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
-OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_full_face_sbi}"
+OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi}"
+SEED="${QALF_SEED:-42}"
 
 export CUBLAS_WORKSPACE_CONFIG=':4096:8'
 echo "Python: $PYTHON"
@@ -48,7 +49,7 @@ echo "Training output: $OUTPUT_DIR"
     --frame-root "$FRAME_ROOT" \
     --landmark-root "$LANDMARK_ROOT" \
     --output-dir "$OUTPUT_DIR" \
-    --seed 42 \
+    --seed "$SEED" \
     --epochs 35 \
     --batch-size 8 \
     --num-workers 4 \
@@ -56,6 +57,8 @@ echo "Training output: $OUTPUT_DIR"
     --backbone-learning-rate 0.00003 \
     --weight-decay 0.0003 \
     --early-stop-patience 5 \
+    --ema-decay "${QALF_EMA_DECAY:-0}" \
+    --validation-weights "${QALF_VALIDATION_WEIGHTS:-raw}" \
     --num-frames 32 \
     --texture-frames 8 \
     --image-size 160 \
@@ -63,13 +66,7 @@ echo "Training output: $OUTPUT_DIR"
     --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
     --texture-backbone efficientnet_b0 \
     --texture-mode full_face \
-    --geometry-hidden 128 \
-    --geometry-layers 3 \
     --embedding-dim 192 \
     --dropout 0.3 \
-    --geometry-mode aligned_motion_3d \
-    --auxiliary-branch geometry \
-    --auxiliary-loss-weight 0.25 \
-    --texture-loss-weight 0.25 \
     --sbi \
     --deterministic

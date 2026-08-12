@@ -17,7 +17,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from qalf.data.dataset import QALFVideoDataset
-from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE
 from qalf.engine import move_batch
 from qalf.models import build_model_from_checkpoint
 
@@ -52,7 +51,6 @@ def main() -> None:
         num_frames=int(data["num_frames"]),
         texture_frames=int(data["texture_frames"]),
         image_size=int(data["image_size"]),
-        geometry_mode=str(data.get("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE)),
         texture_mode=str(data.get("texture_mode", "full_face")),
         training=False,
     )
@@ -98,7 +96,7 @@ def main() -> None:
 
     report = {
         "device": str(device),
-        "auxiliary_branch": str(getattr(model, "auxiliary_branch", "geometry")),
+        "architecture": "texture_only",
         "texture_backbone": str(model_config.get("texture_backbone", "efficientnet_b0")),
         "texture_temporal_pooling": "mean",
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
@@ -121,7 +119,7 @@ def main() -> None:
         "cpu_threads": torch.get_num_threads() if device.type == "cpu" else None,
         "note": (
             "Model latency and cached preprocessing are reported separately. Cached preprocessing "
-            "loads extracted frames/landmarks and builds features; original video decode, MTCNN, "
+            "loads extracted frames/landmarks and aligns faces; original video decode "
             "and Face Landmarker extraction remain excluded."
         ),
     }

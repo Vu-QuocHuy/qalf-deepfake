@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export a trained QALF checkpoint to ONNX with explicit tensor inputs."""
+"""Export a texture-only QALF checkpoint to ONNX."""
 
 from __future__ import annotations
 
@@ -22,27 +22,8 @@ class ONNXQALFWrapper(nn.Module):
         super().__init__()
         self.model = model
 
-    def forward(
-        self,
-        geometry: torch.Tensor,
-        texture: torch.Tensor,
-        geometry_quality: torch.Tensor,
-        texture_quality: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        outputs = self.model(
-            {
-                "geometry": geometry,
-                "texture": texture,
-                "geometry_quality": geometry_quality,
-                "texture_quality": texture_quality,
-            }
-        )
-        return (
-            outputs["logit"],
-            outputs["auxiliary_logit"],
-            outputs["texture_logit"],
-            outputs["fusion_weights"],
-        )
+    def forward(self, texture: torch.Tensor) -> torch.Tensor:
+        return self.model({"texture": texture})["logit"]
 
 
 def build_model(checkpoint: dict[str, object]) -> QALFModel:
@@ -59,46 +40,32 @@ def main() -> None:
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
     data = checkpoint["config"]["data"]
-    texture_channels = 3
     wrapper = ONNXQALFWrapper(build_model(checkpoint)).eval()
-    examples = (
-        torch.zeros(1, int(data["num_frames"]), int(checkpoint["geometry_input_dim"])),
-        torch.zeros(
-            1,
-            int(data["texture_frames"]),
-            texture_channels,
-            int(data["image_size"]),
-            int(data["image_size"]),
-        ),
-        torch.zeros(1, int(checkpoint.get("geometry_quality_dim", 5))),
-        torch.zeros(1, int(checkpoint.get("texture_quality_dim", 5))),
+    example = torch.zeros(
+        1,
+        int(data["texture_frames"]),
+        3,
+        int(data["image_size"]),
+        int(data["image_size"]),
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     torch.onnx.export(
         wrapper,
-        examples,
+        example,
         output,
-        input_names=("geometry", "texture", "geometry_quality", "texture_quality"),
-        output_names=("logit", "auxiliary_logit", "texture_logit", "fusion_weights"),
-        dynamic_axes={
-            "geometry": {0: "batch", 1: "geometry_frames"},
-            "texture": {0: "batch", 1: "texture_frames"},
-            "geometry_quality": {0: "batch"},
-            "texture_quality": {0: "batch"},
-            "logit": {0: "batch"},
-            "auxiliary_logit": {0: "batch"},
-            "texture_logit": {0: "batch"},
-            "fusion_weights": {0: "batch"},
-        },
+        input_names=("texture",),
+        output_names=("logit",),
+        dynamic_axes={"texture": {0: "batch", 1: "texture_frames"}, "logit": {0: "batch"}},
         opset_version=args.opset,
         do_constant_folding=True,
     )
     report = {
         "checkpoint": str(args.checkpoint),
         "output": str(output),
-        "texture_backbone": str(
-            checkpoint["config"]["model"].get("texture_backbone", "efficientnet_b0")
+        "architecture": "texture_only",
+        "texture_backbone": checkpoint["config"]["model"].get(
+            "texture_backbone", "efficientnet_b0"
         ),
         "texture_temporal_pooling": "mean",
         "bytes": output.stat().st_size,

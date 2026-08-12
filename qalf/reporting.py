@@ -48,33 +48,6 @@ REPORT_SECTIONS = (
         ),
     ),
     (
-        "QALF BRANCH DIAGNOSTICS",
-        (
-            ("auxiliary_auc", "Auxiliary AUC"),
-            ("texture_auc", "Texture AUC"),
-            ("fused_auc", "Fused AUC"),
-            ("fixed_average_auc", "Fixed-average AUC"),
-            ("mean_auxiliary_weight", "Mean auxiliary weight"),
-            ("mean_texture_weight", "Mean texture weight"),
-            ("median_auxiliary_weight", "Median auxiliary weight"),
-            ("p90_auxiliary_weight", "P90 auxiliary weight"),
-            ("p95_auxiliary_weight", "P95 auxiliary weight"),
-            ("max_auxiliary_weight", "Maximum auxiliary weight"),
-            ("auxiliary_weight_above_0_05_fraction", "Auxiliary weight > 0.05 fraction"),
-            ("mean_auxiliary_weight_real", "Mean auxiliary weight — real"),
-            ("mean_auxiliary_weight_fake", "Mean auxiliary weight — fake"),
-        ),
-    ),
-    (
-        "ZERO-AUXILIARY COUNTERFACTUAL",
-        (
-            ("zero_auxiliary_auc", "AUC with auxiliary zeroed"),
-            ("auc_gain_over_zero_auxiliary", "Normal minus zero-auxiliary AUC"),
-            ("mean_abs_zero_auxiliary_score_shift", "Mean absolute score shift"),
-            ("max_abs_zero_auxiliary_score_shift", "Maximum absolute score shift"),
-        ),
-    ),
-    (
         "CONFUSION COUNTS (real=0, fake=1)",
         (
             ("true_negative", "TN — real predicted real"),
@@ -184,7 +157,7 @@ def _pyplot():
 
 
 def save_training_history_plot(history: Sequence[Mapping[str, object]], path: str | Path) -> None:
-    """Write a compact four-panel summary of all completed epochs."""
+    """Write a compact texture-only training summary."""
 
     if not history:
         return
@@ -194,33 +167,19 @@ def save_training_history_plot(history: Sequence[Mapping[str, object]], path: st
     def values(section: str, key: str) -> list[float]:
         return [float(row[section][key]) for row in history]
 
-    figure, axes = plt.subplots(2, 2, figsize=(14, 9), constrained_layout=True)
-    loss_axis, rank_axis, operating_axis, fusion_axis = axes.flatten()
-    eligible = [
-        index for index, row in enumerate(history) if bool(row.get("selection_eligible", True))
-    ]
-    best_epoch = None
-    if eligible:
-        best_index = max(
-            eligible,
-            key=lambda index: float(history[index]["validation"]["auc"]),
-        )
-        best_epoch = epochs[best_index]
-    for key, label in (
-        ("loss", "Total"),
-        ("fused", "Fused"),
-        ("auxiliary", "Auxiliary"),
-        ("texture", "Texture"),
-    ):
-        loss_axis.plot(epochs, values("train", key), label=label)
+    figure, axes = plt.subplots(1, 3, figsize=(15, 4.8), constrained_layout=True)
+    loss_axis, rank_axis, operating_axis = axes
+    best_index = max(
+        range(len(history)), key=lambda index: float(history[index]["validation"]["auc"])
+    )
+    best_epoch = epochs[best_index]
+    loss_axis.plot(epochs, values("train", "loss"), label="BCE")
     loss_axis.set_title("Training losses")
     loss_axis.set_ylabel("BCE loss")
 
     for key, label in (
-        ("auc", "Fused AUC"),
+        ("auc", "AUC"),
         ("average_precision", "Average precision"),
-        ("auxiliary_auc", "Auxiliary AUC"),
-        ("texture_auc", "Texture AUC"),
     ):
         rank_axis.plot(epochs, values("validation", key), label=label)
     rank_axis.set_title("Validation ranking metrics")
@@ -236,18 +195,8 @@ def save_training_history_plot(history: Sequence[Mapping[str, object]], path: st
     operating_axis.set_title("Validation operating metrics")
     operating_axis.set_ylim(0.0, 1.0)
 
-    for key, label in (
-        ("mean_auxiliary_weight", "Auxiliary weight"),
-        ("mean_texture_weight", "Texture weight"),
-        ("threshold", "Decision threshold"),
-    ):
-        fusion_axis.plot(epochs, values("validation", key), label=label)
-    fusion_axis.set_title("Fusion and threshold")
-    fusion_axis.set_ylim(0.0, 1.0)
-
-    for axis in axes.flatten():
-        if best_epoch is not None:
-            axis.axvline(best_epoch, color="black", linestyle="--", alpha=0.35)
+    for axis in axes:
+        axis.axvline(best_epoch, color="black", linestyle="--", alpha=0.35)
         axis.set_xlabel("Epoch")
         axis.grid(alpha=0.25)
         axis.legend(fontsize=8)

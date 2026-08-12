@@ -30,7 +30,6 @@ def main() -> None:
     quantized = torch.ao.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
     wrapper = ONNXQALFWrapper(quantized).eval()
     examples = (
-        torch.zeros(1, int(data["num_frames"]), int(checkpoint["geometry_input_dim"])),
         torch.zeros(
             1,
             int(data["texture_frames"]),
@@ -38,8 +37,6 @@ def main() -> None:
             int(data["image_size"]),
             int(data["image_size"]),
         ),
-        torch.zeros(1, int(checkpoint.get("geometry_quality_dim", 5))),
-        torch.zeros(1, int(checkpoint.get("texture_quality_dim", 5))),
     )
     with torch.inference_mode():
         traced = torch.jit.trace(wrapper, examples, strict=False)

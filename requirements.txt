@@ -1,4 +1,4 @@
-# Runtime dependencies for landmark extraction, training, and evaluation.
+# Runtime dependencies for face alignment, SBI training, and video evaluation.
 # On Windows, the pinned CUDA 12.8 wheels support RTX 50-series GPUs.
 --extra-index-url https://download.pytorch.org/whl/cu128
 

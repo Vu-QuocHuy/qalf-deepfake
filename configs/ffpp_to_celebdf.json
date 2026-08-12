@@ -14,19 +14,9 @@
       "FaceSwap",
       "NeuralTextures"
     ],
-    "geometry_mode": "aligned_motion_3d",
     "texture_mode": "full_face",
     "sbi": {
       "enabled": false
-    },
-    "geometry_augmentation": {
-      "noise_probability": 0.5,
-      "noise_std": 0.01,
-      "drift_probability": 0.25,
-      "drift_std": 0.002,
-      "frame_dropout_probability": 0.25,
-      "max_frame_dropout_ratio": 0.15,
-      "point_dropout_probability": 0.01
     },
     "texture_augmentation": {
       "flip_probability": 0.5,
@@ -48,16 +38,10 @@
     "top_k": 1
   },
   "model": {
-    "geometry_hidden": 128,
-    "geometry_layers": 3,
-    "geometry_architecture": "tcn_mean",
     "embedding_dim": 192,
     "dropout": 0.3,
     "texture_pretrained": true,
-    "texture_backbone": "efficientnet_b0",
-    "auxiliary_branch": "geometry",
-    "fusion_architecture": "quality",
-    "texture_gate_bias": 0.0
+    "texture_backbone": "efficientnet_b0"
   },
   "training": {
     "epochs": 35,
@@ -66,13 +50,12 @@
     "learning_rate": 0.0003,
     "backbone_learning_rate": 0.00003,
     "weight_decay": 0.0003,
-    "auxiliary_loss_weight": 0.25,
-    "texture_loss_weight": 0.25,
     "deterministic": true,
     "balanced_sampler": true,
     "amp": true,
     "early_stop_patience": 5,
-    "fusion_warmup_epochs": 0
+    "ema_decay": 0.0,
+    "validation_weights": "raw"
   },
-  "output_dir": "outputs/qalf_ffpp4_effb0_160_8f_full_face"
+  "output_dir": "outputs/qalf_ffpp4_effb0_160_8f_texture_sbi"
 }

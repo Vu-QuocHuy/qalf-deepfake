@@ -37,17 +37,13 @@ class ReportingTests(unittest.TestCase):
                 "threshold": 0.4,
                 "auc": 0.8,
                 "sample_count": 10,
-                "texture_auc": 0.79,
-                "zero_auxiliary_auc": 0.78,
+                "true_negative": 4,
             },
             context={"Dataset": "celebdf"},
         )
 
         self.assertLess(report.index("RANKING METRICS"), report.index("OPERATING POINT"))
-        self.assertLess(report.index("OPERATING POINT"), report.index("BRANCH DIAGNOSTICS"))
-        self.assertLess(report.index("BRANCH DIAGNOSTICS"), report.index("CONFUSION COUNTS"))
-        self.assertLess(report.index("BRANCH DIAGNOSTICS"), report.index("ZERO-AUXILIARY"))
-        self.assertLess(report.index("ZERO-AUXILIARY"), report.index("CONFUSION COUNTS"))
+        self.assertLess(report.index("OPERATING POINT"), report.index("CONFUSION COUNTS"))
         self.assertIn("Dataset", report)
         self.assertIn("celebdf", report)
 

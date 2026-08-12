@@ -5,8 +5,6 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-import torch
-from torch import nn
 
 from qalf.data.dataset import QALFVideoDataset
 from qalf.data.manifest import VideoRecord, write_manifest
@@ -19,7 +17,6 @@ from qalf.data.sbi import (
     resolve_sbi_config,
     stratum_sampling_weights,
 )
-from qalf.engine import qalf_loss
 
 
 class SBIConfigTests(unittest.TestCase):
@@ -164,95 +161,6 @@ class SBIDatasetStrataTests(unittest.TestCase):
         )
         self.assertEqual(len(baseline), 2)
         self.assertEqual(baseline.labels, [0, 1])
-
-
-class SBILossMaskTests(unittest.TestCase):
-    def test_branch_warmup_disables_fused_gradient(self) -> None:
-        fused_logit = torch.tensor([0.2, -0.1], requires_grad=True)
-        auxiliary_logit = torch.tensor([0.3, -0.2], requires_grad=True)
-        texture_logit = torch.tensor([0.4, -0.3], requires_grad=True)
-        loss, _ = qalf_loss(
-            {
-                "logit": fused_logit,
-                "auxiliary_logit": auxiliary_logit,
-                "texture_logit": texture_logit,
-            },
-            torch.tensor([0.0, 1.0]),
-            nn.BCEWithLogitsLoss(),
-            auxiliary_weight=0.5,
-            texture_weight=0.5,
-            fused_weight=0.0,
-        )
-        loss.backward()
-
-        torch.testing.assert_close(fused_logit.grad, torch.zeros_like(fused_logit))
-        self.assertGreater(float(auxiliary_logit.grad.abs().sum()), 0.0)
-        self.assertGreater(float(texture_logit.grad.abs().sum()), 0.0)
-
-    def test_all_one_mask_matches_legacy_loss(self) -> None:
-        outputs = {
-            "logit": torch.tensor([-0.5, 0.4]),
-            "texture_logit": torch.tensor([0.2, -0.3]),
-            "auxiliary_logit": torch.tensor([0.7, -0.9]),
-        }
-        labels = torch.tensor([0.0, 1.0])
-        legacy, legacy_parts = qalf_loss(
-            outputs,
-            labels,
-            nn.BCEWithLogitsLoss(),
-            auxiliary_weight=0.25,
-            texture_weight=0.25,
-        )
-        masked, masked_parts = qalf_loss(
-            outputs,
-            labels,
-            nn.BCEWithLogitsLoss(),
-            auxiliary_weight=0.25,
-            texture_weight=0.25,
-            auxiliary_loss_mask=torch.ones(2),
-        )
-
-        torch.testing.assert_close(masked, legacy)
-        self.assertEqual(masked_parts, legacy_parts)
-
-    def test_sbi_sample_is_excluded_from_geometry_auxiliary_loss(self) -> None:
-        outputs = {
-            "logit": torch.zeros(2),
-            "texture_logit": torch.zeros(2),
-            "auxiliary_logit": torch.tensor([0.0, -100.0], requires_grad=True),
-        }
-        labels = torch.tensor([0.0, 1.0])
-        loss, parts = qalf_loss(
-            outputs,
-            labels,
-            nn.BCEWithLogitsLoss(),
-            auxiliary_weight=0.25,
-            texture_weight=0.25,
-            auxiliary_loss_mask=torch.tensor([1.0, 0.0]),
-        )
-
-        self.assertTrue(torch.isfinite(loss))
-        self.assertAlmostEqual(parts["auxiliary"], float(np.log(2.0)), places=5)
-
-    def test_all_masked_auxiliary_loss_is_differentiable_zero(self) -> None:
-        auxiliary_logit = torch.tensor([2.0, -3.0], requires_grad=True)
-        outputs = {
-            "logit": torch.zeros(2, requires_grad=True),
-            "texture_logit": torch.zeros(2, requires_grad=True),
-            "auxiliary_logit": auxiliary_logit,
-        }
-        loss, parts = qalf_loss(
-            outputs,
-            torch.tensor([0.0, 1.0]),
-            nn.BCEWithLogitsLoss(),
-            auxiliary_weight=0.25,
-            texture_weight=0.25,
-            auxiliary_loss_mask=torch.zeros(2),
-        )
-        loss.backward()
-
-        self.assertEqual(parts["auxiliary"], 0.0)
-        torch.testing.assert_close(auxiliary_logit.grad, torch.zeros_like(auxiliary_logit))
 
 
 if __name__ == "__main__":
