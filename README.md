@@ -118,8 +118,14 @@ retraining:
 Get-Content "E:/DeepFakeData/experiments/srm_complementarity_seed42.md"
 ```
 
-The `srm_staged` profile is implemented for a separately registered greedy-
-fusion diagnostic, but is deliberately not invoked by either SRM runner.
+The fixed and staged SRM variants are closed. The upgraded model uses a
+constrained learnable high-pass bank, stronger residual encoder, reproducible
+component initialization, and residual-interaction fusion. Run it once with:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_train_cross_dataset.sh learned_srm
+& "C:\Program Files\Git\bin\bash.exe" ./run_test_cross_dataset.sh learned_srm
+```
 
 Supported runner modes are `train`, `test`, and `all`. Evaluation always uses
 three clips, mean aggregation, 12 frames, horizontal-flip TTA, and a threshold

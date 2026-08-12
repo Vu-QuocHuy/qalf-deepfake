@@ -56,6 +56,7 @@
     "texture_pretrained": true,
     "texture_backbone": "efficientnet_b0",
     "auxiliary_branch": "geometry",
+    "fusion_architecture": "quality",
     "texture_gate_bias": 0.0
   },
   "training": {

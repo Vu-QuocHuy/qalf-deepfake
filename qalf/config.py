@@ -8,7 +8,10 @@ from typing import Any
 
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
 from qalf.data.sbi import resolve_sbi_config
-from qalf.models.qalf import SUPPORTED_AUXILIARY_BRANCHES
+from qalf.models.qalf import (
+    SUPPORTED_AUXILIARY_BRANCHES,
+    SUPPORTED_FUSION_ARCHITECTURES,
+)
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -56,6 +59,8 @@ def load_config(path: str | Path) -> dict[str, Any]:
         "dropout": 0.2,
         "texture_backbone": "efficientnet_b0",
         "auxiliary_branch": None,
+        "fusion_architecture": "quality",
+        "component_initialization_seed": None,
     }
     for name, default in model_defaults.items():
         config["model"].setdefault(name, default)
@@ -66,6 +71,16 @@ def load_config(path: str | Path) -> dict[str, Any]:
         config["model"]["auxiliary_branch"] = "none" if legacy_mode == "texture" else "geometry"
     if config["model"]["auxiliary_branch"] not in SUPPORTED_AUXILIARY_BRANCHES:
         raise ValueError("Unsupported model.auxiliary_branch")
+    if config["model"]["fusion_architecture"] not in SUPPORTED_FUSION_ARCHITECTURES:
+        raise ValueError("Unsupported model.fusion_architecture")
+    if (
+        config["model"]["auxiliary_branch"] == "none"
+        and config["model"]["fusion_architecture"] != "quality"
+    ):
+        raise ValueError("Texture-only mode requires model.fusion_architecture=quality")
+    component_seed = config["model"].get("component_initialization_seed")
+    if component_seed is not None and int(component_seed) < 0:
+        raise ValueError("model.component_initialization_seed cannot be negative")
     config["model"].pop("fusion_mode", None)
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(config["model"].get(name, 0)) < 1:

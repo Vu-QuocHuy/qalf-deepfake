@@ -3,7 +3,11 @@
 from typing import Any
 
 from .geometry import SUPPORTED_GEOMETRY_ARCHITECTURES
-from .qalf import SUPPORTED_AUXILIARY_BRANCHES, QALFModel
+from .qalf import (
+    SUPPORTED_AUXILIARY_BRANCHES,
+    SUPPORTED_FUSION_ARCHITECTURES,
+    QALFModel,
+)
 from .texture import SUPPORTED_TEXTURE_BACKBONES
 
 
@@ -33,7 +37,9 @@ def build_model_from_checkpoint(
         geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
         texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
         auxiliary_branch=auxiliary_branch,
+        fusion_architecture=str(model_config.get("fusion_architecture", "quality")),
         texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
+        component_initialization_seed=model_config.get("component_initialization_seed"),
     )
     if load_weights:
         model.load_state_dict(checkpoint["model"], strict=True)
@@ -46,4 +52,5 @@ __all__ = [
     "SUPPORTED_GEOMETRY_ARCHITECTURES",
     "SUPPORTED_TEXTURE_BACKBONES",
     "SUPPORTED_AUXILIARY_BRANCHES",
+    "SUPPORTED_FUSION_ARCHITECTURES",
 ]

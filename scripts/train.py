@@ -25,7 +25,12 @@ from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_M
 from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import SUPPORTED_AUXILIARY_BRANCHES, SUPPORTED_TEXTURE_BACKBONES, QALFModel
+from qalf.models import (
+    SUPPORTED_AUXILIARY_BRANCHES,
+    SUPPORTED_FUSION_ARCHITECTURES,
+    SUPPORTED_TEXTURE_BACKBONES,
+    QALFModel,
+)
 from qalf.models.geometry import SUPPORTED_GEOMETRY_ARCHITECTURES
 from qalf.reporting import collect_run_metadata, save_training_history_plot
 
@@ -243,6 +248,11 @@ def main() -> None:
     )
     parser.add_argument("--auxiliary-branch", choices=tuple(sorted(SUPPORTED_AUXILIARY_BRANCHES)))
     parser.add_argument(
+        "--fusion-architecture",
+        choices=tuple(sorted(SUPPORTED_FUSION_ARCHITECTURES)),
+    )
+    parser.add_argument("--component-initialization-seed", type=int)
+    parser.add_argument(
         "--texture-backbone",
         choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES)),
     )
@@ -270,6 +280,10 @@ def main() -> None:
         data["geometry_mode"] = args.geometry_mode
     if args.auxiliary_branch:
         model_config["auxiliary_branch"] = args.auxiliary_branch
+    if args.fusion_architecture:
+        model_config["fusion_architecture"] = args.fusion_architecture
+    if args.component_initialization_seed is not None:
+        model_config["component_initialization_seed"] = args.component_initialization_seed
     if args.texture_backbone:
         model_config["texture_backbone"] = args.texture_backbone
     if args.texture_mode:
@@ -359,6 +373,14 @@ def main() -> None:
             parser.error(f"model.{name} must be at least one")
     if not 0.0 <= float(model_config.get("dropout", 0.0)) < 1.0:
         parser.error("model.dropout must be in [0, 1)")
+    component_seed = model_config.get("component_initialization_seed")
+    if component_seed is not None and int(component_seed) < 0:
+        parser.error("model.component_initialization_seed cannot be negative")
+    if (
+        model_config.get("auxiliary_branch") == "none"
+        and model_config.get("fusion_architecture", "quality") != "quality"
+    ):
+        parser.error("texture-only mode requires model.fusion_architecture=quality")
     seed = int(config.get("seed", 42))
     deterministic = bool(training.get("deterministic", False))
     _seed_everything(seed, deterministic=deterministic)
@@ -440,7 +462,9 @@ def main() -> None:
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
         auxiliary_branch=str(model_config.get("auxiliary_branch", "geometry")),
+        fusion_architecture=str(model_config.get("fusion_architecture", "quality")),
         texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
+        component_initialization_seed=model_config.get("component_initialization_seed"),
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(
@@ -477,10 +501,12 @@ def main() -> None:
     epochs = int(training["epochs"])
     run_started = time.perf_counter()
     logger.info(
-        "Training started  output=%s auxiliary_branch=%s fusion_warmup_epochs=%d "
+        "Training started  output=%s auxiliary_branch=%s fusion=%s "
+        "fusion_warmup_epochs=%d "
         "parameters=%d trainable=%d",
         output_dir,
         auxiliary_branch,
+        model_config.get("fusion_architecture", "quality"),
         fusion_warmup_epochs,
         sum(parameter.numel() for parameter in model.parameters()),
         sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),

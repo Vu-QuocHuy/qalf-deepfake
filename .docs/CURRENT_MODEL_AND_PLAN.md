@@ -1,7 +1,8 @@
 # QALF current model and research plan
 
-Status: fixed-SRM fusion failed its registered seed-42 gate; post-hoc
-complementarity diagnosis is the next step, 2026-08-12.
+Status: fixed-SRM and staged softmax fusion are closed. The active model is the
+learnable constrained residual stream with residual-interaction fusion,
+2026-08-12.
 
 ## Locked protocol
 
@@ -89,29 +90,42 @@ SRM advances to seeds 17 and 73 only if all conditions hold:
 The candidate failed because its mean SRM weight was below 0.05 and fused AUC
 was below its own texture AUC. This gate remains unchanged in the record.
 
-## Current diagnostic
+## Closed SRM diagnostics
 
-Run once without retraining:
+The completed post-hoc diagnostic is reproducible with:
 
 ```bash
 ./run_srm_diagnostics.sh
 ```
 
-This evaluates the SRM checkpoint's texture score with a texture-specific
-threshold selected on FF++ validation and reports score correlation, error
-overlap, an FF++-selected linear blend, and gate trajectory. It is explicitly
-post-hoc and cannot serve as final confirmatory evidence.
+It showed low texture/SRM correlation and 65 SRM-only-correct videos, but an
+FF++-selected linear blend assigned zero weight to SRM. Five branch-only warmup
+epochs also failed: Celeb-DF fused/texture/SRM AUC was
+0.8086/0.8096/0.5769 and mean SRM routing weight was 0.0005. The fixed branch,
+softmax gate, and staged variant are therefore closed.
 
-A staged SRM profile is implemented but must not be launched until this report
-is reviewed:
+## Active upgraded model
+
+The retained upgrade addresses the identified structural failures directly:
+
+1. SRM kernels initialize a trainable filter bank; every update is projected to
+   zero spatial mean, preserving zero DC response.
+2. A roughly half-million-parameter residual CNN replaces the 28K-parameter
+   fixed-SRM encoder.
+3. An explicit component seed makes texture initialization independent of the
+   auxiliary architecture while preserving legacy-profile reproducibility.
+4. Fusion uses texture logit as a skip connection and learns a bounded,
+   quality-conditioned correction from texture/residual products and absolute
+   differences. It no longer makes the branches compete in a softmax mixture.
+5. Eight branch-only epochs train both evidence streams before joint fusion;
+   the fusion module is frozen and warmup epochs cannot become best checkpoints.
+
+Train and evaluate the final profile once:
 
 ```bash
-./run_train_cross_dataset.sh srm_staged
+./run_train_cross_dataset.sh learned_srm
+./run_test_cross_dataset.sh learned_srm
 ```
-
-It uses five branch-only warmup epochs (`0.5 * SRM BCE + 0.5 * texture BCE`) with
-the fusion module frozen, then enables the original fused + auxiliary objectives.
-Warmup epochs are excluded from checkpoint selection and early stopping.
 
 ## Removed directions
 

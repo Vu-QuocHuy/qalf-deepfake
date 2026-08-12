@@ -30,6 +30,7 @@ fi
 PROFILE="${1:-full_face_sbi}"
 PROFILE_ARGS=()
 AUXILIARY_BRANCH='geometry'
+USE_COMPONENT_SEED=false
 case "$PROFILE" in
     full_face_sbi)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi'
@@ -48,15 +49,22 @@ case "$PROFILE" in
         AUXILIARY_BRANCH='srm'
         PROFILE_ARGS+=(--texture-mode full_face --sbi)
         ;;
-    srm_staged)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_srm_staged'
-        DESCRIPTION='diagnostic SRM training with five branch-only warmup epochs'
-        AUXILIARY_BRANCH='srm'
-        PROFILE_ARGS+=(--texture-mode full_face --sbi --fusion-warmup-epochs 5)
+    learned_srm)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_learned_srm'
+        DESCRIPTION='learnable constrained high-pass stream + residual-interaction fusion'
+        AUXILIARY_BRANCH='learned_srm'
+        PROFILE_ARGS+=(
+            --texture-mode full_face
+            --sbi
+            --fusion-architecture residual_interaction
+            --fusion-warmup-epochs 8
+            --auxiliary-loss-weight 0.5
+        )
+        USE_COMPONENT_SEED=true
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face_sbi, texture_only_sbi, srm_sbi, or srm_staged' >&2
+        echo 'Use: full_face_sbi, texture_only_sbi, srm_sbi, or learned_srm' >&2
         exit 2
         ;;
 esac
@@ -65,6 +73,9 @@ SEED="${QALF_SEED:-42}"
 if ! [[ "$SEED" =~ ^[0-9]+$ ]]; then
     echo "ERROR: QALF_SEED must be a non-negative integer; got '$SEED'" >&2
     exit 2
+fi
+if [[ "$USE_COMPONENT_SEED" == true ]]; then
+    PROFILE_ARGS+=(--component-initialization-seed "$SEED")
 fi
 if [[ "$SEED" != '42' ]]; then
     EXPERIMENT="${EXPERIMENT}_seed${SEED}"

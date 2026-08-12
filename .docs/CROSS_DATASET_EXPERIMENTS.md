@@ -9,7 +9,7 @@ and 12 evaluation frames.
 | `texture_only_sbi` | Texture-only SBI control |
 | `full_face_sbi` | Retained landmark geometry + texture baseline A |
 | `srm_sbi` | Fixed SRM residual + texture candidate |
-| `srm_staged` | Implemented staged-training diagnostic; do not run automatically |
+| `learned_srm` | Active constrained learned-residual + interaction-fusion model |
 
 Run the complete seed-42 comparison from Git Bash:
 
@@ -44,6 +44,13 @@ historical and must not currently be run. Generate the post-hoc diagnostic with:
 
 ```powershell
 & "C:\Program Files\Git\bin\bash.exe" ./run_srm_diagnostics.sh
+```
+
+Train and test the upgraded model:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_train_cross_dataset.sh learned_srm
+& "C:\Program Files\Git\bin\bash.exe" ./run_test_cross_dataset.sh learned_srm
 ```
 
 Training artifacts are `best.pt`, `config.json`, `run_metadata.json`,

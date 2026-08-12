@@ -155,6 +155,7 @@ def main() -> None:
         f"texture_mode={data.get('texture_mode', 'full_face')} "
         "texture_pooling=mean "
         f"auxiliary_branch={configured_auxiliary} "
+        f"fusion_architecture={model_config.get('fusion_architecture', 'quality')} "
         f"training_texture_frames={training_texture_frames} "
         f"image_size={int(data['image_size'])} "
         f"weights={checkpoint.get('model_weights', 'raw')}"
@@ -374,6 +375,7 @@ def main() -> None:
             "texture_temporal_pooling": "mean",
             "geometry_architecture": model_config.get("geometry_architecture", "tcn_mean"),
             "auxiliary_branch": getattr(model, "auxiliary_branch", "geometry"),
+            "fusion_architecture": getattr(model, "fusion_architecture", "quality"),
             "texture_mode": data.get("texture_mode", "full_face"),
             "model_weights": checkpoint.get("model_weights", "raw"),
         },
