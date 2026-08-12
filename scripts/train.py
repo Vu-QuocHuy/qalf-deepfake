@@ -25,7 +25,11 @@ from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.ema import ModelEMA
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import SUPPORTED_TEXTURE_BACKBONES, QALFModel
+from qalf.models import (
+    SUPPORTED_TEMPORAL_POOLINGS,
+    SUPPORTED_TEXTURE_BACKBONES,
+    QALFModel,
+)
 from qalf.reporting import collect_run_metadata, save_training_history_plot
 
 
@@ -166,6 +170,9 @@ def main() -> None:
     parser.add_argument(
         "--texture-backbone", choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES))
     )
+    parser.add_argument(
+        "--temporal-pooling", choices=tuple(sorted(SUPPORTED_TEMPORAL_POOLINGS))
+    )
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--no-balanced-sampler", action="store_true")
@@ -179,6 +186,8 @@ def main() -> None:
         data["texture_mode"] = args.texture_mode
     if args.texture_backbone:
         model_config["texture_backbone"] = args.texture_backbone
+    if args.temporal_pooling:
+        model_config["temporal_pooling"] = args.temporal_pooling
     for key, value in {
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
@@ -308,6 +317,7 @@ def main() -> None:
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
+        temporal_pooling=str(model_config.get("temporal_pooling", "mean")),
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(
@@ -333,10 +343,11 @@ def main() -> None:
     epochs = int(training["epochs"])
     run_started = time.perf_counter()
     logger.info(
-        "Training started  output=%s model=texture_only backbone=%s frames=%d/%d "
-        "parameters=%d trainable=%d ema_decay=%.4f validation_weights=%s",
+        "Training started  output=%s model=texture_only backbone=%s pooling=%s "
+        "frames=%d/%d parameters=%d trainable=%d ema_decay=%.4f validation_weights=%s",
         output_dir,
         model_config.get("texture_backbone", "efficientnet_b0"),
+        model_config.get("temporal_pooling", "mean"),
         int(data["texture_frames"]),
         int(data["num_frames"]),
         sum(parameter.numel() for parameter in model.parameters()),

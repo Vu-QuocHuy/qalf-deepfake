@@ -132,12 +132,13 @@ def main() -> None:
     logger.info("=" * 72)
     logger.info("QALF TEXTURE-ONLY EVALUATION")
     logger.info(
-        "  model | backbone=%s input=full_face frames=%d/%d image_size=%d pooling=mean "
+        "  model | backbone=%s input=full_face frames=%d/%d image_size=%d pooling=%s "
         "weights=%s ema_decay=%.4f",
         model_config.get("texture_backbone", "efficientnet_b0"),
         texture_frames,
         int(data["num_frames"]),
         int(data["image_size"]),
+        model_config.get("temporal_pooling", "mean"),
         checkpoint.get("model_weights", "raw"),
         float(checkpoint.get("ema_decay", 0.0)),
     )
@@ -255,7 +256,7 @@ def main() -> None:
         "model": {
             "architecture": "texture_only",
             "texture_backbone": model_config.get("texture_backbone", "efficientnet_b0"),
-            "texture_temporal_pooling": "mean",
+            "texture_temporal_pooling": model_config.get("temporal_pooling", "mean"),
             "texture_mode": data.get("texture_mode", "full_face"),
             "model_weights": checkpoint.get("model_weights", "raw"),
             "ema_decay": float(checkpoint.get("ema_decay", 0.0)),

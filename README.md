@@ -7,7 +7,7 @@ EfficientNet-B0, and Self-Blended Images (SBI) training.
 
 ```text
 video -> extracted frame sequence -> landmark face alignment (preprocessing)
-      -> RGB face frames -> EfficientNet-B0 per frame -> mean temporal pooling
+      -> RGB face frames -> EfficientNet-B0 per frame -> attention temporal pooling
       -> clip P(fake) -> mean of three clips = video P(fake)
 ```
 
@@ -49,6 +49,9 @@ From Git Bash on Windows:
 The canonical runner trains for up to 50 epochs with early stopping patience
 5, uses EMA decay `0.999`, updates EMA after every optimizer step, selects EMA
 weights for FF++ validation, and saves those weights in `best.pt`.
+
+The temporal aggregator is a one-layer attention scorer per frame followed by
+a weighted sum; it adds no second modality or fusion gate.
 
 The locked protocol uses FF++ c23, 32-frame clip windows, 8 frames during
 training, and 12 frames in each of three evaluation clips. Evaluation uses

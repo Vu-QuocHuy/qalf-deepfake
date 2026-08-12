@@ -34,13 +34,14 @@ LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
 VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
-OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema}"
+OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_temporal_attention}"
 SEED="${QALF_SEED:-42}"
 EPOCHS="${QALF_EPOCHS:-50}"
 
 export CUBLAS_WORKSPACE_CONFIG=':4096:8'
 echo "Python: $PYTHON"
 echo "Training output: $OUTPUT_DIR"
+echo "Temporal pooling: attention"
 
 "$PYTHON" scripts/train.py \
     --config configs/ffpp_to_celebdf.json \
@@ -66,6 +67,7 @@ echo "Training output: $OUTPUT_DIR"
     --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
     --texture-backbone efficientnet_b0 \
     --texture-mode full_face \
+    --temporal-pooling attention \
     --embedding-dim 192 \
     --dropout 0.3 \
     --sbi \

@@ -47,6 +47,9 @@ def load_config(path: str | Path) -> dict[str, Any]:
     model.setdefault("texture_backbone", "efficientnet_b0")
     if model["texture_backbone"] != "efficientnet_b0":
         raise ValueError("model.texture_backbone must be efficientnet_b0")
+    model.setdefault("temporal_pooling", "mean")
+    if model["temporal_pooling"] not in {"mean", "attention"}:
+        raise ValueError("model.temporal_pooling must be mean or attention")
     if int(model["embedding_dim"]) < 1:
         raise ValueError("model.embedding_dim must be >= 1")
     if not 0.0 <= float(model["dropout"]) < 1.0:

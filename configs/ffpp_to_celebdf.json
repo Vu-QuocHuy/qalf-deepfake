@@ -41,7 +41,8 @@
     "embedding_dim": 192,
     "dropout": 0.3,
     "texture_pretrained": true,
-    "texture_backbone": "efficientnet_b0"
+    "texture_backbone": "efficientnet_b0",
+    "temporal_pooling": "attention"
   },
   "training": {
     "epochs": 50,
