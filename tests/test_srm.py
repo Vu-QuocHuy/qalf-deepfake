@@ -10,7 +10,9 @@ from qalf.models.fusion import ResidualInteractionFusion
 from qalf.models.qalf import QALFModel
 from qalf.models.srm import (
     ConstrainedHighPassBank,
+    ConstrainedDiverseHighPassBank,
     LearnableSRMEncoder,
+    LearnableSRMEncoderV2,
     SRMEncoder,
     _srm_kernels,
 )
@@ -95,6 +97,21 @@ class SRMEncoderTests(unittest.TestCase):
         self.assertEqual(embedding.shape, (2, 16))
         self.assertEqual(logit.shape, (2,))
         self.assertEqual(quality.shape, (2, LearnableSRMEncoder.quality_dim))
+
+    def test_diverse_v2_bank_is_zero_dc_and_encoder_has_temporal_quality(self) -> None:
+        bank = ConstrainedDiverseHighPassBank(filters=30)
+        effective = bank.effective_weight()
+        torch.testing.assert_close(
+            effective.sum(dim=(-2, -1)),
+            torch.zeros(30, 1),
+            atol=1e-5,
+            rtol=0,
+        )
+        encoder = LearnableSRMEncoderV2(embedding_dim=16, dropout=0.0)
+        embedding, logit, quality = encoder(torch.randn(2, 4, 3, 32, 32))
+        self.assertEqual(embedding.shape, (2, 16))
+        self.assertEqual(logit.shape, (2,))
+        self.assertEqual(quality.shape, (2, LearnableSRMEncoderV2.quality_dim))
 
     def test_residual_interaction_starts_from_texture_decision(self) -> None:
         fusion = ResidualInteractionFusion(

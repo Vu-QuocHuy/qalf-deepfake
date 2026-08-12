@@ -15,12 +15,13 @@ SBI training, eight training frames, and 12 evaluation frames.
 - `texture_only_sbi`: RGB texture control.
 - `full_face_sbi`: retained landmark-geometry + RGB baseline A.
 - `srm_sbi`: fixed high-pass SRM residual + RGB candidate.
+- `learned_srm_v2`: lightweight diverse learned-SRM residual + RGB model.
 
-The SRM branch applies three frozen zero-sum 5 x 5 filters independently to RGB,
-encodes the resulting nine residual maps with a small depthwise-separable CNN,
-mean-pools frame embeddings, and uses the existing quality-aware two-branch
-fusion. There is no reliability loss, modality dropout, EMA, MixStyle, B1, or
-learned high-pass filter in the active experiment.
+The upgraded SRM branch applies 30 diverse learnable zero-DC 5 x 5 filters to
+grayscale frames, rectifies the residuals, compresses them to three channels,
+and uses a small CNN with spatial attention and temporal statistics. It keeps
+EfficientNet-B0 as the RGB backbone and does not copy the heavier B4/Transformer
+design from the reference repository.
 
 ## Environment
 
@@ -123,8 +124,8 @@ constrained learnable high-pass bank, stronger residual encoder, reproducible
 component initialization, and residual-interaction fusion. Run it once with:
 
 ```powershell
-& "C:\Program Files\Git\bin\bash.exe" ./run_train_cross_dataset.sh learned_srm
-& "C:\Program Files\Git\bin\bash.exe" ./run_test_cross_dataset.sh learned_srm
+& "C:\Program Files\Git\bin\bash.exe" ./run_train_cross_dataset.sh learned_srm_v2
+& "C:\Program Files\Git\bin\bash.exe" ./run_test_cross_dataset.sh learned_srm_v2
 ```
 
 Supported runner modes are `train`, `test`, and `all`. Evaluation always uses

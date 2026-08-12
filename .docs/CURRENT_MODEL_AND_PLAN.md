@@ -1,7 +1,8 @@
 # QALF current model and research plan
 
-Status: fixed-SRM and staged softmax fusion are closed. The active model is the
-learnable constrained residual stream with residual-interaction fusion,
+Status: fixed-SRM and staged softmax fusion are closed. The active model
+candidate is the lightweight diverse-SRM residual stream with residual-
+interaction fusion,
 2026-08-12.
 
 ## Locked protocol
@@ -108,23 +109,25 @@ softmax gate, and staged variant are therefore closed.
 
 The retained upgrade addresses the identified structural failures directly:
 
-1. SRM kernels initialize a trainable filter bank; every update is projected to
-   zero spatial mean, preserving zero DC response.
-2. A roughly half-million-parameter residual CNN replaces the 28K-parameter
-   fixed-SRM encoder.
-3. An explicit component seed makes texture initialization independent of the
+1. A 30-filter bank initializes from diverse first/second-order SRM filters;
+   every update is projected to zero spatial mean and L1-normalized.
+2. Residuals are extracted from grayscale, rectified with `abs()`, compressed
+   to three channels by a `1x1` adapter, and processed by a small CNN.
+3. Lightweight spatial attention and mean/std/frame-difference pooling expose
+   both artifact location and temporal instability.
+4. An explicit component seed makes texture initialization independent of the
    auxiliary architecture while preserving legacy-profile reproducibility.
-4. Fusion uses texture logit as a skip connection and learns a bounded,
+5. Fusion uses texture logit as a skip connection and learns a bounded,
    quality-conditioned correction from texture/residual products and absolute
    differences. It no longer makes the branches compete in a softmax mixture.
-5. Eight branch-only epochs train both evidence streams before joint fusion;
+6. Eight branch-only epochs train both evidence streams before joint fusion;
    the fusion module is frozen and warmup epochs cannot become best checkpoints.
 
 Train and evaluate the final profile once:
 
 ```bash
-./run_train_cross_dataset.sh learned_srm
-./run_test_cross_dataset.sh learned_srm
+./run_train_cross_dataset.sh learned_srm_v2
+./run_test_cross_dataset.sh learned_srm_v2
 ```
 
 ## Removed directions

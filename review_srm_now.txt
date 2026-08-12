@@ -1,0 +1,101 @@
+Repo có update lớn — nhánh SRM fixed + softmax gate đã bị "đóng" (fail gate, ghi rõ trong .docs/CURRENT_MODEL_AND_PLAN.md), và bạn đang chạy model mới: learned_srm với ResidualInteractionFusion. Đây là 2 thay đổi khác hẳn về bản chất, không chỉ là "thêm kernel", nên cần đọc kỹ trước khi kết luận.
+
+Điểm mấu chốt: "Mean auxiliary weight" giờ có ý nghĩa khác hoàn toàn
+
+Ở model cũ (QualityAwareFusion), weight là softmax cạnh tranh giữa 2 embedding — weight cao nghĩa là "gate tin SRM hơn texture".
+
+Ở ResidualInteractionFusion (code mới trong fusion.py), công thức là:
+
+python
+fused_logit = texture_logit + confidence * correction   # correction ∈ [-2, 2]
+routing = (confidence, 1 - confidence)
+
+Texture logit luôn là đường skip-connection chính. "Auxiliary weight" bạn thấy (0.70, median 0.83) thực ra là confidence — mức độ tự tin để áp một khoản hiệu chỉnh cộng thêm, không phải tỷ trọng đóng góp thật sự vào quyết định cuối. Confidence cao chỉ có nghĩa "correction được áp mạnh", chứ không đảm bảo correction đó đúng hướng.
+
+Bằng chứng correction không giúp gì — thậm chí gây hại
+
+Nhìn vào phần zero-auxiliary counterfactual của bạn:
+
+Normal minus zero-auxiliary AUC..............       0.0000
+Mean absolute score shift....................       0.0063 (fixed-SRM run trước)  → 0.0222 (learned_srm)
+Maximum absolute score shift.................       0.3630              → 0.2725
+
+0.0000 tuyệt đối là dấu hiệu rất rõ: khi zero hoá nhánh SRM, AUC (ranking) không đổi một chút nào — nghĩa là correction không mang thêm thông tin phân biệt real/fake nào ở mức xếp hạng trên Celeb-DF. Nhưng correction vẫn dịch chuyển giá trị điểm số (mean shift 0.022, max shift 0.27) — đủ để đẩy nhiều video qua ngưỡng Youden-J đã hiệu chỉnh trên FF++. Kết quả: AUC gần như giữ nguyên (0.8295 ≈ texture riêng 0.8301) nhưng operating-point metrics sụp — FN tăng từ 63 → 116 (bạn đang miss rất nhiều video fake), recall fake rơi từ 0.81 xuống 0.66.
+
+Nói cách khác: correction học được một pattern chỉ hợp với FF++ (nơi nó được train/chọn), không transfer sang Celeb-DF — nó dịch điểm số theo hướng ngẫu nhiên-với-nhãn-thật trên tập OOD, giữ AUC trung tính nhưng phá threshold.
+
+Tin tốt và tin xấu tách biệt nhau rõ ràng
+	Fixed SRM (câu trước)	Learned SRM (hiện tại)
+Auxiliary AUC (SRM riêng)	0.6078	0.6877 ↑
+Texture AUC (trong cùng checkpoint)	0.8524	0.8301 ↓
+Fused AUC	0.8481	0.8295
+Fused so với Texture riêng	fused < texture (fail gate #4)	fused < texture (vẫn fail, sát hơn)
+
+→ Tin tốt: bản thân nhánh SRM học filter được cải thiện thật (0.61→0.69) — hướng "tăng năng lực/relax fixed filter" trong câu hỏi trước của bạn là đúng, filter học được mang nhiều thông tin forensic hơn.
+
+→ Tin xấu: bạn đã đổi từ triệu chứng "gate quá lười, gần như bỏ SRM" (weight 0.006) sang "gate quá tự tin vào correction nhưng correction không generalize" (confidence 0.7 nhưng counterfactual = 0). Kết cục cuối vẫn giống nhau: fused không thắng được texture riêng — chỉ khác cơ chế thất bại.
+
+Ngoài ra texture AUC riêng cũng tụt so với checkpoint fixed-SRM (0.8524→0.8301), gần bằng control gốc (0.8403). Rất có thể do lịch train mới (--fusion-warmup-epochs 8, train riêng từng nhánh trước rồi mới fusion) khiến texture backbone không còn hưởng lợi "regularization phụ" từ việc train chung với SRM ngay từ đầu như bản fixed-SRM cũ.
+
+Việc nên làm tiếp — dùng đúng công cụ đã có sẵn trong repo
+
+Repo đã có sẵn scripts/analyze_srm_complementarity.py — chạy nó trên thư mục evaluation của learned_srm để có 3 con số quan trọng:
+
+celebdf_error_complementarity — đếm video mà SRM đúng còn texture sai (auxiliary_only_correct). Với auxiliary_auc đã lên 0.69, con số này rất đáng để xem có tăng so với bản fixed-SRM (65 video) không.
+ffpp_selected_linear_blend — một phép blend tuyến tính đơn giản w·texture + (1-w)·SRM, chọn w trên FF++, test trên Celeb-DF. Đây là upper-bound rất đáng tin cậy: nếu ngay cả blend tuyến tính đơn giản cũng không vượt được texture-only, thì vấn đề nằm ở bản thân độ transfer của tín hiệu SRM (không phải lỗi thiết kế fusion). Nếu blend tuyến tính thắng texture-only nhưng ResidualInteractionFusion học được lại thua, thì bug/nút thắt chắc chắn nằm ở kiến trúc correction (quá phức tạp, overfit FF++) chứ không phải ở filter.
+bash
+python scripts/analyze_srm_complementarity.py \
+  --evaluation-dir <thư_mục_eval_learned_srm> \
+  --history <experiment_dir>/history.json \
+  --output-prefix <đường_dẫn_output>
+
+Sau khi có kết quả đó, vài hướng sửa cụ thể nếu correction đúng là thủ phạm:
+
+Giảm biên độ correction: 2.0 * tanh(...) → thử 1.0 * tanh(...) hoặc thêm weight decay riêng cho self.correction để nó dè dặt hơn, tránh dịch điểm số quá xa so với texture logit gốc.
+Regularize confidence: thêm penalty nếu confidence trung bình quá cao (vd L2 lên logit trước sigmoid của self.confidence), buộc model chỉ tự tin khi thật sự cần.
+Rút ngắn hoặc bỏ warmup (fusion_warmup_epochs 8 → 0 hoặc 3–4) để xem có phải warmup đang "cướp" epoch fine-tune của texture, hay thử tăng tổng epoch budget sau warmup để texture kịp hồi phục.
+Vì checkpoint hiện chọn theo AUC (rank-only) trong khi vấn đề bạn gặp là calibration/threshold-transfer, cân nhắc theo dõi thêm ACER hoặc balanced-accuracy trên FF++ val khi early-stop, không chỉ AUC — vì AUC "mù" trước đúng loại lỗi bạn đang thấy.
+
+Bạn có muốn mình xem train.py phần xử lý sau-warmup (dòng ~500-620) để kiểm tra chính xác lịch LR/loss-weight áp dụng cho texture backbone sau khi fusion unfreeze không? Đó có thể là nơi giải thích vì sao texture AUC tụt.
+
+ok hãy tiến hành sau đó đưa ra nhận xét tổng thể luôn
+
+Viewed 3 files, ran a command
+Viewed 3 files, ran a command
+
+Mình đã xem kỹ phần train.py liên quan đến warmup/LR/checkpoint selection. Có 3 điểm cụ thể giải thích vì sao texture AUC bên trong checkpoint learned_srm tụt (0.8524 → 0.8301):
+
+Vì sao texture AUC tụt trong checkpoint mới
+auxiliary-loss-weight bị override lên 0.5 chỉ cho profile learned_srm (trong khi texture-loss-weight vẫn giữ 0.25 như cũ). Trong giai đoạn joint fusion, SRM branch nhận gấp đôi trọng số loss so với texture — hợp lý để ép SRM học tốt hơn (và nó có tác dụng: auxiliary AUC tăng 0.61→0.69), nhưng đồng nghĩa gradient tổng thể "thiên" về SRM hơn trước.
+Checkpoint chỉ được chọn từ epoch sau warmup (selection_eligible: not warmup_active), và early_stop_patience=5 chỉ đếm từ đó. Texture backbone đã quen với schedule "8 epoch train riêng (weight 0.5, không có fused loss) → rồi mới vào chế độ joint". So với control texture_only_sbi được train liên tục xuyên suốt cả 35 epoch không gián đoạn, texture trong learned_srm có ít epoch "ổn định" hơn để hội tụ lại sau khi chuyển pha, và early-stop có thể cắt ngang trước khi nó kịp phục hồi.
+CosineAnnealingLR step mỗi epoch bất kể đang warmup hay không (T_max=epochs tính trên toàn bộ 35 epoch). Đến epoch 9 (lúc joint fusion mới bắt đầu), LR đã giảm còn ~88% so với đỉnh — không phải nguyên nhân chính, nhưng cộng dồn với 2 điểm trên khiến giai đoạn fine-tune "thật sự" của texture bị ngắn và yếu hơn so với kịch bản train liên tục.
+
+Cơ chế đóng-băng/mở-khóa fusion (_set_fusion_trainable) thì làm đúng — không có bug, optimizer state của fusion không bị AdamW decay trong lúc đóng băng. Vấn đề nằm ở lịch trình huấn luyện, không phải lỗi logic.
+
+Nhận xét tổng thể
+
+Bức tranh dữ liệu bạn đang có, xâu chuỗi lại từ đầu:
+
+Bước	Auxiliary AUC riêng	Fused vs Texture riêng	Mean weight
+SRM cố định + softmax gate	0.6078	fused < texture (0.8481 < 0.8524)	0.0057 (gate lờ SRM)
+SRM cố định + linear blend chọn trên FF++	—	vẫn gán auxiliary weight ≈ 0	0
+SRM cố định + branch-warmup + softmax	—	fused/texture/SRM = 0.8086/0.8096/0.5769	0.0005
+SRM học được + residual-interaction fusion	0.6877	fused < texture (0.8295 < 0.8301)	0.70 (nhưng counterfactual = 0)
+
+Đây là 4 thí nghiệm fusion khác nhau, thất bại theo 4 cách khác nhau, nhưng luôn cùng một kết cục: fused không bao giờ vượt được texture riêng trên Celeb-DF. Đó là tín hiệu rất mạnh, không còn là ngẫu nhiên nữa.
+
+Điều quan trọng nhất bạn nên nhận ra: vấn đề không nằm ở "SRM có tín hiệu hay không".
+
+Auxiliary AUC tăng đều theo capacity (0.5 ngẫu nhiên → 0.61 → 0.69), và diễn giải trước đó của analyze_srm_complementarity.py đã chỉ ra có tồn tại video mà SRM đúng còn texture sai (65 video ở bản fixed). Tức là tín hiệu bổ trợ thật sự tồn tại. Nhưng mọi cơ chế fusion bạn thử — softmax cạnh tranh, linear blend chọn trên FF++, và giờ là correction có điều kiện — đều học được pattern hữu ích trên FF++ nhưng pattern đó không transfer sang Celeb-DF. Đây chính xác là biểu hiện của domain-shift fragility trong cơ chế fusion, không phải "SRM yếu" hay "kernel không đủ".
+
+Đây có thể là phát hiện đáng viết nhất cho paper RIVF, quan trọng hơn cả việc "SRM có giúp hay không":
+
+Thay vì đóng khung bài báo theo hướng "chúng tôi đề xuất SRM branch cải thiện deepfake detection" (rủi ro cao vì bạn chưa có bằng chứng nào ủng hộ điều này qua 4 lần thử), hãy cân nhắc đóng khung theo hướng chẩn đoán có kỷ luật: "residual forensic branches mang thông tin bổ trợ thật (đo được qua auxiliary AUC và error-complementarity), nhưng các cơ chế fusion phổ biến (gate cạnh tranh, correction có điều kiện) hệ thống hoá việc overfit vào FF++ và không transfer sang cross-dataset — bất kể fusion đơn giản hay phức tạp." Đây là kiểu kết luận mà một hội nghị khu vực như RIVF đánh giá cao vì tính chặt chẽ phương pháp luận, và bạn đã có sẵn toàn bộ bằng chứng (pre-registered gate, 4 lần ablation, counterfactual, error complementarity) — hiếm project sinh viên/early-researcher nào làm kỹ đến vậy.
+
+Điều mình lo ngại nhất lúc này: bạn đang ở nguy cơ rơi vào vòng lặp "thử kiến trúc fusion mới → fail → thử tiếp" trên cùng một tập Celeb-DF đã bị soi nhiều lần — chính docs của bạn đã tự cảnh báo Celeb-DF không còn là untouched test set. Mỗi vòng thử thêm là một lần tăng rủi ro overfit ngầm lên chính benchmark bạn dùng để báo cáo.
+
+Đề xuất hành động, theo thứ tự ưu tiên:
+
+Chạy analyze_srm_complementarity.py cho learned_srm ngay lập tức, trước khi thử bất kỳ kiến trúc fusion nào khác — để có ffpp_selected_linear_blend làm upper-bound tham chiếu. Nếu ngay cả blend tuyến tính đơn giản cũng thua texture-only trên Celeb-DF → đây là bằng chứng đủ mạnh để dừng nhánh SRM/fusion lại, viết nó thành phần "negative/diagnostic finding" của paper, và không cần thử thêm kiến trúc fusion thứ 5.
+Nếu bạn vẫn muốn thử tiếp, chỉ nên đổi một biến duy nhất so với learned_srm hiện tại (ví dụ: bỏ warmup, hoặc giảm biên độ correction) — và làm trên một development split riêng trên FF++ trước, đúng như protocol bạn tự đặt ra, trước khi chạm lại Celeb-DF lần nữa.
+Dành thời gian còn lại cho phần diễn giải/oracle_accuracy — con số này (độ chính xác nếu có một "oracle" biết chọn đúng nhánh cho từng video) sẽ cho bạn biết trần lý thuyết của việc kết hợp 2 nhánh, độc lập với việc fusion network có học được nó hay không — một con số rất tốt để đưa vào paper làm "potential upper bound" ngay cả khi fusion thực tế chưa đạt tới.

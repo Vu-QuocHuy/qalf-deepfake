@@ -7,10 +7,16 @@ from torch import nn
 
 from .fusion import QualityAwareFusion, ResidualInteractionFusion
 from .geometry import GeometryEncoder
-from .srm import LearnableSRMEncoder, SRMEncoder
+from .srm import LearnableSRMEncoder, LearnableSRMEncoderV2, SRMEncoder
 from .texture import TextureEncoder
 
-SUPPORTED_AUXILIARY_BRANCHES = {"geometry", "srm", "learned_srm", "none"}
+SUPPORTED_AUXILIARY_BRANCHES = {
+    "geometry",
+    "srm",
+    "learned_srm",
+    "learned_srm_v2",
+    "none",
+}
 SUPPORTED_FUSION_ARCHITECTURES = {"quality", "residual_interaction"}
 
 
@@ -63,6 +69,11 @@ class QALFModel(nn.Module):
             if auxiliary_branch == "learned_srm"
             else None
         )
+        self.learnable_srm_v2_encoder = (
+            LearnableSRMEncoderV2(embedding_dim, dropout)
+            if auxiliary_branch == "learned_srm_v2"
+            else None
+        )
         if component_initialization_seed is None:
             self.texture_encoder = TextureEncoder(
                 embedding_dim,
@@ -86,6 +97,8 @@ class QALFModel(nn.Module):
             auxiliary_quality_dim = SRMEncoder.quality_dim
         elif auxiliary_branch == "learned_srm":
             auxiliary_quality_dim = LearnableSRMEncoder.quality_dim
+        elif auxiliary_branch == "learned_srm_v2":
+            auxiliary_quality_dim = LearnableSRMEncoderV2.quality_dim
         else:
             auxiliary_quality_dim = geometry_quality_dim
         if auxiliary_branch == "none":
@@ -122,6 +135,10 @@ class QALFModel(nn.Module):
             if self.learnable_srm_encoder is None:
                 raise RuntimeError("Learnable SRM encoder is unavailable")
             return self.learnable_srm_encoder(batch["texture"])
+        if self.auxiliary_branch == "learned_srm_v2":
+            if self.learnable_srm_v2_encoder is None:
+                raise RuntimeError("Learnable SRM v2 encoder is unavailable")
+            return self.learnable_srm_v2_encoder(batch["texture"])
         raise RuntimeError("Texture-only mode has no auxiliary branch")
 
     def forward_texture(self, texture: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

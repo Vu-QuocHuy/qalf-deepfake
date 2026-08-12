@@ -49,10 +49,10 @@ case "$PROFILE" in
         AUXILIARY_BRANCH='srm'
         PROFILE_ARGS+=(--texture-mode full_face --sbi)
         ;;
-    learned_srm)
-        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_learned_srm'
-        DESCRIPTION='learnable constrained high-pass stream + residual-interaction fusion'
-        AUXILIARY_BRANCH='learned_srm'
+    learned_srm_v2)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_learned_srm_v2'
+        DESCRIPTION='diverse learnable SRM bank + abs residual + temporal stats'
+        AUXILIARY_BRANCH='learned_srm_v2'
         PROFILE_ARGS+=(
             --texture-mode full_face
             --sbi
@@ -64,7 +64,7 @@ case "$PROFILE" in
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face_sbi, texture_only_sbi, srm_sbi, or learned_srm' >&2
+        echo 'Use: full_face_sbi, texture_only_sbi, srm_sbi, or learned_srm_v2' >&2
         exit 2
         ;;
 esac
