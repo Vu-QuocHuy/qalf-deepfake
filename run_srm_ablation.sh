@@ -40,6 +40,25 @@ complete_training() {
     has_checkpoint "$1" && [[ -f "$EXPERIMENTS_ROOT/$1/training_summary.json" ]]
 }
 
+has_evaluation() {
+    [[ -f "$EXPERIMENTS_ROOT/${1}${EVALUATION_SUFFIX}/metrics.json" ]]
+}
+
+ensure_profile_available() {
+    local profile="$1"
+    local experiment="$2"
+    if has_evaluation "$experiment"; then
+        echo "$profile: completed evaluation already available"
+    elif complete_training "$experiment"; then
+        echo "$profile: keeping completed checkpoint: $EXPERIMENTS_ROOT/$experiment/best.pt"
+    elif has_checkpoint "$experiment"; then
+        echo "$profile: checkpoint available; training summary is optional for evaluation"
+    else
+        echo "$profile: neither evaluation nor checkpoint exists; training now"
+        "$PROJECT_ROOT/run_train_cross_dataset.sh" "$profile"
+    fi
+}
+
 require_checkpoint_for_evaluation() {
     if ! has_checkpoint "$1"; then
         echo "ERROR: evaluation is missing and no checkpoint is available:" >&2
@@ -54,11 +73,9 @@ echo "Controls: texture-only SBI, geometry baseline A"
 echo "Candidate: fixed SRM residual bank + lightweight CNN, no dropout/reliability"
 
 if [[ "$MODE" == train || "$MODE" == all ]]; then
-    if complete_training "$SRM_EXPERIMENT"; then
-        echo "SRM: keeping completed checkpoint: $EXPERIMENTS_ROOT/$SRM_EXPERIMENT/best.pt"
-    else
-        "$PROJECT_ROOT/run_train_cross_dataset.sh" srm_sbi
-    fi
+    ensure_profile_available texture_only_sbi "$TEXTURE_EXPERIMENT"
+    ensure_profile_available full_face_sbi "$GEOMETRY_EXPERIMENT"
+    ensure_profile_available srm_sbi "$SRM_EXPERIMENT"
 fi
 
 if [[ "$MODE" == test || "$MODE" == all ]]; then
