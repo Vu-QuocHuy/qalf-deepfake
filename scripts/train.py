@@ -20,12 +20,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from qalf.config import load_config, save_json
-from qalf.data.dataset import TEXTURE_MODES, QALFVideoDataset, texture_view_count
+from qalf.data.dataset import TEXTURE_MODES, QALFVideoDataset
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE, GEOMETRY_FEATURE_MODES
 from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
-from qalf.engine import EMAModel, aggregate_predictions, predict, train_epoch
+from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import SUPPORTED_TEXTURE_BACKBONES, SUPPORTED_TEXTURE_POOLING, QALFModel
+from qalf.models import SUPPORTED_TEXTURE_BACKBONES, QALFModel
 from qalf.models.geometry import SUPPORTED_GEOMETRY_ARCHITECTURES
 from qalf.reporting import collect_run_metadata, save_training_history_plot
 
@@ -209,11 +209,6 @@ def main() -> None:
     parser.add_argument("--weight-decay", type=float)
     parser.add_argument("--geometry-loss-weight", type=float)
     parser.add_argument("--texture-loss-weight", type=float)
-    parser.add_argument(
-        "--ema-decay",
-        type=float,
-        help="EMA decay in (0, 1); omit or use 0 to validate raw weights.",
-    )
     parser.add_argument("--early-stop-patience", type=int)
     parser.add_argument("--geometry-hidden", type=int)
     parser.add_argument("--geometry-layers", type=int)
@@ -239,27 +234,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--fusion-mode",
-        choices=(
-            "geometry",
-            "texture",
-            "average",
-            "concat",
-            "content_gate",
-            "quality_only",
-            "quality",
-        ),
+        choices=("texture", "quality"),
     )
     parser.add_argument(
         "--texture-backbone",
         choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES)),
     )
-    parser.add_argument(
-        "--texture-temporal-pooling",
-        choices=tuple(sorted(SUPPORTED_TEXTURE_POOLING)),
-    )
-    parser.add_argument("--texture-mixstyle-probability", type=float)
-    parser.add_argument("--texture-mixstyle-alpha", type=float)
-    parser.add_argument("--texture-mixstyle-layers", type=int, nargs="+")
     parser.add_argument("--modality-dropout-probability", type=float)
     parser.add_argument("--reliability-gate-loss-weight", type=float)
     parser.add_argument("--no-geometry-augmentation", action="store_true")
@@ -288,8 +268,6 @@ def main() -> None:
         model_config["fusion_mode"] = args.fusion_mode
     if args.texture_backbone:
         model_config["texture_backbone"] = args.texture_backbone
-    if args.texture_temporal_pooling:
-        model_config["texture_temporal_pooling"] = args.texture_temporal_pooling
     if args.texture_mode:
         data["texture_mode"] = args.texture_mode
     model_overrides = {
@@ -299,9 +277,6 @@ def main() -> None:
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
         "texture_gate_bias": args.texture_gate_bias,
-        "texture_mixstyle_probability": args.texture_mixstyle_probability,
-        "texture_mixstyle_alpha": args.texture_mixstyle_alpha,
-        "texture_mixstyle_layers": args.texture_mixstyle_layers,
         "modality_dropout_probability": args.modality_dropout_probability,
     }
     model_config.update({key: value for key, value in model_overrides.items() if value is not None})
@@ -330,7 +305,6 @@ def main() -> None:
         "weight_decay": args.weight_decay,
         "geometry_loss_weight": args.geometry_loss_weight,
         "texture_loss_weight": args.texture_loss_weight,
-        "ema_decay": args.ema_decay,
         "early_stop_patience": args.early_stop_patience,
         "reliability_gate_loss_weight": args.reliability_gate_loss_weight,
     }
@@ -374,9 +348,6 @@ def main() -> None:
             parser.error(f"training.{name} cannot be negative")
     if int(training.get("early_stop_patience", 0)) < 0:
         parser.error("training.early_stop_patience cannot be negative")
-    ema_decay = float(training.get("ema_decay", 0.0))
-    if ema_decay != 0.0 and not 0.0 < ema_decay < 1.0:
-        parser.error("training.ema_decay must be zero or in (0, 1)")
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(model_config.get(name, 0)) < 1:
             parser.error(f"model.{name} must be at least one")
@@ -390,19 +361,11 @@ def main() -> None:
         parser.error("training.reliability_gate_loss_weight cannot be negative")
     if reliability_gate_loss_weight > 0.0 and modality_dropout_probability == 0.0:
         parser.error("Reliability gate loss requires positive modality dropout")
-    if modality_dropout_probability > 0.0 and str(
-        model_config.get("fusion_mode", "quality")
-    ) not in {"quality", "quality_only", "content_gate"}:
-        parser.error("Modality dropout requires a learned gated fusion mode")
-    mixstyle_probability = float(model_config.get("texture_mixstyle_probability", 0.0))
-    mixstyle_alpha = float(model_config.get("texture_mixstyle_alpha", 0.1))
-    mixstyle_layers = tuple(int(index) for index in model_config.get("texture_mixstyle_layers", []))
-    if not 0.0 <= mixstyle_probability <= 1.0:
-        parser.error("model.texture_mixstyle_probability must be in [0, 1]")
-    if mixstyle_alpha <= 0.0:
-        parser.error("model.texture_mixstyle_alpha must be positive")
-    if mixstyle_probability > 0.0 and not mixstyle_layers:
-        parser.error("model.texture_mixstyle_layers cannot be empty when MixStyle is enabled")
+    if (
+        modality_dropout_probability > 0.0
+        and str(model_config.get("fusion_mode", "quality")) != "quality"
+    ):
+        parser.error("Modality dropout requires quality fusion")
     seed = int(config.get("seed", 42))
     deterministic = bool(training.get("deterministic", False))
     _seed_everything(seed, deterministic=deterministic)
@@ -434,7 +397,7 @@ def main() -> None:
         "texture_frames": int(data["texture_frames"]),
         "image_size": int(data["image_size"]),
         "geometry_mode": str(data.get("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE)),
-        "texture_mode": str(data.get("texture_mode", "canonical_skin")),
+        "texture_mode": str(data.get("texture_mode", "full_face")),
         "geometry_augmentation": data.get("geometry_augmentation", {}),
         "texture_augmentation": data.get("texture_augmentation"),
         "fake_methods": data.get("fake_methods"),
@@ -483,11 +446,6 @@ def main() -> None:
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
-        texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
-        texture_views=texture_view_count(str(data.get("texture_mode", "canonical_skin"))),
-        texture_mixstyle_probability=mixstyle_probability,
-        texture_mixstyle_alpha=mixstyle_alpha,
-        texture_mixstyle_layers=mixstyle_layers,
         geometry_quality_dim=train_dataset.geometry_quality_dim,
         texture_quality_dim=train_dataset.texture_quality_dim,
         fusion_mode=str(model_config.get("fusion_mode", "quality")),
@@ -512,14 +470,11 @@ def main() -> None:
     )
     amp_enabled = bool(training.get("amp", True)) and device.type == "cuda"
     scaler = _make_grad_scaler(amp_enabled)
-    ema = EMAModel(model, decay=ema_decay) if ema_decay > 0 else None
     criterion = nn.BCEWithLogitsLoss()
     geometry_loss_weight = float(training.get("geometry_loss_weight", 0.25))
     texture_loss_weight = float(training.get("texture_loss_weight", 0.25))
     fusion_mode = str(model_config.get("fusion_mode", "quality"))
-    if fusion_mode == "geometry":
-        texture_loss_weight = 0.0
-    elif fusion_mode == "texture":
+    if fusion_mode == "texture":
         geometry_loss_weight = 0.0
 
     history: list[dict[str, object]] = []
@@ -533,12 +488,11 @@ def main() -> None:
     logger.info("=" * 72)
     logger.info("QALF TRAINING RUN")
     logger.info(
-        "  model | device=%s backbone=%s texture_mode=%s pooling=%s geometry=%s "
+        "  model | device=%s backbone=%s texture_mode=%s pooling=mean geometry=%s "
         "frames=%d image_size=%d parameters=%d trainable=%d",
         device,
         model_config.get("texture_backbone", "efficientnet_b0"),
-        data.get("texture_mode", "canonical_skin"),
-        model_config.get("texture_temporal_pooling", "mean"),
+        data.get("texture_mode", "full_face"),
         model_config.get("geometry_architecture", "tcn_mean"),
         int(data["texture_frames"]),
         int(data["image_size"]),
@@ -561,13 +515,11 @@ def main() -> None:
         data["video_aggregation"],
     )
     logger.info(
-        "  train | amp=%s deterministic=%s ema_decay=%.4f validation_weights=%s "
+        "  train | amp=%s deterministic=%s validation_weights=raw "
         "loss_weights=fused:1.000 geometry:%.3f texture:%.3f reliability:%.3f "
         "modality_dropout=%.3f patience=%d",
         amp_enabled,
         deterministic,
-        ema_decay,
-        "ema" if ema is not None else "raw",
         geometry_loss_weight,
         texture_loss_weight,
         reliability_gate_loss_weight,
@@ -575,11 +527,7 @@ def main() -> None:
         patience,
     )
     logger.info(
-        "  extra | mixstyle_probability=%.3f mixstyle_alpha=%.3f "
-        "mixstyle_layers=%s texture_gate_bias=%.3f sbi_enabled=%s sbi_mixture=%s",
-        mixstyle_probability,
-        mixstyle_alpha,
-        list(mixstyle_layers),
+        "  extra | texture_gate_bias=%.3f sbi_enabled=%s sbi_mixture=%s",
         float(model_config.get("texture_gate_bias", 0.0)),
         train_dataset.sbi_enabled,
         data["sbi"]["mixture"] if train_dataset.sbi_enabled else "disabled",
@@ -602,10 +550,8 @@ def main() -> None:
             geometry_loss_weight,
             texture_loss_weight,
             reliability_gate_weight=reliability_gate_loss_weight,
-            ema=ema,
         )
-        eval_model = ema.shadow if ema is not None else model
-        validation_clips = predict(eval_model, val_loader, device)
+        validation_clips = predict(model, val_loader, device)
         validation = aggregate_predictions(
             validation_clips,
             method=str(data["video_aggregation"]),
@@ -651,7 +597,7 @@ def main() -> None:
 
         checkpoint = {
             "epoch": epoch,
-            "model": eval_model.state_dict(),
+            "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "config": config,
             "geometry_input_dim": train_dataset.geometry_input_dim,
@@ -659,8 +605,7 @@ def main() -> None:
             "texture_quality_dim": train_dataset.texture_quality_dim,
             "threshold": threshold,
             "validation_metrics": val_metrics,
-            "ema_decay": ema_decay,
-            "model_weights": "ema" if ema is not None else "raw",
+            "model_weights": "raw",
             "label_convention": "real=0,fake=1",
             "score_target": "fake",
             "threshold_selection": "youden_j_ffpp_validation",
@@ -678,7 +623,7 @@ def main() -> None:
                 best_epoch,
                 best_auc,
                 best_threshold,
-                "ema" if ema is not None else "raw",
+                "raw",
                 best_path,
             )
         else:
@@ -731,7 +676,7 @@ def main() -> None:
     )
     logger.info(
         "  model | weights=%s best_model=%s",
-        "ema" if ema is not None else "raw",
+        "raw",
         best_path,
     )
     logger.info("  files | summary=%s", output_dir / "training_summary.json")

@@ -10,4 +10,7 @@ __pycache__/
 *.onnx
 *.npz
 *.md
+!README.md
+!CURRENT_MODEL_AND_PLAN.md
 !SBI_IMPLEMENTATION_PLAN.md
+!CROSS_DATASET_EXPERIMENTS.md

@@ -41,7 +41,7 @@ if [[ "$SEED" != '42' ]]; then
 fi
 BASELINE_CHECKPOINT="$STORAGE_ROOT/experiments/$BASELINE_EXPERIMENT/best.pt"
 
-echo "Geometry ablation mode: $MODE"
+echo "Geometry candidate comparison mode: $MODE"
 echo "Baseline: $BASELINE_PROFILE"
 echo "Seed: $SEED"
 echo "Profiles: ${PROFILES[*]}"
@@ -84,4 +84,4 @@ if [[ "$MODE" == test || "$MODE" == all ]]; then
 fi
 
 echo "========================================================================"
-echo "Geometry ablation suite complete."
+echo "Geometry candidate comparison complete."

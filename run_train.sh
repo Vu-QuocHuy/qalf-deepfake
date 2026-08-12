@@ -35,10 +35,6 @@ LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
 VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
 OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_full_face}"
-EXTRA_TRAIN_ARGS=()
-if [[ -n "${QALF_EMA_DECAY:-}" ]]; then
-    EXTRA_TRAIN_ARGS+=(--ema-decay "$QALF_EMA_DECAY")
-fi
 
 export CUBLAS_WORKSPACE_CONFIG=':4096:8'
 echo "Python: $PYTHON"
@@ -75,5 +71,4 @@ echo "Training output: $OUTPUT_DIR"
     --fusion-mode quality \
     --geometry-loss-weight 0.25 \
     --texture-loss-weight 0.25 \
-    --deterministic \
-    "${EXTRA_TRAIN_ARGS[@]}"
+    --deterministic

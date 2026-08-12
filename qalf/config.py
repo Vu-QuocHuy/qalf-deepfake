@@ -27,12 +27,8 @@ def load_config(path: str | Path) -> dict[str, Any]:
     geometry_mode = config["data"].setdefault("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE)
     if geometry_mode not in GEOMETRY_FEATURE_MODES:
         raise ValueError(f"Unsupported data.geometry_mode: {geometry_mode}")
-    if config["data"].get("texture_mode", "canonical_skin") not in {
-        "canonical_skin",
-        "full_face",
-        "dual_view",
-    }:
-        raise ValueError("Unsupported data.texture_mode")
+    if config["data"].get("texture_mode", "full_face") != "full_face":
+        raise ValueError("data.texture_mode must be full_face")
     if config["data"].get("video_aggregation", "mean") not in {"mean", "median", "topk"}:
         raise ValueError("Unsupported data.video_aggregation")
     if int(config["data"].get("top_k", 1)) < 1:
@@ -40,7 +36,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
     config["data"]["sbi"] = resolve_sbi_config(config["data"].get("sbi"))
     if (
         bool(config["data"]["sbi"]["enabled"])
-        and config["data"].get("texture_mode", "canonical_skin") != "full_face"
+        and config["data"].get("texture_mode", "full_face") != "full_face"
     ):
         raise ValueError("Enabled SBI requires data.texture_mode=full_face")
     fake_methods = config["data"].get("fake_methods")
@@ -58,35 +54,14 @@ def load_config(path: str | Path) -> dict[str, Any]:
         "embedding_dim": 128,
         "dropout": 0.2,
         "texture_backbone": "efficientnet_b0",
-        "texture_temporal_pooling": "mean",
-        "texture_mixstyle_probability": 0.0,
-        "texture_mixstyle_alpha": 0.1,
-        "texture_mixstyle_layers": [],
         "modality_dropout_probability": 0.0,
     }
     for name, default in model_defaults.items():
         config["model"].setdefault(name, default)
-    if config["model"]["texture_backbone"] not in {"efficientnet_b0", "efficientnet_b1"}:
-        raise ValueError("model.texture_backbone must be efficientnet_b0 or efficientnet_b1")
-    if config["model"]["texture_temporal_pooling"] not in {
-        "mean",
-        "dynamics",
-    }:
-        raise ValueError("model.texture_temporal_pooling must be mean or dynamics")
-    mixstyle_probability = float(config["model"]["texture_mixstyle_probability"])
-    if not 0.0 <= mixstyle_probability <= 1.0:
-        raise ValueError("model.texture_mixstyle_probability must be in [0, 1]")
-    if float(config["model"]["texture_mixstyle_alpha"]) <= 0.0:
-        raise ValueError("model.texture_mixstyle_alpha must be positive")
-    mixstyle_layers = config["model"]["texture_mixstyle_layers"]
-    if not isinstance(mixstyle_layers, list) or not all(
-        isinstance(index, int) and index >= 0 for index in mixstyle_layers
-    ):
-        raise ValueError("model.texture_mixstyle_layers must contain non-negative integers")
-    if len(set(mixstyle_layers)) != len(mixstyle_layers):
-        raise ValueError("model.texture_mixstyle_layers must not contain duplicates")
-    if mixstyle_probability > 0.0 and not mixstyle_layers:
-        raise ValueError("model.texture_mixstyle_layers cannot be empty when MixStyle is enabled")
+    if config["model"]["texture_backbone"] != "efficientnet_b0":
+        raise ValueError("model.texture_backbone must be efficientnet_b0")
+    if config["model"].get("fusion_mode", "quality") not in {"quality", "texture"}:
+        raise ValueError("model.fusion_mode must be quality or texture")
     for name in ("geometry_hidden", "geometry_layers", "embedding_dim"):
         if int(config["model"].get(name, 0)) < 1:
             raise ValueError(f"model.{name} must be >= 1")

@@ -17,11 +17,11 @@ from tqdm.auto import tqdm
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from qalf.data.dataset import QALFVideoDataset, texture_view_count
+from qalf.data.dataset import QALFVideoDataset
 from qalf.data.geometry import DEFAULT_GEOMETRY_FEATURE_MODE
 from qalf.engine import aggregate_predictions, move_batch
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import QALFModel, TextureRefreshPolicy
+from qalf.models import TextureRefreshPolicy, build_model_from_checkpoint
 
 
 def _write_csv(path: Path, rows: dict[str, object]) -> None:
@@ -100,7 +100,7 @@ def main() -> None:
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
     config = checkpoint["config"]
-    data, model_config = config["data"], config["model"]
+    data = config["data"]
     clips_per_video = int(
         args.clips_per_video
         if args.clips_per_video is not None
@@ -116,7 +116,7 @@ def main() -> None:
         texture_frames=int(data["texture_frames"]),
         image_size=int(data["image_size"]),
         geometry_mode=str(data.get("geometry_mode", DEFAULT_GEOMETRY_FEATURE_MODE)),
-        texture_mode=str(data.get("texture_mode", "canonical_skin")),
+        texture_mode=str(data.get("texture_mode", "full_face")),
         training=False,
         clips_per_video=clips_per_video,
     )
@@ -137,29 +137,7 @@ def main() -> None:
         pin_memory=torch.cuda.is_available(),
         persistent_workers=args.num_workers > 0,
     )
-    model = QALFModel(
-        geometry_input_dim=int(checkpoint["geometry_input_dim"]),
-        geometry_hidden=int(model_config.get("geometry_hidden", 96)),
-        geometry_layers=int(model_config.get("geometry_layers", 3)),
-        geometry_architecture=str(model_config.get("geometry_architecture", "tcn_mean")),
-        embedding_dim=int(model_config.get("embedding_dim", 128)),
-        dropout=float(model_config.get("dropout", 0.2)),
-        texture_pretrained=False,
-        texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
-        texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
-        texture_views=texture_view_count(str(data.get("texture_mode", "canonical_skin"))),
-        texture_mixstyle_probability=float(model_config.get("texture_mixstyle_probability", 0.0)),
-        texture_mixstyle_alpha=float(model_config.get("texture_mixstyle_alpha", 0.1)),
-        texture_mixstyle_layers=tuple(
-            int(index) for index in model_config.get("texture_mixstyle_layers", [])
-        ),
-        geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
-        texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
-        fusion_mode=str(model_config.get("fusion_mode", "quality")),
-        texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
-        modality_dropout_probability=float(model_config.get("modality_dropout_probability", 0.0)),
-    )
-    model.load_state_dict(checkpoint["model"], strict=True)
+    model = build_model_from_checkpoint(checkpoint)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device).eval()
     refresh_policy = TextureRefreshPolicy(

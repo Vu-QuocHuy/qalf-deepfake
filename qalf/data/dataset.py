@@ -30,13 +30,7 @@ from .sbi import (
 
 IMAGE_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGE_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
-TEXTURE_MODES = frozenset({"canonical_skin", "full_face", "dual_view"})
-
-
-def texture_view_count(texture_mode: str) -> int:
-    if texture_mode not in TEXTURE_MODES:
-        raise ValueError(f"Unsupported texture mode: {texture_mode}")
-    return 2 if texture_mode == "dual_view" else 1
+TEXTURE_MODES = frozenset({"full_face"})
 
 
 DEFAULT_GEOMETRY_AUGMENTATION = {
@@ -95,14 +89,12 @@ def _clip_indices(
     return np.arange(start, start + count)
 
 
-def _canonical_skin_map(
+def _aligned_full_face(
     image_rgb: np.ndarray,
     landmarks: np.ndarray,
     detected: bool,
     output_size: int,
-    texture_mode: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
-    texture_view_count(texture_mode)
     height, width = image_rgb.shape[:2]
     if detected and np.isfinite(landmarks).all() and landmarks.shape[0] > 386:
         pixels = landmarks[:, :2] * np.asarray([width, height], dtype=np.float32)
@@ -132,41 +124,8 @@ def _canonical_skin_map(
         aligned_landmarks = None
         landmark_quality = 0.0
 
-    if texture_mode in {"canonical_skin", "dual_view"}:
-        skin = _apply_skin_regions(canonical)
-        output = (
-            skin if texture_mode == "canonical_skin" else np.concatenate([canonical, skin], axis=2)
-        )
-        quality_image = skin if texture_mode == "canonical_skin" else canonical
-    else:
-        output = canonical
-        quality_image = canonical
-    quality = _texture_quality(quality_image, width, height, landmark_quality)
-    return output, quality, aligned_landmarks
-
-
-def _apply_skin_regions(canonical: np.ndarray) -> np.ndarray:
-    output_size = int(canonical.shape[0])
-    if canonical.shape[:2] != (output_size, output_size) or canonical.shape[2] != 3:
-        raise ValueError("Canonical face must be a square RGB image")
-    mask = np.zeros((output_size, output_size), dtype=np.uint8)
-    regions = (
-        (0.23, 0.08, 0.77, 0.33),
-        (0.08, 0.43, 0.43, 0.72),
-        (0.57, 0.43, 0.92, 0.72),
-        (0.42, 0.35, 0.58, 0.67),
-    )
-    for x1, y1, x2, y2 in regions:
-        cv2.rectangle(
-            mask,
-            (int(x1 * output_size), int(y1 * output_size)),
-            (int(x2 * output_size), int(y2 * output_size)),
-            255,
-            thickness=-1,
-        )
-    output = np.full_like(canonical, 127)
-    output[mask > 0] = canonical[mask > 0]
-    return output
+    quality = _texture_quality(canonical, width, height, landmark_quality)
+    return canonical, quality, aligned_landmarks
 
 
 def _texture_quality(
@@ -325,7 +284,7 @@ class QALFVideoDataset(Dataset):
         training: bool = False,
         clips_per_video: int = 1,
         geometry_mode: str = DEFAULT_GEOMETRY_FEATURE_MODE,
-        texture_mode: str = "canonical_skin",
+        texture_mode: str = "full_face",
         landmark_indices: tuple[int, ...] = DEFAULT_LANDMARK_INDICES,
         geometry_augmentation: dict[str, float] | None = None,
         geometry_corruption: dict[str, float] | None = None,
@@ -387,7 +346,10 @@ class QALFVideoDataset(Dataset):
         self.geometry_corruption_seed = int(geometry_corruption_seed)
         if self.training and self.geometry_corruption:
             raise ValueError("geometry_corruption is reserved for deterministic evaluation")
-        texture_view_count(texture_mode)
+        if texture_mode not in TEXTURE_MODES:
+            raise ValueError(
+                f"Unsupported texture mode: {texture_mode}; only full_face is retained"
+            )
         self.texture_mode = texture_mode
         self.sbi_config = resolve_sbi_config(sbi_config)
         self.sbi_enabled = self.training and bool(self.sbi_config["enabled"])
@@ -503,12 +465,11 @@ class QALFVideoDataset(Dataset):
             if image_bgr is None:
                 raise FileNotFoundError(self.frame_root / record.frames[source_index])
             image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-            canonical, quality, aligned_landmarks = _canonical_skin_map(
+            canonical, quality, aligned_landmarks = _aligned_full_face(
                 image_rgb,
                 landmarks[source_index],
                 bool(detected[source_index]),
                 self.image_size,
-                self.texture_mode,
             )
             canonical_frames.append(canonical)
             canonical_landmarks.append(aligned_landmarks)
@@ -539,13 +500,7 @@ class QALFVideoDataset(Dataset):
         ):
             if self.training:
                 if self.texture_augmentation:
-                    if self.texture_mode == "dual_view":
-                        full_face = _augment(canonical[:, :, :3], self.texture_augmentation)
-                        canonical = np.concatenate(
-                            [full_face, _apply_skin_regions(full_face)], axis=2
-                        )
-                    else:
-                        canonical = _augment(canonical, self.texture_augmentation)
+                    canonical = _augment(canonical, self.texture_augmentation)
                 quality = _texture_quality(
                     canonical[:, :, :3],
                     source_shape[0],
@@ -560,10 +515,7 @@ class QALFVideoDataset(Dataset):
                     landmark_quality,
                 )
             normalized = canonical.astype(np.float32) / 255.0
-            view_count = texture_view_count(self.texture_mode)
-            normalized = (normalized - np.tile(IMAGE_MEAN, view_count)) / np.tile(
-                IMAGE_STD, view_count
-            )
+            normalized = (normalized - IMAGE_MEAN) / IMAGE_STD
             texture_tensors.append(normalized.transpose(2, 0, 1))
             texture_qualities.append(quality)
 

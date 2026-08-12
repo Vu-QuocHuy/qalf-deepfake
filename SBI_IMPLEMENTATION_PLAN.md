@@ -1,10 +1,11 @@
 # QALF Self-Blended Images implementation plan
 
-Status: approved implementation roadmap, 2026-08-11
+Status: completed historical implementation record, 2026-08-12
 
-This document is the source of truth for the next QALF experiment. The goal is
-to test whether Self-Blended Images (SBI) improve zero-shot FF++ to Celeb-DF
-generalization without changing the established lightweight architecture.
+SBI was implemented and improved the seed-42 full-face result from 0.8209 to
+0.8325 Celeb-DF AUC. The active model and next decision are now documented in
+`CURRENT_MODEL_AND_PLAN.md`; this file is retained only for implementation
+provenance.
 
 ## 1. Locked reference
 

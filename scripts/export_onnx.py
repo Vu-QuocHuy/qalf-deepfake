@@ -14,8 +14,7 @@ from torch import nn
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from qalf.data.dataset import texture_view_count
-from qalf.models import QALFModel
+from qalf.models import QALFModel, build_model_from_checkpoint
 
 
 class ONNXQALFWrapper(nn.Module):
@@ -47,32 +46,7 @@ class ONNXQALFWrapper(nn.Module):
 
 
 def build_model(checkpoint: dict[str, object]) -> QALFModel:
-    config = checkpoint["config"]
-    data, model_config = config["data"], config["model"]
-    model = QALFModel(
-        geometry_input_dim=int(checkpoint["geometry_input_dim"]),
-        geometry_hidden=int(model_config.get("geometry_hidden", 96)),
-        geometry_layers=int(model_config.get("geometry_layers", 3)),
-        geometry_architecture=str(model_config.get("geometry_architecture", "tcn_mean")),
-        embedding_dim=int(model_config.get("embedding_dim", 128)),
-        dropout=float(model_config.get("dropout", 0.2)),
-        texture_pretrained=False,
-        texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
-        texture_temporal_pooling=str(model_config.get("texture_temporal_pooling", "mean")),
-        texture_views=texture_view_count(str(data.get("texture_mode", "canonical_skin"))),
-        texture_mixstyle_probability=float(model_config.get("texture_mixstyle_probability", 0.0)),
-        texture_mixstyle_alpha=float(model_config.get("texture_mixstyle_alpha", 0.1)),
-        texture_mixstyle_layers=tuple(
-            int(index) for index in model_config.get("texture_mixstyle_layers", [])
-        ),
-        geometry_quality_dim=int(checkpoint.get("geometry_quality_dim", 5)),
-        texture_quality_dim=int(checkpoint.get("texture_quality_dim", 5)),
-        fusion_mode=str(model_config.get("fusion_mode", "quality")),
-        texture_gate_bias=float(model_config.get("texture_gate_bias", 0.0)),
-        modality_dropout_probability=float(model_config.get("modality_dropout_probability", 0.0)),
-    )
-    model.load_state_dict(checkpoint["model"], strict=True)
-    return model.eval()
+    return build_model_from_checkpoint(checkpoint).eval()
 
 
 def main() -> None:
@@ -85,7 +59,7 @@ def main() -> None:
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
     data = checkpoint["config"]["data"]
-    texture_channels = 3 * texture_view_count(str(data.get("texture_mode", "canonical_skin")))
+    texture_channels = 3
     wrapper = ONNXQALFWrapper(build_model(checkpoint)).eval()
     examples = (
         torch.zeros(1, int(data["num_frames"]), int(checkpoint["geometry_input_dim"])),
@@ -126,9 +100,7 @@ def main() -> None:
         "texture_backbone": str(
             checkpoint["config"]["model"].get("texture_backbone", "efficientnet_b0")
         ),
-        "texture_temporal_pooling": str(
-            checkpoint["config"]["model"].get("texture_temporal_pooling", "mean")
-        ),
+        "texture_temporal_pooling": "mean",
         "bytes": output.stat().st_size,
         "opset": args.opset,
         "verified": False,

@@ -1,125 +1,79 @@
-# Cross-dataset texture experiments
+# QALF cross-dataset experiments
 
-## Evidence so far
+The current architecture and roadmap live in
+[`CURRENT_MODEL_AND_PLAN.md`](CURRENT_MODEL_AND_PLAN.md). This file documents
+only how to reproduce the two retained profiles and their three-seed comparison.
 
-All rows below use EfficientNet-B0 and the same deterministic FF++ training
-split. Celeb-DF is evaluated zero-shot with 12 texture frames, three clips,
-mean video aggregation, horizontal-flip TTA, and a threshold selected on FF++
-validation.
+## Retained profiles
 
-| Profile | Celeb-DF AUC | Texture AUC | Geometry AUC |
-| --- | ---: | ---: | ---: |
-| Canonical-skin control | 0.7279 | 0.7205 | 0.5810 |
-| Full face | **0.8209** | **0.8162** | 0.5616 |
-| Full face + dual view | 0.8037 | 0.8064 | 0.5906 |
-| Canonical skin + dynamics | 0.7562 | 0.7578 | 0.5506 |
-| Canonical skin + MixStyle | 0.7369 | 0.7298 | 0.5808 |
-| Full face + 224px + 16f + dynamics + MixStyle + EMA | 0.8128 | 0.8106 | **0.6233** |
+| Profile | Purpose |
+| --- | --- |
+| `full_face` | Historical pre-SBI full-face reference (seed-42 AUC 0.8209) |
+| `full_face_sbi` | Trusted 50/25/25 SBI reference |
+| `geometry_candidate` | SBI + attentive geometry + reliability routing |
 
-Full face is therefore the current baseline. The earlier combined profile is
-not retained as a default: it costs substantially more compute and scores 0.81
-AUC points below the simpler full-face model. Texture-frame attention pooling and dedicated
-B1/EMA wrapper scripts were also removed after their completed ablations
-underperformed. EfficientNet-B1 remains available through
-`--texture-backbone efficientnet_b1` for controlled experiments.
+All profiles use EfficientNet-B0, 160-pixel full-face input, eight texture frames
+during training, and raw weights. Evaluation uses 12 texture frames, three clips,
+mean aggregation, horizontal-flip TTA, and an FF++-validation threshold.
 
-The first locked SBI run improved Celeb-DF AUC from `0.8209` to `0.8325`
-(`texture_auc=0.8323`, `geometry_auc=0.5672`). A completed cumulative Geometry++
-screen found no configuration above that SBI baseline. Graph message passing,
-rigid/non-rigid two-stream features, class-balanced geometry loss, and noisy-view
-self-supervision were therefore removed from the active code.
+## Three-seed result
 
-## Retained geometry candidate
+| Seed | SBI baseline AUC | Geometry candidate AUC | Delta |
+| ---: | ---: | ---: | ---: |
+| 17 | 0.8486 | 0.8464 | -0.0022 |
+| 42 | 0.8325 | 0.8323 | -0.0002 |
+| 73 | 0.8245 | 0.8399 | +0.0154 |
+| Mean ± sample SD | 0.8352 ± 0.0123 | **0.8395 ± 0.0071** | +0.0043 |
 
-The isolated screen rejected attentive pooling alone (`0.8211` AUC) and reliability
-alone (`0.8217`). Their combination reached `0.8323`, effectively tying the `0.8325`
-SBI baseline while improving EER (`0.2473`), balanced accuracy (`0.7726`), and ACER
-(`0.2274`). It is retained as the only geometry candidate pending multi-seed testing.
+The candidate also improves mean AP, EER, balanced accuracy, and ACER, but its
+mean geometry gate weight is only 0.0015. It remains a candidate rather than the
+final model until the texture-only SBI control is complete.
 
-Both candidate and baseline use EfficientNet-B0, full-face input, 8 texture frames
-during training, the locked 50/25/25 SBI mixture, and 12 texture frames during
-evaluation. Compare them with:
+## Run one profile
+
+From Git Bash:
 
 ```bash
-./run_geometry_ablation.sh all
-```
+./run_train_cross_dataset.sh full_face_sbi
+./run_test_cross_dataset.sh full_face_sbi
 
-The suite first evaluates the locked G0 SBI baseline. It reuses its checkpoint when
-`best.pt` already exists and only retrains G0 when that checkpoint is missing. This keeps
-the known baseline intact while making a clean-machine run self-contained.
-
-Train or evaluate the suite separately:
-
-```bash
-./run_geometry_ablation.sh train
-./run_geometry_ablation.sh test
-```
-
-Run one profile only:
-
-```bash
 ./run_train_cross_dataset.sh geometry_candidate
 ./run_test_cross_dataset.sh geometry_candidate
 ```
 
-After `test` or `all`, the suite writes `geometry_candidate_comparison.csv` and
-`geometry_candidate_comparison.md` under `E:/DeepFakeData/experiments`. The SBI baseline
-is included automatically as the reference row. The report places FF++ validation
-AUC, Celeb-DF AUC, their domain gap, branch AUCs, fusion weights, and operating-point
-metrics in the same table. It also reports fused-minus-texture AUC and
-fixed-average-minus-texture AUC so geometry complementarity is visible directly.
-
-## Active profiles
-
-Train and test one profile with:
-
-```bash
-./run_train_cross_dataset.sh PROFILE
-./run_test_cross_dataset.sh PROFILE
-```
-
-For `full_face_sbi`, inspect a small training-only preview before the full run:
+For a non-default seed in PowerShell:
 
 ```powershell
-& ".\.venv\Scripts\python.exe" scripts/preview_sbi.py `
-  --manifest "E:/DeepFakeData/data/landmarks/ffpp-landmark/manifests/ffpp_train_landmarks.jsonl" `
-  --frame-root "E:/DeepFakeData/data/extracted/ffpp" `
-  --landmark-root "E:/DeepFakeData/data/landmarks/ffpp-landmark/landmarks" `
-  --output "E:/DeepFakeData/experiments/qalf_sbi_preview.png"
+$env:QALF_SEED = "17"
+& "C:\Program Files\Git\bin\bash.exe" ./run_geometry_ablation.sh all
+Remove-Item Env:QALF_SEED
 ```
 
-| Profile | Purpose |
-| --- | --- |
-| `full_face` | Reproduce the established 0.8209-AUC baseline |
-| `full_face_sbi` | Locked 50/25/25 hybrid SBI experiment; current primary profile |
-| `geometry_candidate` | SBI plus attentive geometry and reliability routing |
+Seed 42 uses historical paths. Other seeds automatically receive `_seedN`, so
+checkpoints and evaluation artifacts cannot overwrite one another.
 
-Set `QALF_SEED` to run a non-default seed. Seed 42 keeps the historical output path;
-other seeds are written to an automatic `_seedN` suffix so checkpoints cannot overwrite
-one another. The comparison runner and report automatically follow the same suffix.
+## Compare outputs
 
-Run only one change at a time before combining mechanisms. Do not select epochs,
-fusion rules, or hyperparameters from Celeb-DF test AUC for a final paper; use a
-separate cross-domain development set and reserve the locked test set for the
-final report.
+```bash
+./run_geometry_ablation.sh train
+./run_geometry_ablation.sh test
+./run_geometry_ablation.sh all
+```
 
-## Reporting artifacts
+The runner writes `geometry_candidate_comparison[_seedN].csv` and `.md` under
+`E:/DeepFakeData/experiments`. It includes FF++ validation AUC, Celeb-DF AUC,
+domain gap, branch AUCs, fusion gain, gate weights, AP, EER, balanced accuracy,
+and ACER.
 
-Training preserves `best.pt` and `last.pt` at their existing paths and adds
+Training artifacts include `best.pt`, `last.pt`, `config.json`,
 `run_metadata.json`, `training_summary.json`, `history.json`, `train.log`, and
-`plots/training_history.png`. Evaluation writes a stable human-readable table in
-`metrics.txt`, a machine-readable `metrics.json`, `eval.log`, video- and
-clip-level prediction CSV files, the exact protocol, raw/normalized confusion
-matrices, ROC and precision-recall curves, and the real/fake score distribution.
+`plots/training_history.png`. Evaluation writes `metrics.txt`, `metrics.json`,
+`evaluation_protocol.txt`, prediction CSV files, `eval.log`, and diagnostic
+plots.
 
-## Motivation
+## Stopped experiments
 
-Full-face input restores eyes, mouth, and face-boundary evidence removed by the
-legacy four-rectangle skin mask. The retained dual-view experiment tests whether
-the restricted skin signal is complementary rather than replacing the stronger
-full-face signal. The rationale is consistent with cross-manipulation artifact
-work such as Face X-Ray and Self-Blended Images:
-
-- https://openaccess.thecvf.com/content_CVPR_2020/html/Li_Face_X-Ray_for_More_General_Face_Forgery_Detection_CVPR_2020_paper.html
-- https://openaccess.thecvf.com/content/CVPR2022/html/Shiohara_Detecting_Deepfakes_With_Self-Blended_Images_CVPR_2022_paper.html
-- https://openreview.net/forum?id=6xHJ37MVxxp
+Canonical-skin input, dual view, EfficientNet-B1, EMA, MixStyle, learned texture
+dynamics, graph geometry, rigid/non-rigid two-stream geometry, self-supervised
+geometry, and class-balanced geometry loss were negative ablations. Their active
+implementations were removed to keep the research code aligned with the evidence.

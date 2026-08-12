@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 from collections import defaultdict
 from typing import Iterable, Protocol
 
@@ -13,44 +12,10 @@ from torch.nn import functional as F
 from tqdm.auto import tqdm
 
 
-class EMAModel:
-    """Track an exponential moving average of parameters and current model buffers."""
-
-    def __init__(self, model: nn.Module, decay: float = 0.999) -> None:
-        if not 0.0 < decay < 1.0:
-            raise ValueError("EMA decay must be in (0, 1)")
-        self.decay = float(decay)
-        self.shadow = copy.deepcopy(model).eval()
-        for parameter in self.shadow.parameters():
-            parameter.requires_grad_(False)
-
-    @torch.no_grad()
-    def update(self, model: nn.Module) -> None:
-        model_parameters = dict(model.named_parameters())
-        shadow_parameters = dict(self.shadow.named_parameters())
-        if model_parameters.keys() != shadow_parameters.keys():
-            raise ValueError("EMA model parameters differ from the training model")
-        for name, shadow_parameter in shadow_parameters.items():
-            shadow_parameter.mul_(self.decay).add_(
-                model_parameters[name].detach(), alpha=1.0 - self.decay
-            )
-
-        # BatchNorm statistics should describe the current activations. Copying
-        # buffers avoids averaging running variances across incompatible weights.
-        model_buffers = dict(model.named_buffers())
-        shadow_buffers = dict(self.shadow.named_buffers())
-        if model_buffers.keys() != shadow_buffers.keys():
-            raise ValueError("EMA model buffers differ from the training model")
-        for name, shadow_buffer in shadow_buffers.items():
-            shadow_buffer.copy_(model_buffers[name].detach())
-
-
 class GradScalerProtocol(Protocol):
     """Common interface of the legacy and current PyTorch gradient scalers."""
 
     def is_enabled(self) -> bool: ...
-
-    def get_scale(self) -> float: ...
 
     def scale(self, outputs: torch.Tensor) -> torch.Tensor: ...
 
@@ -127,7 +92,6 @@ def train_epoch(
     geometry_weight: float,
     texture_weight: float,
     reliability_gate_weight: float = 0.0,
-    ema: EMAModel | None = None,
 ) -> dict[str, float]:
     model.train()
     totals: defaultdict[str, float] = defaultdict(float)
@@ -151,12 +115,8 @@ def train_epoch(
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        previous_scale = scaler.get_scale()
         scaler.step(optimizer)
         scaler.update()
-        optimizer_updated = not scaler.is_enabled() or scaler.get_scale() >= previous_scale
-        if ema is not None and optimizer_updated:
-            ema.update(model)
         batch_size = int(labels.shape[0])
         totals["loss"] += float(loss.detach()) * batch_size
         for name, value in parts.items():
