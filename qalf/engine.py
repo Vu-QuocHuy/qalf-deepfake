@@ -151,6 +151,7 @@ def predict(
     loader: Iterable[dict[str, object]],
     device: torch.device,
     texture_flip_tta: bool = False,
+    zero_geometry_counterfactual: bool = False,
 ) -> dict[str, object]:
     model.eval()
     result: defaultdict[str, list] = defaultdict(list)
@@ -161,6 +162,21 @@ def predict(
         geometry_scores = torch.sigmoid(outputs["geometry_logit"])
         texture_scores = torch.sigmoid(outputs["texture_logit"])
         fusion_weights = outputs["fusion_weights"]
+        zero_geometry_scores = None
+        if zero_geometry_counterfactual:
+            if not hasattr(model, "fuse_precomputed"):
+                raise TypeError(
+                    "zero-geometry counterfactual requires a model with fuse_precomputed"
+                )
+            zero_geometry_logit, _ = model.fuse_precomputed(
+                torch.zeros_like(outputs["geometry_embedding"]),
+                torch.zeros_like(outputs["geometry_logit"]),
+                outputs["texture_embedding"],
+                outputs["texture_logit"],
+                torch.zeros_like(batch["geometry_quality"]),
+                batch["texture_quality"],
+            )
+            zero_geometry_scores = torch.sigmoid(zero_geometry_logit)
         if texture_flip_tta:
             flipped_batch = {
                 **batch,
@@ -175,12 +191,27 @@ def predict(
                 texture_scores + torch.sigmoid(flipped_outputs["texture_logit"])
             )
             fusion_weights = 0.5 * (fusion_weights + flipped_outputs["fusion_weights"])
+            if zero_geometry_counterfactual:
+                flipped_zero_geometry_logit, _ = model.fuse_precomputed(
+                    torch.zeros_like(flipped_outputs["geometry_embedding"]),
+                    torch.zeros_like(flipped_outputs["geometry_logit"]),
+                    flipped_outputs["texture_embedding"],
+                    flipped_outputs["texture_logit"],
+                    torch.zeros_like(batch["geometry_quality"]),
+                    batch["texture_quality"],
+                )
+                assert zero_geometry_scores is not None
+                zero_geometry_scores = 0.5 * (
+                    zero_geometry_scores + torch.sigmoid(flipped_zero_geometry_logit)
+                )
         result["label"].extend(batch["label"].detach().cpu().numpy().tolist())
         result["score"].extend(scores.cpu().numpy().tolist())
         result["geometry_score"].extend(geometry_scores.cpu().numpy().tolist())
         result["texture_score"].extend(texture_scores.cpu().numpy().tolist())
         result["geometry_weight"].extend(fusion_weights[:, 0].cpu().numpy().tolist())
         result["texture_weight"].extend(fusion_weights[:, 1].cpu().numpy().tolist())
+        if zero_geometry_scores is not None:
+            result["zero_geometry_score"].extend(zero_geometry_scores.cpu().numpy().tolist())
         result["clip_index"].extend(batch["clip_index"].detach().cpu().numpy().tolist())
         for key in ("video_id", "method", "dataset"):
             result[key].extend(batch[key])
@@ -224,13 +255,15 @@ def aggregate_predictions(
         groups.setdefault(key, []).append(index)
 
     result: defaultdict[str, list] = defaultdict(list)
-    numeric_fields = (
+    numeric_fields = [
         "score",
         "geometry_score",
         "texture_score",
         "geometry_weight",
         "texture_weight",
-    )
+    ]
+    if "zero_geometry_score" in predictions:
+        numeric_fields.append("zero_geometry_score")
     for (dataset, manipulation, video_id), indices in groups.items():
         labels = {int(round(float(predictions["label"][index]))) for index in indices}
         if len(labels) != 1:

@@ -249,6 +249,14 @@ The only retained geometry candidate is run separately:
 & "C:\Program Files\Git\bin\bash.exe" ./run_test_cross_dataset.sh geometry_candidate
 ```
 
+The required texture-only SBI control uses the same data and optimization
+protocol:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_train_cross_dataset.sh texture_only_sbi
+& "C:\Program Files\Git\bin\bash.exe" ./run_test_cross_dataset.sh texture_only_sbi
+```
+
 Use `QALF_SEED` for the locked seeds. Seed 42 keeps the historical path; other
 seeds receive an automatic suffix and cannot overwrite it:
 

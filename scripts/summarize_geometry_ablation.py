@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect isolated QALF geometry cross-dataset metrics into one comparison table."""
+"""Collect retained QALF and texture-only control metrics into one table."""
 
 from __future__ import annotations
 
@@ -13,6 +13,10 @@ EXPERIMENTS = (
     (
         "Geometry candidate",
         "qalf_ffpp4_effb0_160_8f_sbi_geometry_i3_attentive_reliability",
+    ),
+    (
+        "Texture-only SBI control",
+        "qalf_ffpp4_effb0_160_8f_full_face_sbi_texture_only",
     ),
 )
 EVALUATION_SUFFIX = "_to_celebdf_12f_3clips_mean_tta_ffpp_threshold"
@@ -28,6 +32,8 @@ FIELDS = (
     "texture_auc",
     "fixed_average_auc",
     "mean_geometry_weight",
+    "zero_geometry_auc",
+    "auc_gain_over_zero_geometry",
 )
 DERIVED_FIELDS = (
     "fusion_gain_over_texture",
@@ -71,7 +77,7 @@ def main() -> None:
         }
         for field in FIELDS:
             if field not in row:
-                row[field] = float(metrics[field])
+                row[field] = float(metrics.get(field, float("nan")))
         row["fusion_gain_over_texture"] = float(metrics["auc"]) - float(metrics["texture_auc"])
         row["fixed_average_gap"] = float(metrics["fixed_average_auc"]) - float(
             metrics["texture_auc"]
@@ -93,7 +99,7 @@ def main() -> None:
     for row in rows:
         row["auc_delta"] = float(row["auc"]) - baseline_auc
 
-    default_report = f"geometry_candidate_comparison{experiment_suffix}"
+    default_report = f"p1_texture_control_comparison{experiment_suffix}"
     prefix = Path(args.output_prefix) if args.output_prefix else root / default_report
     prefix.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = ["profile", "experiment", *FIELDS, *DERIVED_FIELDS, "auc_delta"]
@@ -105,13 +111,13 @@ def main() -> None:
     header = (
         "| Profile | FF++ val AUC | Celeb-DF AUC | Delta | Domain gap | "
         "Geometry AUC | Texture AUC | Fusion gain | Fixed avg | Fixed avg gap | AP | EER | "
-        "Balanced acc | ACER | Geometry weight |"
+        "Balanced acc | ACER | Geometry weight | Zero-geometry AUC | Counterfactual gain |"
     )
     lines = [
-        "# QALF geometry candidate comparison",
+        "# QALF P1 texture-control comparison",
         "",
         header,
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
@@ -124,7 +130,9 @@ def main() -> None:
             f"{float(row['fixed_average_gap']):+.4f} | "
             f"{float(row['average_precision']):.4f} | {float(row['eer']):.4f} | "
             f"{float(row['balanced_accuracy']):.4f} | {float(row['acer']):.4f} | "
-            f"{float(row['mean_geometry_weight']):.4f} |"
+            f"{float(row['mean_geometry_weight']):.4f} | "
+            f"{float(row['zero_geometry_auc']):.4f} | "
+            f"{float(row['auc_gain_over_zero_geometry']):+.4f} |"
         )
     if missing:
         lines.extend(

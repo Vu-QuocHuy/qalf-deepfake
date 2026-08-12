@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Compare the only retained geometry candidate against the established SBI baseline.
+# Compare the retained candidate and required texture-only control against SBI.
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
@@ -28,6 +28,7 @@ esac
 
 PROFILES=(
     geometry_candidate
+    texture_only_sbi
 )
 BASELINE_PROFILE='full_face_sbi'
 SEED="${QALF_SEED:-42}"
@@ -41,7 +42,7 @@ if [[ "$SEED" != '42' ]]; then
 fi
 BASELINE_CHECKPOINT="$STORAGE_ROOT/experiments/$BASELINE_EXPERIMENT/best.pt"
 
-echo "Geometry candidate comparison mode: $MODE"
+echo "P1 texture-control comparison mode: $MODE"
 echo "Baseline: $BASELINE_PROFILE"
 echo "Seed: $SEED"
 echo "Profiles: ${PROFILES[*]}"
@@ -70,7 +71,23 @@ for profile in "${PROFILES[@]}"; do
     echo "PROFILE: $profile"
     echo "========================================================================"
     if [[ "$MODE" == train || "$MODE" == all ]]; then
-        "$PROJECT_ROOT/run_train_cross_dataset.sh" "$profile"
+        case "$profile" in
+            geometry_candidate)
+                PROFILE_EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i3_attentive_reliability'
+                ;;
+            texture_only_sbi)
+                PROFILE_EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_texture_only'
+                ;;
+        esac
+        if [[ "$SEED" != '42' ]]; then
+            PROFILE_EXPERIMENT="${PROFILE_EXPERIMENT}_seed${SEED}"
+        fi
+        PROFILE_CHECKPOINT="$STORAGE_ROOT/experiments/$PROFILE_EXPERIMENT/best.pt"
+        if [[ -f "$PROFILE_CHECKPOINT" ]]; then
+            echo "PROFILE: keeping existing checkpoint: $PROFILE_CHECKPOINT"
+        else
+            "$PROJECT_ROOT/run_train_cross_dataset.sh" "$profile"
+        fi
     fi
     if [[ "$MODE" == test || "$MODE" == all ]]; then
         "$PROJECT_ROOT/run_test_cross_dataset.sh" "$profile"
@@ -84,4 +101,4 @@ if [[ "$MODE" == test || "$MODE" == all ]]; then
 fi
 
 echo "========================================================================"
-echo "Geometry candidate comparison complete."
+echo "P1 texture-control comparison complete."

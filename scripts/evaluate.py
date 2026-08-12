@@ -78,6 +78,14 @@ def main() -> None:
         help="Optional deterministic geometry corruption config for robustness evaluation.",
     )
     parser.add_argument("--geometry-corruption-seed", type=int, default=12345)
+    parser.add_argument(
+        "--zero-geometry-counterfactual",
+        action="store_true",
+        help=(
+            "Also recompute fused scores with zero geometry embedding/logit/quality; "
+            "this does not change the primary prediction or threshold."
+        ),
+    )
     args = parser.parse_args()
 
     threshold_paths = (
@@ -127,6 +135,7 @@ def main() -> None:
         f"texture_mode={data.get('texture_mode', 'full_face')} "
         "texture_pooling=mean "
         f"geometry_architecture={model_config.get('geometry_architecture', 'tcn_mean')} "
+        f"fusion_mode={model_config.get('fusion_mode', 'quality')} "
         f"training_texture_frames={training_texture_frames} "
         f"image_size={int(data['image_size'])} "
         f"weights={checkpoint.get('model_weights', 'raw')}"
@@ -250,6 +259,7 @@ def main() -> None:
         loader,
         device,
         texture_flip_tta=args.texture_flip_tta,
+        zero_geometry_counterfactual=args.zero_geometry_counterfactual,
     )
     predictions = aggregate_predictions(
         clip_predictions,
@@ -270,6 +280,22 @@ def main() -> None:
     )["auc"]
     metrics["mean_geometry_weight"] = float(np.mean(predictions["geometry_weight"]))
     metrics["mean_texture_weight"] = float(np.mean(predictions["texture_weight"]))
+    geometry_weights = np.asarray(predictions["geometry_weight"], dtype=np.float64)
+    metrics["median_geometry_weight"] = float(np.median(geometry_weights))
+    metrics["p90_geometry_weight"] = float(np.quantile(geometry_weights, 0.90))
+    metrics["p95_geometry_weight"] = float(np.quantile(geometry_weights, 0.95))
+    metrics["max_geometry_weight"] = float(np.max(geometry_weights))
+    metrics["geometry_weight_above_0_05_fraction"] = float(np.mean(geometry_weights > 0.05))
+    metrics["mean_geometry_weight_real"] = float(np.mean(geometry_weights[labels == 0]))
+    metrics["mean_geometry_weight_fake"] = float(np.mean(geometry_weights[labels == 1]))
+    if args.zero_geometry_counterfactual:
+        zero_geometry_scores = np.asarray(predictions["zero_geometry_score"], dtype=np.float64)
+        zero_geometry_auc = float(compute_metrics(labels, zero_geometry_scores, threshold)["auc"])
+        score_shift = np.abs(fused_scores - zero_geometry_scores)
+        metrics["zero_geometry_auc"] = zero_geometry_auc
+        metrics["auc_gain_over_zero_geometry"] = float(metrics["auc"]) - zero_geometry_auc
+        metrics["mean_abs_zero_geometry_score_shift"] = float(np.mean(score_shift))
+        metrics["max_abs_zero_geometry_score_shift"] = float(np.max(score_shift))
     dataset_names = sorted({str(value) for value in predictions["dataset"]})
     aggregation = str(args.aggregation or data.get("video_aggregation", "mean"))
     threshold_context = (
@@ -311,6 +337,7 @@ def main() -> None:
             "texture_backbone": model_config.get("texture_backbone", "efficientnet_b0"),
             "texture_temporal_pooling": "mean",
             "geometry_architecture": model_config.get("geometry_architecture", "tcn_mean"),
+            "fusion_mode": model_config.get("fusion_mode", "quality"),
             "texture_mode": data.get("texture_mode", "full_face"),
             "model_weights": checkpoint.get("model_weights", "raw"),
             "modality_dropout_probability": float(
@@ -334,6 +361,7 @@ def main() -> None:
             "aggregation": aggregation,
             "top_k": int(args.top_k if args.top_k is not None else data.get("top_k", 1)),
             "texture_flip_tta": args.texture_flip_tta,
+            "zero_geometry_counterfactual": args.zero_geometry_counterfactual,
         },
         "threshold": {
             "value": threshold,

@@ -11,6 +11,7 @@ only how to reproduce the two retained profiles and their three-seed comparison.
 | `full_face` | Historical pre-SBI full-face reference (seed-42 AUC 0.8209) |
 | `full_face_sbi` | Trusted 50/25/25 SBI reference |
 | `geometry_candidate` | SBI + attentive geometry + reliability routing |
+| `texture_only_sbi` | Required P1 control: identical SBI protocol without geometry/fusion |
 
 All profiles use EfficientNet-B0, 160-pixel full-face input, eight texture frames
 during training, and raw weights. Evaluation uses 12 texture frames, three clips,
@@ -39,6 +40,9 @@ From Git Bash:
 
 ./run_train_cross_dataset.sh geometry_candidate
 ./run_test_cross_dataset.sh geometry_candidate
+
+./run_train_cross_dataset.sh texture_only_sbi
+./run_test_cross_dataset.sh texture_only_sbi
 ```
 
 For a non-default seed in PowerShell:
@@ -60,10 +64,11 @@ checkpoints and evaluation artifacts cannot overwrite one another.
 ./run_geometry_ablation.sh all
 ```
 
-The runner writes `geometry_candidate_comparison[_seedN].csv` and `.md` under
+The runner writes `p1_texture_control_comparison[_seedN].csv` and `.md` under
 `E:/DeepFakeData/experiments`. It includes FF++ validation AUC, Celeb-DF AUC,
-domain gap, branch AUCs, fusion gain, gate weights, AP, EER, balanced accuracy,
-and ACER.
+domain gap, branch AUCs, fusion gain, gate weights, zero-geometry counterfactual AUC,
+AP, EER, balanced accuracy, and ACER. Existing checkpoints are reused during
+`train`/`all`; the runner does not overwrite completed baseline or candidate runs.
 
 Training artifacts include `best.pt`, `last.pt`, `config.json`,
 `run_metadata.json`, `training_summary.json`, `history.json`, `train.log`, and

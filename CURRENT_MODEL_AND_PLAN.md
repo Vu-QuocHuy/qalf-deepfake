@@ -1,6 +1,6 @@
 # QALF current model and research plan
 
-Status: review candidate, 2026-08-12
+Status: P1 implementation ready, 2026-08-12
 
 This is the single source of truth for the retained model, the evidence collected
 so far, and the next decision. `SBI_IMPLEMENTATION_PLAN.md` and
@@ -110,16 +110,34 @@ Its near-zero geometry weight is the central unresolved issue.
 
 ## 5. Next plan and decision gates
 
-### P0 — review and freeze this cleanup
+### P0 — review and freeze this cleanup (complete)
 
 - Review this document, the active runners, and the supported architecture.
 - Do not train a new model until the cleanup commit is accepted.
 
-### P1 — texture-only SBI control (required next)
+### P1 — texture-only SBI control (implementation ready; results pending)
 
 Run the exact locked protocol for seeds 17, 42, and 73 with `fusion_mode=texture`.
 Keep the data, SBI mixture, augmentation, optimizer, checkpoint selection, and
 evaluation unchanged.
+
+The evaluator now also reports a zero-geometry counterfactual without changing
+the primary prediction or threshold. It records the counterfactual AUC, normal
+minus counterfactual AUC, score shifts, gate-weight percentiles, and separate
+real/fake mean gate weights. This is a no-retraining counterfactual diagnostic;
+because zero geometry may be out of distribution, it is not by itself a causal
+identification result. It is
+not a replacement for the texture-only control.
+
+Run all retained checkpoints and train only missing checkpoints with:
+
+```bash
+./run_geometry_ablation.sh all
+```
+
+For seeds 17 and 73, set `QALF_SEED` before the command. Existing baseline and
+candidate checkpoints are reused rather than overwritten; only the missing
+texture-only checkpoint is trained.
 
 Decision:
 

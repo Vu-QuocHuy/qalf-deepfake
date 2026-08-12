@@ -29,6 +29,7 @@ fi
 
 PROFILE="${1:-full_face_sbi}"
 PROFILE_ARGS=()
+FUSION_MODE='quality'
 case "$PROFILE" in
     full_face)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_deterministic'
@@ -38,6 +39,12 @@ case "$PROFILE" in
     full_face_sbi)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi'
         DESCRIPTION='locked full-face baseline with 50/25/25 SBI hybrid training'
+        PROFILE_ARGS+=(--texture-mode full_face --sbi)
+        ;;
+    texture_only_sbi)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_texture_only'
+        DESCRIPTION='required P1 texture-only control with locked SBI training'
+        FUSION_MODE='texture'
         PROFILE_ARGS+=(--texture-mode full_face --sbi)
         ;;
     geometry_candidate)
@@ -53,7 +60,7 @@ case "$PROFILE" in
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face, full_face_sbi, or geometry_candidate' >&2
+        echo 'Use: full_face, full_face_sbi, texture_only_sbi, or geometry_candidate' >&2
         exit 2
         ;;
 esac
@@ -111,7 +118,7 @@ echo "Batch size: $BATCH_SIZE"
     --embedding-dim 192 \
     --dropout 0.3 \
     --geometry-mode aligned_motion_3d \
-    --fusion-mode quality \
+    --fusion-mode "$FUSION_MODE" \
     --geometry-loss-weight 0.25 \
     --texture-loss-weight 0.25 \
     --texture-gate-bias 0.0 \

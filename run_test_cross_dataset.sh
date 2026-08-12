@@ -22,13 +22,17 @@ case "$PROFILE" in
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi'
         TEST_TEXTURE_FRAMES=12
         ;;
+    texture_only_sbi)
+        EXPERIMENT='qalf_ffpp4_effb0_160_8f_full_face_sbi_texture_only'
+        TEST_TEXTURE_FRAMES=12
+        ;;
     geometry_candidate)
         EXPERIMENT='qalf_ffpp4_effb0_160_8f_sbi_geometry_i3_attentive_reliability'
         TEST_TEXTURE_FRAMES=12
         ;;
     *)
         echo "ERROR: unknown profile '$PROFILE'" >&2
-        echo 'Use: full_face, full_face_sbi, or geometry_candidate' >&2
+        echo 'Use: full_face, full_face_sbi, texture_only_sbi, or geometry_candidate' >&2
         exit 2
         ;;
 esac

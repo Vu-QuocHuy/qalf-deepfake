@@ -20,7 +20,6 @@ from sklearn.metrics import (
     roc_curve,
 )
 
-
 REPORT_SECTIONS = (
     (
         "RANKING METRICS (threshold independent)",
@@ -56,6 +55,22 @@ REPORT_SECTIONS = (
             ("fixed_average_auc", "Fixed-average AUC"),
             ("mean_geometry_weight", "Mean geometry weight"),
             ("mean_texture_weight", "Mean texture weight"),
+            ("median_geometry_weight", "Median geometry weight"),
+            ("p90_geometry_weight", "P90 geometry weight"),
+            ("p95_geometry_weight", "P95 geometry weight"),
+            ("max_geometry_weight", "Maximum geometry weight"),
+            ("geometry_weight_above_0_05_fraction", "Geometry weight > 0.05 fraction"),
+            ("mean_geometry_weight_real", "Mean geometry weight — real"),
+            ("mean_geometry_weight_fake", "Mean geometry weight — fake"),
+        ),
+    ),
+    (
+        "ZERO-GEOMETRY COUNTERFACTUAL",
+        (
+            ("zero_geometry_auc", "AUC with geometry zeroed"),
+            ("auc_gain_over_zero_geometry", "Normal minus zero-geometry AUC"),
+            ("mean_abs_zero_geometry_score_shift", "Mean absolute score shift"),
+            ("max_abs_zero_geometry_score_shift", "Maximum absolute score shift"),
         ),
     ),
     (
@@ -133,9 +148,7 @@ def collect_run_metadata(
         torchvision_version = metadata.version("torchvision")
     except metadata.PackageNotFoundError:
         torchvision_version = None
-    gpu_names = [
-        torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())
-    ]
+    gpu_names = [torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())]
     return {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "command": list(argv),
@@ -169,9 +182,7 @@ def _pyplot():
     return plt
 
 
-def save_training_history_plot(
-    history: Sequence[Mapping[str, object]], path: str | Path
-) -> None:
+def save_training_history_plot(history: Sequence[Mapping[str, object]], path: str | Path) -> None:
     """Write a compact four-panel summary of all completed epochs."""
 
     if not history:

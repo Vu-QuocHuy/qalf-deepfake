@@ -488,12 +488,13 @@ def main() -> None:
     logger.info("=" * 72)
     logger.info("QALF TRAINING RUN")
     logger.info(
-        "  model | device=%s backbone=%s texture_mode=%s pooling=mean geometry=%s "
+        "  model | device=%s backbone=%s texture_mode=%s pooling=mean geometry=%s fusion=%s "
         "frames=%d image_size=%d parameters=%d trainable=%d",
         device,
         model_config.get("texture_backbone", "efficientnet_b0"),
         data.get("texture_mode", "full_face"),
         model_config.get("geometry_architecture", "tcn_mean"),
+        fusion_mode,
         int(data["texture_frames"]),
         int(data["image_size"]),
         sum(parameter.numel() for parameter in model.parameters()),

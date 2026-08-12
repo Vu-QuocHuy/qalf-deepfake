@@ -46,6 +46,7 @@ echo "Python: $PYTHON"
 echo "Checkpoint: $CHECKPOINT"
 echo "Evaluation output: $OUTPUT_DIR"
 echo "Texture flip TTA: enabled"
+echo "Zero-geometry counterfactual: enabled"
 echo "Threshold calibration: $FFPP_VAL_MANIFEST"
 
 "$PYTHON" scripts/evaluate.py \
@@ -60,6 +61,7 @@ echo "Threshold calibration: $FFPP_VAL_MANIFEST"
     --aggregation mean \
     --top-k 1 \
     --texture-flip-tta \
+    --zero-geometry-counterfactual \
     --threshold-manifest "$FFPP_VAL_MANIFEST" \
     --threshold-frame-root "$FFPP_FRAME_ROOT" \
     --threshold-landmark-root "$FFPP_LANDMARK_ROOT" \
