@@ -218,12 +218,18 @@ def main() -> None:
     model = build_model_from_checkpoint(checkpoint)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
+    print(
+        f"Robustness evaluation started: device={device} "
+        f"checkpoint={args.checkpoint}",
+        flush=True,
+    )
     data = checkpoint["config"]["data"]
     dataset = _dataset(args.manifest, args.frame_root, args.landmark_root, data, args.texture_frames, args.clips_per_video)
     loader = _loader(dataset, args.batch_size, args.num_workers)
     threshold = float(checkpoint.get("threshold", 0.5))
     threshold_source = "checkpoint"
     if args.threshold_manifest:
+        print("Calibrating threshold on clean FF++ validation...", flush=True)
         threshold_dataset = _dataset(
             args.threshold_manifest,
             args.threshold_frame_root,
@@ -239,15 +245,24 @@ def main() -> None:
         threshold = select_threshold(np.asarray(threshold_predictions["label"], dtype=np.int64),
                                      np.asarray(threshold_predictions["score"], dtype=np.float64))
         threshold_source = args.threshold_manifest
+        print(f"Threshold calibrated: {threshold:.4f}", flush=True)
 
     rows: list[dict[str, object]] = []
-    for condition, corruption in corruption_suite(args.seed).items():
+    suite = corruption_suite(args.seed)
+    for index, (condition, corruption) in enumerate(suite.items(), 1):
+        print(f"[{index}/{len(suite)}] evaluating {condition}...", flush=True)
         predictions = aggregate_predictions(
             predict_condition(model, loader, device, corruption, args.texture_flip_tta),
             method=args.aggregation, top_k=args.top_k)
         labels = np.asarray(predictions["label"], dtype=np.int64)
         scores = np.asarray(predictions["score"], dtype=np.float64)
-        rows.append({"condition": condition, **compute_metrics(labels, scores, threshold)})
+        metrics = compute_metrics(labels, scores, threshold)
+        rows.append({"condition": condition, **metrics})
+        print(
+            f"[{index}/{len(suite)}] {condition}: "
+            f"auc={float(metrics['auc']):.4f} acer={float(metrics['acer']):.4f}",
+            flush=True,
+        )
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
