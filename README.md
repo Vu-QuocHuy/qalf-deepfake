@@ -97,7 +97,8 @@ The suite runs three seeds for the SBI and EMA controls, one seed for the
 pretrained, augmentation, and SBI-mixture controls, then evaluates frame
 count, clip count, aggregation, TTA, and corruption robustness. Existing
 checkpoints and metrics are skipped, so it can safely be restarted. Results
-default to `E:/DeepFakeData/experiments/qalf_ffpp4_effb0_160_8f_ablation`.
+default to `E:/DeepFakeData/experiments/ablation` with short names such as
+`baseline_seed42`, `no_sbi_seed42`, and `no_ema_seed42`.
 Use `QALF_ABLATION_MODE=train`, `eval`, or `robustness` to run one phase only.
 
 ## Outputs

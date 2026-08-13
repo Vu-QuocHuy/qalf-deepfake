@@ -38,9 +38,8 @@ esac
 
 DATA_ROOT="$STORAGE_ROOT/data"
 CONFIG="$PROJECT_ROOT/configs/ffpp_to_celebdf.json"
-ABLATION_ROOT="${QALF_ABLATION_ROOT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_ablation}"
-# Reuse the canonical baseline-seed directories when they already exist.
-BASELINE_PREFIX="${QALF_ABLATION_BASELINE_PREFIX:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_seed}"
+ABLATION_ROOT="${QALF_ABLATION_ROOT:-$STORAGE_ROOT/experiments/ablation}"
+BASELINE_PREFIX="${QALF_ABLATION_BASELINE_PREFIX:-$ABLATION_ROOT/baseline_seed}"
 CORE_SEEDS_RAW="${QALF_ABLATION_CORE_SEEDS:-17 42 73}"
 CONTROL_SEED="${QALF_ABLATION_CONTROL_SEED:-42}"
 EPOCHS="${QALF_EPOCHS:-50}"
@@ -169,9 +168,9 @@ done
 
 # One-seed controls: useful for the paper's implementation table without
 # multiplying the expensive core grid.
-run_profile_seed no_pretrained "$CONTROL_SEED" "$ABLATION_ROOT/no_pretrained_seed" \
+run_profile_seed no_pretrain "$CONTROL_SEED" "$ABLATION_ROOT/no_pretrain_seed" \
     --sbi --ema-decay 0.999 --validation-weights ema --no-texture-pretrained
-run_profile_seed no_augmentation "$CONTROL_SEED" "$ABLATION_ROOT/no_augmentation_seed" \
+run_profile_seed no_aug "$CONTROL_SEED" "$ABLATION_ROOT/no_aug_seed" \
     --sbi --ema-decay 0.999 --validation-weights ema --no-texture-augmentation
 run_profile_seed sbi_half "$CONTROL_SEED" "$ABLATION_ROOT/sbi_half_seed" \
     --sbi --sbi-mixture 0.25 0.25 0.50 --ema-decay 0.999 --validation-weights ema
@@ -180,8 +179,8 @@ if (( DO_EVAL )); then
     summarize_profile baseline "$BASELINE_PREFIX" "${CORE_SEEDS[@]}"
     summarize_profile no_sbi "$ABLATION_ROOT/no_sbi_seed" "${CORE_SEEDS[@]}"
     summarize_profile no_ema "$ABLATION_ROOT/no_ema_seed" "${CORE_SEEDS[@]}"
-    summarize_profile no_pretrained "$ABLATION_ROOT/no_pretrained_seed" "$CONTROL_SEED"
-    summarize_profile no_augmentation "$ABLATION_ROOT/no_augmentation_seed" "$CONTROL_SEED"
+    summarize_profile no_pretrain "$ABLATION_ROOT/no_pretrain_seed" "$CONTROL_SEED"
+    summarize_profile no_aug "$ABLATION_ROOT/no_aug_seed" "$CONTROL_SEED"
     summarize_profile sbi_half "$ABLATION_ROOT/sbi_half_seed" "$CONTROL_SEED"
 
     # Evaluation-only protocol ablations use the seed-42 baseline checkpoint.
@@ -192,7 +191,7 @@ if (( DO_EVAL )); then
     fi
     run_eval_case() {
         local name="$1" frames="$2" clips="$3" aggregation="$4" flip="$5"
-        local output_dir="$ABLATION_ROOT/eval_seed42_${name}"
+        local output_dir="$ABLATION_ROOT/eval_${name}"
         if [[ "$FORCE_EVAL" != "1" && -f "$output_dir/metrics.json" ]]; then
             echo "[eval/$name] metrics exist; skipping"
             return
@@ -224,7 +223,7 @@ if (( DO_ROBUSTNESS )); then
         echo "ERROR: seed-42 baseline checkpoint required for robustness: $BASELINE_SEED42" >&2
         exit 1
     fi
-    robustness_output="$ABLATION_ROOT/baseline_seed42_robustness.json"
+    robustness_output="$ABLATION_ROOT/baseline_robustness.json"
     if [[ "$FORCE_EVAL" == "1" || ! -f "$robustness_output" ]]; then
         QALF_ROBUSTNESS_CHECKPOINT="$BASELINE_SEED42" \
         QALF_ROBUSTNESS_OUTPUT="$robustness_output" \
