@@ -55,6 +55,20 @@ training, and 12 frames in each of three evaluation clips. Evaluation uses
 mean clip aggregation, horizontal-flip TTA, and an FF++ validation Youden-J
 threshold.
 
+### Multi-seed baseline
+
+Run the same baseline independently with seeds `17`, `42`, and `73`, then
+write per-seed and mean ± standard-deviation reports:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_baseline_seeds.sh
+```
+
+Useful overrides are space-separated `QALF_SEEDS`, `QALF_EPOCHS`,
+`QALF_TEST_TEXTURE_FRAMES`, `QALF_FORCE_TRAIN=1`, and `QALF_FORCE_TEST=1`.
+Each seed receives its own checkpoint and Celeb-DF evaluation directory; the
+summary is saved as `qalf_ffpp4_effb0_160_8f_texture_sbi_ema_multiseed.csv/.md`.
+
 ## Outputs
 
 Training writes `best.pt`, configuration, metadata, history, logs, and a
