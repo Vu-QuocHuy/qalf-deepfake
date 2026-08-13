@@ -50,6 +50,10 @@ to RGB frames with the locked 8-frame inference protocol. Set
 `QALF_ROBUSTNESS_TEXTURE_FRAMES` only for a separate frame-count ablation.
 The operating threshold is fitted on clean FF++ validation, not on Celeb-DF.
 
+For a resumable full comparison, run `./run_ablation_suite.sh`. It keeps the
+locked baseline unchanged and writes training controls, inference-protocol
+ablations, and corruption robustness to separate experiment directories.
+
 Geometry, fixed/learned SRM, fusion gates, reliability loss, modality dropout,
 MixStyle, EfficientNet-B1, and their diagnostic profiles are retired from the
 active codebase. The active baseline is texture-only full-face RGB with SBI,

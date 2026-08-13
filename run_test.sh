@@ -41,7 +41,17 @@ CHECKPOINT="${QALF_TEST_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_1
 # Canonical baseline evaluates with the same eight texture frames used in
 # training. Set QALF_TEST_TEXTURE_FRAMES=12 explicitly for a separate ablation.
 TEXTURE_FRAMES="${QALF_TEST_TEXTURE_FRAMES:-8}"
-OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_to_celebdf_${TEXTURE_FRAMES}f_3clips_mean_tta_ffpp_threshold}"
+CLIPS_PER_VIDEO="${QALF_TEST_CLIPS_PER_VIDEO:-3}"
+AGGREGATION="${QALF_TEST_AGGREGATION:-mean}"
+TOP_K="${QALF_TEST_TOP_K:-1}"
+THRESHOLD_CLIPS_PER_VIDEO="${QALF_TEST_THRESHOLD_CLIPS_PER_VIDEO:-3}"
+FLIP_TTA="${QALF_TEST_FLIP_TTA:-1}"
+OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_to_celebdf_${TEXTURE_FRAMES}f_${CLIPS_PER_VIDEO}clips_${AGGREGATION}_tta_ffpp_threshold}"
+
+TTA_ARGS=()
+if [[ "$FLIP_TTA" == "1" ]]; then
+    TTA_ARGS+=(--texture-flip-tta)
+fi
 
 "$PYTHON" scripts/evaluate.py \
     --checkpoint "$CHECKPOINT" \
@@ -51,12 +61,12 @@ OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_1
     --output-dir "$OUTPUT_DIR" \
     --batch-size 8 \
     --num-workers 4 \
-    --clips-per-video 3 \
-    --aggregation mean \
-    --top-k 1 \
+    --clips-per-video "$CLIPS_PER_VIDEO" \
+    --aggregation "$AGGREGATION" \
+    --top-k "$TOP_K" \
     --texture-frames "$TEXTURE_FRAMES" \
-    --texture-flip-tta \
+    "${TTA_ARGS[@]}" \
     --threshold-manifest "$FFPP_VAL_MANIFEST" \
     --threshold-frame-root "$FFPP_FRAME_ROOT" \
     --threshold-landmark-root "$FFPP_LANDMARK_ROOT" \
-    --threshold-clips-per-video 3
+    --threshold-clips-per-video "$THRESHOLD_CLIPS_PER_VIDEO"

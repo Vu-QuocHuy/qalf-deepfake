@@ -85,6 +85,21 @@ ablation. The script uses the clean FF++ validation threshold and never fits
 anything on Celeb-DF. Corruptions are applied after denormalizing RGB tensors
 and normalized again before inference.
 
+### One-shot ablation suite
+
+To run the registered comparisons in one resumable job:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_ablation_suite.sh
+```
+
+The suite runs three seeds for the SBI and EMA controls, one seed for the
+pretrained, augmentation, and SBI-mixture controls, then evaluates frame
+count, clip count, aggregation, TTA, and corruption robustness. Existing
+checkpoints and metrics are skipped, so it can safely be restarted. Results
+default to `E:/DeepFakeData/experiments/qalf_ffpp4_effb0_160_8f_ablation`.
+Use `QALF_ABLATION_MODE=train`, `eval`, or `robustness` to run one phase only.
+
 ## Outputs
 
 Training writes `best.pt`, configuration, history, logs, and a training plot.

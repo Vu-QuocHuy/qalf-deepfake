@@ -170,6 +170,19 @@ def main() -> None:
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--no-balanced-sampler", action="store_true")
     parser.add_argument("--sbi", action="store_true")
+    parser.add_argument("--no-sbi", action="store_true")
+    parser.add_argument(
+        "--sbi-mixture",
+        nargs=3,
+        type=float,
+        metavar=("REAL", "ORIGINAL_FAKE", "SBI"),
+        help="Override enabled SBI mixture shares in the order real/original_fake/sbi.",
+    )
+    parser.add_argument(
+        "--no-texture-pretrained",
+        action="store_true",
+        help="Initialize EfficientNet-B0 without ImageNet weights.",
+    )
     parser.add_argument("--deterministic", action="store_true")
     args = parser.parse_args()
 
@@ -179,6 +192,8 @@ def main() -> None:
         data["texture_mode"] = args.texture_mode
     if args.texture_backbone:
         model_config["texture_backbone"] = args.texture_backbone
+    if args.no_texture_pretrained:
+        model_config["texture_pretrained"] = False
     for key, value in {
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
@@ -192,6 +207,19 @@ def main() -> None:
     if args.sbi:
         sbi_config = dict(data.get("sbi", {}))
         sbi_config["enabled"] = True
+        data["sbi"] = sbi_config
+    if args.no_sbi:
+        sbi_config = dict(data.get("sbi", {}))
+        sbi_config["enabled"] = False
+        data["sbi"] = sbi_config
+    if args.sbi_mixture is not None:
+        if args.no_sbi:
+            parser.error("--sbi-mixture cannot be combined with --no-sbi")
+        sbi_config = dict(data.get("sbi", {}))
+        sbi_config["enabled"] = True
+        sbi_config["mixture"] = dict(
+            zip(("real", "original_fake", "sbi"), args.sbi_mixture, strict=True)
+        )
         data["sbi"] = sbi_config
     for key, value in {
         "num_frames": args.num_frames,
