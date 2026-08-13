@@ -46,7 +46,8 @@ EPOCHS="${QALF_EPOCHS:-50}"
 FORCE_TRAIN="${QALF_ABLATION_FORCE_TRAIN:-0}"
 FORCE_EVAL="${QALF_ABLATION_FORCE_EVAL:-0}"
 TEXTURE_FRAMES=8
-EVAL_SUFFIX="_to_celebdf_8f_3clips_mean_tta_ffpp_threshold"
+THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-youden_j}"
+EVAL_SUFFIX="_to_celebdf_8f_3clips_mean_${THRESHOLD_SELECTION}_tta_ffpp_threshold"
 
 read -r -a CORE_SEEDS <<< "$CORE_SEEDS_RAW"
 if (( ${#CORE_SEEDS[@]} == 0 )); then

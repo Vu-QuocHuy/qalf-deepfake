@@ -45,8 +45,9 @@ CLIPS_PER_VIDEO="${QALF_TEST_CLIPS_PER_VIDEO:-3}"
 AGGREGATION="${QALF_TEST_AGGREGATION:-mean}"
 TOP_K="${QALF_TEST_TOP_K:-1}"
 THRESHOLD_CLIPS_PER_VIDEO="${QALF_TEST_THRESHOLD_CLIPS_PER_VIDEO:-3}"
+THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-youden_j}"
 FLIP_TTA="${QALF_TEST_FLIP_TTA:-1}"
-OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_to_celebdf_${TEXTURE_FRAMES}f_${CLIPS_PER_VIDEO}clips_${AGGREGATION}_tta_ffpp_threshold}"
+OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_to_celebdf_${TEXTURE_FRAMES}f_${CLIPS_PER_VIDEO}clips_${AGGREGATION}_${THRESHOLD_SELECTION}_tta_ffpp_threshold}"
 
 TTA_ARGS=()
 if [[ "$FLIP_TTA" == "1" ]]; then
@@ -69,4 +70,5 @@ fi
     --threshold-manifest "$FFPP_VAL_MANIFEST" \
     --threshold-frame-root "$FFPP_FRAME_ROOT" \
     --threshold-landmark-root "$FFPP_LANDMARK_ROOT" \
-    --threshold-clips-per-video "$THRESHOLD_CLIPS_PER_VIDEO"
+    --threshold-clips-per-video "$THRESHOLD_CLIPS_PER_VIDEO" \
+    --threshold-selection "$THRESHOLD_SELECTION"

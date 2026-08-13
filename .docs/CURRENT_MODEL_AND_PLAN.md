@@ -50,6 +50,10 @@ to RGB frames with the locked 8-frame inference protocol. Set
 `QALF_ROBUSTNESS_TEXTURE_FRAMES` only for a separate frame-count ablation.
 The operating threshold is fitted on clean FF++ validation, not on Celeb-DF.
 
+Threshold selection supports `youden_j` (default) and `eer`. The EER option
+selects the closest finite ROC operating point on FF++ validation and freezes
+it for cross-dataset evaluation; it never uses Celeb-DF labels.
+
 For a resumable full comparison, run `./run_ablation_suite.sh`. It keeps the
 locked baseline unchanged and writes training controls, inference-protocol
 ablations, and corruption robustness to separate experiment directories.

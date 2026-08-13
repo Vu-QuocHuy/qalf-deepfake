@@ -85,6 +85,20 @@ ablation. The script uses the clean FF++ validation threshold and never fits
 anything on Celeb-DF. Corruptions are applied after denormalizing RGB tensors
 and normalized again before inference.
 
+The default operating-point rule is Youden-J. To evaluate the alternative
+closest-to-EER threshold without retraining:
+
+```powershell
+$env:QALF_THRESHOLD_SELECTION="eer"
+& "C:\Program Files\Git\bin\bash.exe" ./run_test.sh
+Remove-Item Env:QALF_THRESHOLD_SELECTION
+```
+
+Threshold calibration remains restricted to FF++ validation; the selected
+threshold is frozen before Celeb-DF inference. Set the same variable before
+`run_ablation_suite.sh` or `run_robustness.sh` to use EER operating points in
+those reports.
+
 ### One-shot ablation suite
 
 To run the registered comparisons in one resumable job:

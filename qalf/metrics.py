@@ -12,12 +12,29 @@ from sklearn.metrics import (
 )
 
 
-def select_threshold(labels: np.ndarray, scores: np.ndarray) -> float:
+def select_threshold(
+    labels: np.ndarray,
+    scores: np.ndarray,
+    strategy: str = "youden_j",
+) -> float:
+    """Select a validation threshold without using the target test set.
+
+    ``youden_j`` maximizes TPR-FPR and is the historical project default.
+    ``eer`` selects the finite ROC threshold whose FPR and FNR are closest;
+    this is a reproducible closest-to-EER operating point for discrete scores.
+    """
+
+    if strategy not in {"youden_j", "eer"}:
+        raise ValueError(f"Unsupported threshold strategy: {strategy}")
     false_positive, true_positive, thresholds = roc_curve(labels, scores)
     finite = np.isfinite(thresholds)
     if not finite.any():
         return 0.5
-    index = int(np.argmax((true_positive - false_positive)[finite]))
+    if strategy == "eer":
+        false_negative = 1.0 - true_positive
+        index = int(np.argmin(np.abs(false_positive - false_negative)[finite]))
+    else:
+        index = int(np.argmax((true_positive - false_positive)[finite]))
     return float(thresholds[finite][index])
 
 

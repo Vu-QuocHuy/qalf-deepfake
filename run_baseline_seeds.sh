@@ -32,11 +32,12 @@ if (( ${#SEEDS[@]} == 0 )); then
 fi
 
 TEXTURE_FRAMES="${QALF_TEST_TEXTURE_FRAMES:-8}"
+THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-youden_j}"
 EPOCHS="${QALF_EPOCHS:-50}"
 FORCE_TRAIN="${QALF_FORCE_TRAIN:-0}"
 FORCE_TEST="${QALF_FORCE_TEST:-0}"
 BASE_PREFIX="${QALF_MULTI_SEED_PREFIX:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_seed}"
-EVAL_SUFFIX="_to_celebdf_${TEXTURE_FRAMES}f_3clips_mean_tta_ffpp_threshold"
+EVAL_SUFFIX="_to_celebdf_${TEXTURE_FRAMES}f_3clips_mean_${THRESHOLD_SELECTION}_tta_ffpp_threshold"
 
 if ! [[ "$TEXTURE_FRAMES" =~ ^[0-9]+$ ]] || (( TEXTURE_FRAMES < 1 || TEXTURE_FRAMES > 32 )); then
     echo "ERROR: QALF_TEST_TEXTURE_FRAMES must be an integer in [1, 32]" >&2
@@ -84,7 +85,7 @@ for seed in "${SEEDS[@]}"; do
     fi
 done
 
-SUMMARY_STEM="${QALF_MULTI_SEED_SUMMARY:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_multiseed}"
+SUMMARY_STEM="${QALF_MULTI_SEED_SUMMARY:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_${THRESHOLD_SELECTION}_multiseed}"
 PYTHON="$PROJECT_ROOT/.venv/bin/python"
 if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* || "$(uname -s)" == CYGWIN* ]]; then
     PYTHON="$PROJECT_ROOT/.venv/Scripts/python.exe"

@@ -6,11 +6,21 @@ from pathlib import Path
 
 import numpy as np
 
-from qalf.metrics import compute_metrics
+from qalf.metrics import compute_metrics, select_threshold
 from qalf.reporting import format_evaluation_report, save_evaluation_plots
 
 
 class ComprehensiveMetricTests(unittest.TestCase):
+    def test_eer_threshold_is_finite_and_in_score_range(self) -> None:
+        labels = np.asarray([0, 0, 1, 1])
+        scores = np.asarray([0.1, 0.3, 0.7, 0.9])
+        threshold = select_threshold(labels, scores, strategy="eer")
+        self.assertTrue(0.0 <= threshold <= 1.0)
+
+    def test_unknown_threshold_strategy_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            select_threshold(np.asarray([0, 1]), np.asarray([0.1, 0.9]), "bad")
+
     def test_confusion_counts_and_class_metrics_use_fake_as_positive(self) -> None:
         labels = np.asarray([0, 0, 1, 1])
         scores = np.asarray([0.1, 0.8, 0.2, 0.9])

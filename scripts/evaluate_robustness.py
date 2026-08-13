@@ -201,6 +201,12 @@ def main() -> None:
     parser.add_argument("--threshold-frame-root")
     parser.add_argument("--threshold-landmark-root")
     parser.add_argument("--threshold-clips-per-video", type=int, default=3)
+    parser.add_argument(
+        "--threshold-selection",
+        choices=("youden_j", "eer"),
+        default="youden_j",
+        help="Validation threshold rule; EER means closest finite ROC point.",
+    )
     parser.add_argument("--texture-frames", type=int, default=12)
     parser.add_argument("--clips-per-video", type=int, default=3)
     parser.add_argument("--aggregation", choices=("mean", "median", "topk"), default="mean")
@@ -242,8 +248,11 @@ def main() -> None:
         threshold_predictions = aggregate_predictions(
             predict_condition(model, _loader(threshold_dataset, args.batch_size, args.num_workers), device, None, args.texture_flip_tta),
             method=args.aggregation, top_k=args.top_k)
-        threshold = select_threshold(np.asarray(threshold_predictions["label"], dtype=np.int64),
-                                     np.asarray(threshold_predictions["score"], dtype=np.float64))
+        threshold = select_threshold(
+            np.asarray(threshold_predictions["label"], dtype=np.int64),
+            np.asarray(threshold_predictions["score"], dtype=np.float64),
+            strategy=args.threshold_selection,
+        )
         threshold_source = args.threshold_manifest
         print(f"Threshold calibrated: {threshold:.4f}", flush=True)
 
@@ -271,7 +280,9 @@ def main() -> None:
         "texture_frames": args.texture_frames, "clips_per_video": args.clips_per_video,
         "aggregation": args.aggregation, "top_k": args.top_k,
         "texture_flip_tta": args.texture_flip_tta, "threshold": threshold,
-        "threshold_source": threshold_source, "corruption_seed": args.seed,
+        "threshold_source": threshold_source,
+        "threshold_selection": args.threshold_selection,
+        "corruption_seed": args.seed,
     }
     output.write_text(json.dumps({"protocol": protocol, "results": rows}, indent=2), encoding="utf-8")
     _write_markdown(output.with_suffix(".md"), rows, protocol)

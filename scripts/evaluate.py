@@ -100,6 +100,12 @@ def main() -> None:
     parser.add_argument("--threshold-frame-root")
     parser.add_argument("--threshold-landmark-root")
     parser.add_argument("--threshold-clips-per-video", type=int)
+    parser.add_argument(
+        "--threshold-selection",
+        choices=("youden_j", "eer"),
+        default="youden_j",
+        help="Validation threshold rule; EER means closest finite ROC point.",
+    )
     parser.add_argument("--texture-flip-tta", action="store_true")
     parser.add_argument(
         "--fake-methods",
@@ -193,7 +199,11 @@ def main() -> None:
         )
         threshold_labels = np.asarray(threshold_predictions["label"], dtype=np.int64)
         threshold_scores = np.asarray(threshold_predictions["score"], dtype=np.float64)
-        threshold = select_threshold(threshold_labels, threshold_scores)
+        threshold = select_threshold(
+            threshold_labels,
+            threshold_scores,
+            strategy=args.threshold_selection,
+        )
         threshold_metrics = compute_metrics(threshold_labels, threshold_scores, threshold)
         threshold_source = str(args.threshold_manifest)
 
@@ -208,6 +218,11 @@ def main() -> None:
     scores = np.asarray(predictions["score"], dtype=np.float64)
     metrics = compute_metrics(labels, scores, threshold)
     datasets = sorted({str(value) for value in predictions["dataset"]})
+    effective_threshold_selection = (
+        args.threshold_selection
+        if args.threshold_manifest
+        else str(checkpoint.get("threshold_selection", "youden_j_ffpp_validation"))
+    )
     context = {
         "Model": (
             "EfficientNet-B0 texture-only SBI "
@@ -222,9 +237,9 @@ def main() -> None:
             ", ".join(args.fake_methods) if args.fake_methods else "none (all manifest methods)"
         ),
         "Threshold source": (
-            "FF++ validation calibration (Youden-J)"
+            f"FF++ validation calibration ({args.threshold_selection})"
             if args.threshold_manifest
-            else "checkpoint FF++ validation (Youden-J)"
+            else f"checkpoint ({effective_threshold_selection})"
         ),
     }
     report = format_evaluation_report(metrics, context=context)
@@ -272,7 +287,13 @@ def main() -> None:
             "value": threshold,
             "source": threshold_source,
             "checkpoint_value": float(checkpoint["threshold"]),
-            "selection": checkpoint.get("threshold_selection", "youden_j_ffpp_validation"),
+            "selection": (
+                f"{args.threshold_selection}_ffpp_validation"
+                if args.threshold_manifest
+                else checkpoint.get(
+                    "threshold_selection", "youden_j_ffpp_validation"
+                )
+            ),
         },
     }
     save_json({"metrics": metrics, "protocol": protocol}, output_dir / "metrics.json")
