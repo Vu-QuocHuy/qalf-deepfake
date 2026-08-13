@@ -166,6 +166,11 @@ def main() -> None:
     parser.add_argument(
         "--texture-backbone", choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES))
     )
+    parser.add_argument(
+        "--srm-preprocess",
+        action="store_true",
+        help="Inject a fixed three-kernel SRM residual before EfficientNet-B0.",
+    )
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--no-balanced-sampler", action="store_true")
@@ -179,6 +184,8 @@ def main() -> None:
         data["texture_mode"] = args.texture_mode
     if args.texture_backbone:
         model_config["texture_backbone"] = args.texture_backbone
+    if args.srm_preprocess:
+        model_config["srm_preprocess"] = True
     for key, value in {
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
@@ -307,6 +314,7 @@ def main() -> None:
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
+        srm_preprocess=bool(model_config.get("srm_preprocess", False)),
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(

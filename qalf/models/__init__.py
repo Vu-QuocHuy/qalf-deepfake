@@ -3,6 +3,7 @@
 from typing import Any
 
 from .qalf import QALFModel
+from .srm import FixedSRMPreprocess
 from .texture import SUPPORTED_TEXTURE_BACKBONES
 
 
@@ -17,6 +18,7 @@ def build_model_from_checkpoint(
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
+        srm_preprocess=bool(model_config.get("srm_preprocess", False)),
     )
     if load_weights:
         model.load_state_dict(checkpoint["model"], strict=True)
@@ -26,5 +28,6 @@ def build_model_from_checkpoint(
 __all__ = [
     "QALFModel",
     "SUPPORTED_TEXTURE_BACKBONES",
+    "FixedSRMPreprocess",
     "build_model_from_checkpoint",
 ]

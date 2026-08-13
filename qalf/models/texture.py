@@ -1,9 +1,11 @@
-"""EfficientNet-B0 encoder for landmark-aligned full-face sequences."""
+"""EfficientNet-B0 encoder for aligned full-face RGB sequences."""
 
 from __future__ import annotations
 
 import torch
 from torch import nn
+
+from .srm import FixedSRMPreprocess
 
 SUPPORTED_TEXTURE_BACKBONES = {"efficientnet_b0"}
 
@@ -26,11 +28,13 @@ class TextureEncoder(nn.Module):
         dropout: float = 0.2,
         pretrained: bool = True,
         backbone: str = "efficientnet_b0",
+        srm_preprocess: bool = False,
     ) -> None:
         super().__init__()
         if backbone not in SUPPORTED_TEXTURE_BACKBONES:
             raise ValueError(f"Unsupported texture backbone: {backbone}")
         self.backbone_name = backbone
+        self.srm_preprocess = FixedSRMPreprocess() if srm_preprocess else None
         self.features, self.pool, feature_dim = _build_backbone(backbone, pretrained)
         self.projection = nn.Sequential(
             nn.Linear(feature_dim, embedding_dim),
@@ -45,6 +49,8 @@ class TextureEncoder(nn.Module):
         if channels != 3:
             raise ValueError(f"Texture encoder expects 3 channels, received {channels}")
         output = texture.reshape(batch * frames, channels, height, width)
+        if self.srm_preprocess is not None:
+            output = self.srm_preprocess(output)
         for layer in self.features:
             output = layer(output)
         output = self.pool(output).flatten(1)

@@ -17,6 +17,7 @@ class QALFModel(nn.Module):
         dropout: float = 0.2,
         texture_pretrained: bool = True,
         texture_backbone: str = "efficientnet_b0",
+        srm_preprocess: bool = False,
     ) -> None:
         super().__init__()
         self.texture_encoder = TextureEncoder(
@@ -24,6 +25,7 @@ class QALFModel(nn.Module):
             dropout=dropout,
             pretrained=texture_pretrained,
             backbone=texture_backbone,
+            srm_preprocess=srm_preprocess,
         )
 
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:

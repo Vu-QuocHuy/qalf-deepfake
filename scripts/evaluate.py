@@ -212,7 +212,8 @@ def main() -> None:
         "Model": (
             "EfficientNet-B0 texture-only SBI "
             f"(weights={checkpoint.get('model_weights', 'raw')}, "
-            f"ema_decay={float(checkpoint.get('ema_decay', 0.0)):.4f})"
+            f"ema_decay={float(checkpoint.get('ema_decay', 0.0)):.4f}, "
+            f"srm_preprocess={bool(model_config.get('srm_preprocess', False))})"
         ),
         "Inference": (
             f"clips={clips_per_video}, aggregation={aggregation}, "
@@ -250,6 +251,7 @@ def main() -> None:
             "texture_backbone": model_config.get("texture_backbone", "efficientnet_b0"),
             "texture_temporal_pooling": "mean",
             "texture_mode": data.get("texture_mode", "full_face"),
+            "srm_preprocess": bool(model_config.get("srm_preprocess", False)),
             "model_weights": checkpoint.get("model_weights", "raw"),
             "ema_decay": float(checkpoint.get("ema_decay", 0.0)),
         },
