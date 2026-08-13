@@ -172,9 +172,9 @@ def main() -> None:
     parser.add_argument("--sbi", action="store_true")
     parser.add_argument("--deterministic", action="store_true")
     # v2 architecture flags
-    parser.add_argument("--frequency-preprocess", action="store_true")
-    parser.add_argument("--multiscale", action="store_true")
-    parser.add_argument("--temporal-attention", action="store_true")
+    parser.add_argument("--frequency-preprocess", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--multiscale", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--temporal-attention", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--label-smoothing", type=float)
     args = parser.parse_args()
 
@@ -191,12 +191,12 @@ def main() -> None:
         if value is not None:
             model_config[key] = value
     # v2 flags: CLI flags override config (only set if explicitly passed)
-    if args.frequency_preprocess:
-        model_config["frequency_preprocess"] = True
-    if args.multiscale:
-        model_config["multiscale"] = True
-    if args.temporal_attention:
-        model_config["temporal_attention"] = True
+    if args.frequency_preprocess is not None:
+        model_config["frequency_preprocess"] = args.frequency_preprocess
+    if args.multiscale is not None:
+        model_config["multiscale"] = args.multiscale
+    if args.temporal_attention is not None:
+        model_config["temporal_attention"] = args.temporal_attention
     if args.no_texture_augmentation:
         data["texture_augmentation"] = {}
     if args.fake_methods is not None:

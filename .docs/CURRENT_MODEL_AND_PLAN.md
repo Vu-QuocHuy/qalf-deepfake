@@ -83,6 +83,14 @@ features and are not passed to the model.
 # V1 (baseline)
 ./run_train.sh
 ./run_test.sh
+
+# Ablation study (8 cấu hình 2^3)
+./run_ablation.sh              # chạy đầy đủ
+./run_ablation.sh --dry-run    # chỉ in lệnh
+./run_ablation.sh --resume     # skip đã xong
+
+# Tổng hợp ablation
+python scripts/summarize_ablation.py --ablation-dir <dir> --output results.md
 ```
 
 ## Parameter budget
@@ -100,3 +108,10 @@ Geometry, fixed/learned SRM branches, fusion gates, reliability loss, modality
 dropout, MixStyle, EfficientNet-B1, and their diagnostic profiles are retired
 from the active codebase. The v2 SRM is a fixed preprocessing layer, not a
 learned branch.
+
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Kiến trúc model chi tiết (pipeline, modules, param count)
+- [DATA_PREPARATION.md](DATA_PREPARATION.md) — Hướng dẫn chuẩn bị dữ liệu (extract frames, landmarks)
+- [TRAINING_AND_EVALUATION.md](TRAINING_AND_EVALUATION.md) — Hướng dẫn train, evaluate, ablation, export
+

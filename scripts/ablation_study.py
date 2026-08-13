@@ -30,14 +30,14 @@ from pathlib import Path
 # Full factorial 2^3 design ---------------------------------------------------
 
 ABLATIONS: list[dict[str, object]] = [
-    {"name": "baseline",  "flags": []},
-    {"name": "freq_only", "flags": ["--frequency-preprocess"]},
-    {"name": "ms_only",   "flags": ["--multiscale"]},
-    {"name": "ta_only",   "flags": ["--temporal-attention"]},
-    {"name": "freq_ms",   "flags": ["--frequency-preprocess", "--multiscale"]},
-    {"name": "freq_ta",   "flags": ["--frequency-preprocess", "--temporal-attention"]},
-    {"name": "ms_ta",     "flags": ["--multiscale", "--temporal-attention"]},
-    {"name": "full_v2",   "flags": ["--frequency-preprocess", "--multiscale", "--temporal-attention"]},
+    {"name": "baseline",  "flags": ["--no-frequency-preprocess", "--no-multiscale", "--no-temporal-attention"]},
+    {"name": "freq_only", "flags": ["--frequency-preprocess", "--no-multiscale", "--no-temporal-attention"]},
+    {"name": "ms_only",   "flags": ["--no-frequency-preprocess", "--multiscale", "--no-temporal-attention"]},
+    {"name": "ta_only",   "flags": ["--no-frequency-preprocess", "--no-multiscale", "--temporal-attention"]},
+    # {"name": "freq_ms",   "flags": ["--frequency-preprocess", "--multiscale", "--no-temporal-attention"]},
+    # {"name": "freq_ta",   "flags": ["--frequency-preprocess", "--no-multiscale", "--temporal-attention"]},
+    # {"name": "ms_ta",     "flags": ["--no-frequency-preprocess", "--multiscale", "--temporal-attention"]},
+    # {"name": "full_v2",   "flags": ["--frequency-preprocess", "--multiscale", "--temporal-attention"]},
 ]
 
 
