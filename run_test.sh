@@ -38,7 +38,9 @@ CELEBDF_LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
 CELEBDF_LANDMARK_ROOT="$CELEBDF_LANDMARK_OUTPUT_ROOT/landmarks"
 CELEBDF_TEST_MANIFEST="$CELEBDF_LANDMARK_OUTPUT_ROOT/manifests/celebdf_test_landmarks.jsonl"
 CHECKPOINT="${QALF_TEST_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema/best.pt}"
-TEXTURE_FRAMES="${QALF_TEST_TEXTURE_FRAMES:-12}"
+# Canonical baseline evaluates with the same eight texture frames used in
+# training. Set QALF_TEST_TEXTURE_FRAMES=12 explicitly for a separate ablation.
+TEXTURE_FRAMES="${QALF_TEST_TEXTURE_FRAMES:-8}"
 OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_to_celebdf_${TEXTURE_FRAMES}f_3clips_mean_tta_ffpp_threshold}"
 
 "$PYTHON" scripts/evaluate.py \
