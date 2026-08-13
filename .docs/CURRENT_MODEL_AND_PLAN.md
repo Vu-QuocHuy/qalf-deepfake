@@ -42,6 +42,12 @@ features and are not passed to the model.
 ./run_test.sh
 ```
 
+For a practical robustness table, run `./run_robustness.sh`. This is an
+evaluation-only protocol: it keeps the texture-only EfficientNet-B0 model
+unchanged and applies controlled JPEG, blur, downscale, and noise corruptions
+to RGB frames. The operating threshold is fitted on clean FF++ validation,
+not on Celeb-DF.
+
 Geometry, fixed/learned SRM, fusion gates, reliability loss, modality dropout,
 MixStyle, EfficientNet-B1, and their diagnostic profiles are retired from the
 active codebase. The active baseline is texture-only full-face RGB with SBI,

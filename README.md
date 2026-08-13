@@ -69,6 +69,19 @@ Useful overrides are space-separated `QALF_SEEDS`, `QALF_EPOCHS`,
 Each seed receives its own checkpoint and Celeb-DF evaluation directory; the
 summary is saved as `qalf_ffpp4_effb0_160_8f_texture_sbi_ema_multiseed.csv/.md`.
 
+### Robustness evaluation
+
+Run the evaluation-only corruption protocol with the trained baseline:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_robustness.sh
+```
+
+It measures clean performance and degradation under JPEG compression, blur,
+downscaling, and additive noise. The script uses the clean FF++ validation
+threshold and never fits anything on Celeb-DF. Corruptions are applied after
+denormalizing RGB tensors and normalized again before inference.
+
 ## Outputs
 
 Training writes `best.pt`, configuration, history, logs, and a training plot.
