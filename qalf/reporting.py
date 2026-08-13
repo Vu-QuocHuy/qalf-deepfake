@@ -12,9 +12,9 @@ from typing import Mapping, Sequence
 
 import numpy as np
 import torch
-from sklearn.metrics import (
+
+from qalf.metrics import (
     average_precision_score,
-    confusion_matrix,
     precision_recall_curve,
     roc_auc_score,
     roc_curve,
@@ -222,7 +222,19 @@ def save_evaluation_plots(
     output.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
 
-    matrix = confusion_matrix(labels, predictions, labels=[0, 1])
+    matrix = np.array(
+        [
+            [
+                np.sum((labels == 0) & (predictions == 0)),
+                np.sum((labels == 0) & (predictions == 1)),
+            ],
+            [
+                np.sum((labels == 1) & (predictions == 0)),
+                np.sum((labels == 1) & (predictions == 1)),
+            ],
+        ],
+        dtype=np.int64,
+    )
     row_totals = matrix.sum(axis=1, keepdims=True)
     normalized = np.divide(
         matrix,
