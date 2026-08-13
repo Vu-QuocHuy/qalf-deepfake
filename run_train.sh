@@ -39,8 +39,6 @@ SEED="${QALF_SEED:-42}"
 EPOCHS="${QALF_EPOCHS:-50}"
 
 export CUBLAS_WORKSPACE_CONFIG=':4096:8'
-echo "Python: $PYTHON"
-echo "Training output: $OUTPUT_DIR"
 
 "$PYTHON" scripts/train.py \
     --config configs/ffpp_to_celebdf.json \

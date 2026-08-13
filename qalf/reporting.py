@@ -1,17 +1,11 @@
-"""Human-readable reports, reproducibility metadata, and diagnostic plots."""
+"""Human-readable reports and diagnostic plots."""
 
 from __future__ import annotations
 
-import platform
-import subprocess
-import sys
-from datetime import datetime, timezone
-from importlib import metadata
 from pathlib import Path
 from typing import Mapping, Sequence
 
 import numpy as np
-import torch
 from sklearn.metrics import (
     average_precision_score,
     confusion_matrix,
@@ -93,58 +87,6 @@ def format_evaluation_report(
         lines.pop()
     lines.append("=" * width)
     return "\n".join(lines) + "\n"
-
-
-def collect_run_metadata(
-    argv: Sequence[str],
-    config: Mapping[str, object],
-    project_root: str | Path,
-) -> dict[str, object]:
-    """Collect enough environment information to identify an exact run."""
-
-    root = Path(project_root)
-
-    def git_output(*arguments: str) -> str | None:
-        try:
-            result = subprocess.run(
-                ["git", *arguments],
-                cwd=root,
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None
-        return result.stdout.strip()
-
-    try:
-        torchvision_version = metadata.version("torchvision")
-    except metadata.PackageNotFoundError:
-        torchvision_version = None
-    gpu_names = [torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())]
-    return {
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "command": list(argv),
-        "config": dict(config),
-        "environment": {
-            "python": sys.version,
-            "platform": platform.platform(),
-            "torch": torch.__version__,
-            "torchvision": torchvision_version,
-            "cuda_available": torch.cuda.is_available(),
-            "cuda_version": torch.version.cuda,
-            "cudnn_version": torch.backends.cudnn.version(),
-            "gpu_names": gpu_names,
-        },
-        "git": {
-            "commit": git_output("rev-parse", "HEAD"),
-            "branch": git_output("branch", "--show-current"),
-            "dirty": bool(git_output("status", "--porcelain")),
-        },
-        "label_convention": "real=0,fake=1",
-        "score_target": "fake",
-    }
 
 
 def _pyplot():

@@ -41,13 +41,6 @@ CHECKPOINT="${QALF_TEST_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_1
 TEXTURE_FRAMES="${QALF_TEST_TEXTURE_FRAMES:-12}"
 OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_to_celebdf_${TEXTURE_FRAMES}f_3clips_mean_tta_ffpp_threshold}"
 
-echo "Python: $PYTHON"
-echo "Checkpoint: $CHECKPOINT"
-echo "Evaluation output: $OUTPUT_DIR"
-echo "Texture frames: $TEXTURE_FRAMES"
-echo "Texture flip TTA: enabled"
-echo "Threshold calibration: $FFPP_VAL_MANIFEST"
-
 "$PYTHON" scripts/evaluate.py \
     --checkpoint "$CHECKPOINT" \
     --manifest "$CELEBDF_TEST_MANIFEST" \

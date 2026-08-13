@@ -71,9 +71,11 @@ summary is saved as `qalf_ffpp4_effb0_160_8f_texture_sbi_ema_multiseed.csv/.md`.
 
 ## Outputs
 
-Training writes `best.pt`, configuration, metadata, history, logs, and a
-training plot. Evaluation writes video/clip predictions, metrics in JSON/text,
-the evaluation protocol, and ROC/PR/confusion/score-distribution plots.
+Training writes `best.pt`, configuration, history, logs, and a training plot.
+Evaluation writes video/clip predictions, metrics in JSON/text, the evaluation
+protocol, and ROC/PR/confusion/score-distribution plots. Console output is
+limited to training progress and final metrics; hardware and dataset-audit
+details are not printed or saved as run metadata.
 
 Landmark caches remain a preprocessing dependency: they align the full-face
 crop and provide the SBI face mask. They are not a model branch or a runtime

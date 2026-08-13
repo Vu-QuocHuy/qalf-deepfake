@@ -22,7 +22,7 @@ from qalf.data.dataset import QALFVideoDataset
 from qalf.engine import aggregate_predictions, predict
 from qalf.metrics import compute_metrics, select_threshold
 from qalf.models import build_model_from_checkpoint
-from qalf.reporting import collect_run_metadata, format_evaluation_report, save_evaluation_plots
+from qalf.reporting import format_evaluation_report, save_evaluation_plots
 
 
 def _create_logger(path: Path) -> logging.Logger:
@@ -121,7 +121,6 @@ def main() -> None:
         raise ValueError("This cleaned evaluator only supports texture-only checkpoints")
     config = checkpoint["config"]
     data, model_config = config["data"], config["model"]
-    save_json(collect_run_metadata(sys.argv, config, PROJECT_ROOT), output_dir / "run_metadata.json")
     training_texture_frames = int(data["texture_frames"])
     texture_frames = int(args.texture_frames or training_texture_frames)
     if not 1 <= texture_frames <= int(data["num_frames"]):
@@ -129,25 +128,6 @@ def main() -> None:
     clips_per_video = int(args.clips_per_video or data.get("eval_clips_per_video", 1))
     aggregation = str(args.aggregation or data.get("video_aggregation", "mean"))
     top_k = int(args.top_k or data.get("top_k", 1))
-    logger.info("=" * 72)
-    logger.info("QALF TEXTURE-ONLY EVALUATION")
-    logger.info(
-        "  model | backbone=%s input=full_face frames=%d/%d image_size=%d pooling=mean "
-        "weights=%s ema_decay=%.4f",
-        model_config.get("texture_backbone", "efficientnet_b0"),
-        texture_frames,
-        int(data["num_frames"]),
-        int(data["image_size"]),
-        checkpoint.get("model_weights", "raw"),
-        float(checkpoint.get("ema_decay", 0.0)),
-    )
-    logger.info(
-        "  video | clips=%d aggregation=%s flip_tta=%s",
-        clips_per_video,
-        aggregation,
-        args.texture_flip_tta,
-    )
-    logger.info("=" * 72)
 
     dataset = _dataset(
         args.manifest,
@@ -214,11 +194,6 @@ def main() -> None:
     metrics = compute_metrics(labels, scores, threshold)
     datasets = sorted({str(value) for value in predictions["dataset"]})
     context = {
-        "Dataset": ", ".join(datasets),
-        "Videos": (
-            f"{int(metrics['sample_count'])} "
-            f"(real={int(metrics['real_count'])}, fake={int(metrics['fake_count'])})"
-        ),
         "Model": (
             "EfficientNet-B0 texture-only SBI "
             f"(weights={checkpoint.get('model_weights', 'raw')}, "

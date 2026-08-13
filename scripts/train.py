@@ -26,7 +26,7 @@ from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.ema import ModelEMA
 from qalf.metrics import compute_metrics, select_threshold
 from qalf.models import SUPPORTED_TEXTURE_BACKBONES, QALFModel
-from qalf.reporting import collect_run_metadata, save_training_history_plot
+from qalf.reporting import save_training_history_plot
 
 
 def _seed_everything(seed: int, deterministic: bool = False) -> None:
@@ -267,7 +267,6 @@ def main() -> None:
     data.setdefault("video_aggregation", "mean")
     data.setdefault("top_k", 1)
     save_json(config, output_dir / "config.json")
-    save_json(collect_run_metadata(sys.argv, config, PROJECT_ROOT), output_dir / "run_metadata.json")
 
     dataset_args = {
         "frame_root": frame_root,
@@ -332,18 +331,7 @@ def main() -> None:
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
     run_started = time.perf_counter()
-    logger.info(
-        "Training started  output=%s model=texture_only backbone=%s frames=%d/%d "
-        "parameters=%d trainable=%d ema_decay=%.4f validation_weights=%s",
-        output_dir,
-        model_config.get("texture_backbone", "efficientnet_b0"),
-        int(data["texture_frames"]),
-        int(data["num_frames"]),
-        sum(parameter.numel() for parameter in model.parameters()),
-        sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
-        ema_decay,
-        validation_weights,
-    )
+    logger.info("Training started")
     training_plot_path = output_dir / "plots" / "training_history.png"
     plot_enabled = True
     for epoch in range(1, epochs + 1):
