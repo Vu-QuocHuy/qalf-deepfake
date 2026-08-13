@@ -101,6 +101,14 @@ def main() -> None:
     parser.add_argument("--threshold-landmark-root")
     parser.add_argument("--threshold-clips-per-video", type=int)
     parser.add_argument("--texture-flip-tta", action="store_true")
+    parser.add_argument(
+        "--fake-methods",
+        nargs="+",
+        help=(
+            "Restrict fake videos in the evaluated manifest to these FF++ methods "
+            "(for example: Deepfakes Face2Face FaceSwap NeuralTextures)."
+        ),
+    )
     args = parser.parse_args()
 
     threshold_paths = (
@@ -136,6 +144,7 @@ def main() -> None:
         data,
         texture_frames,
         clips_per_video,
+        fake_methods=args.fake_methods,
     )
     model = build_model_from_checkpoint(checkpoint)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -203,6 +212,9 @@ def main() -> None:
             f"clips={clips_per_video}, aggregation={aggregation}, "
             f"texture_frames={texture_frames}, flip_tta={args.texture_flip_tta}"
         ),
+        "Fake-method filter": (
+            ", ".join(args.fake_methods) if args.fake_methods else "none (all manifest methods)"
+        ),
         "Threshold source": (
             "FF++ validation calibration (Youden-J)"
             if args.threshold_manifest
@@ -249,6 +261,7 @@ def main() -> None:
             "top_k": top_k,
             "texture_flip_tta": args.texture_flip_tta,
         },
+        "fake_method_filter": args.fake_methods,
         "threshold": {
             "value": threshold,
             "source": threshold_source,
