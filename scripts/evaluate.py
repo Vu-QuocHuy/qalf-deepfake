@@ -125,8 +125,14 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     logger = _create_logger(output_dir / "eval.log")
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
-    if checkpoint.get("architecture", "texture_only") != "texture_only":
-        raise ValueError("This cleaned evaluator only supports texture-only checkpoints")
+    # ``dfa5486`` called the same mean-pooled baseline ``texture_v1``.
+    # Accept that legacy label; v2 checkpoints remain intentionally rejected.
+    checkpoint_architecture = str(checkpoint.get("architecture", "texture_only"))
+    if checkpoint_architecture not in {"texture_only", "texture_v1"}:
+        raise ValueError(
+            "This cleaned evaluator only supports texture-only checkpoints "
+            f"(got architecture={checkpoint_architecture!r})"
+        )
     config = checkpoint["config"]
     data, model_config = config["data"], config["model"]
     training_texture_frames = int(data["texture_frames"])
