@@ -40,11 +40,12 @@ DATA_ROOT="$STORAGE_ROOT/data"
 CONFIG="$PROJECT_ROOT/configs/ffpp_to_celebdf.json"
 ABLATION_ROOT="${QALF_ABLATION_ROOT:-$STORAGE_ROOT/experiments/ablation}"
 BASELINE_PREFIX="${QALF_ABLATION_BASELINE_PREFIX:-$ABLATION_ROOT/baseline_seed}"
-CORE_SEEDS_RAW="${QALF_ABLATION_CORE_SEEDS:-17 42 73}"
+CORE_SEEDS_RAW="${QALF_ABLATION_CORE_SEEDS:-0 17 42 73 123}"
 CONTROL_SEED="${QALF_ABLATION_CONTROL_SEED:-42}"
 EPOCHS="${QALF_EPOCHS:-50}"
 FORCE_TRAIN="${QALF_ABLATION_FORCE_TRAIN:-0}"
 FORCE_EVAL="${QALF_ABLATION_FORCE_EVAL:-0}"
+BOOTSTRAP_REPS="${QALF_BOOTSTRAP_REPS:-2000}"
 TEXTURE_FRAMES=8
 THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-youden_j}"
 EVAL_SUFFIX="_to_celebdf_8f_3clips_mean_${THRESHOLD_SELECTION}_tta_ffpp_threshold"
@@ -124,6 +125,29 @@ evaluate_profile() {
         ./run_test.sh
 }
 
+bootstrap_profile() {
+    local profile="$1"
+    local seed="$2"
+    local prefix="$3"
+    local eval_dir="${prefix}${seed}${EVAL_SUFFIX}"
+    local predictions="$eval_dir/predictions.csv"
+    local output="$eval_dir/bootstrap_ci.json"
+    if [[ ! -f "$predictions" ]]; then
+        echo "ERROR: missing aggregated predictions for $profile/$seed: $predictions" >&2
+        exit 1
+    fi
+    if [[ "$FORCE_EVAL" != "1" && -f "$output" ]]; then
+        echo "[$profile/$seed] bootstrap CI exists; skipping"
+        return
+    fi
+    echo "[$profile/$seed] bootstrap CI (${BOOTSTRAP_REPS} video resamples)"
+    "$PYTHON" scripts/bootstrap_ci.py \
+        --predictions "$predictions" \
+        --output "$output" \
+        --repetitions "$BOOTSTRAP_REPS" \
+        --seed 0
+}
+
 summarize_profile() {
     local profile="$1"
     local prefix="$2"
@@ -146,6 +170,7 @@ run_profile_seed() {
     fi
     if (( DO_EVAL )); then
         evaluate_profile "$profile" "$seed" "$prefix"
+        bootstrap_profile "$profile" "$seed" "$prefix"
     fi
 }
 

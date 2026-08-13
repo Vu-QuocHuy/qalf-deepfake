@@ -113,6 +113,10 @@ count, clip count, aggregation, TTA, and corruption robustness. Existing
 checkpoints and metrics are skipped, so it can safely be restarted. Results
 default to `E:/DeepFakeData/experiments/ablation` with short names such as
 `baseline_seed42`, `no_sbi_seed42`, and `no_ema_seed42`.
+The core comparisons now default to five seeds: `0 17 42 73 123`. After each
+video-level evaluation the suite writes `bootstrap_ci.json/.md`, using 2,000
+video resamples by default. Set `QALF_BOOTSTRAP_REPS` to change the number of
+resamples; the FF++ validation threshold is held fixed during resampling.
 Use `QALF_ABLATION_MODE=train`, `eval`, or `robustness` to run one phase only.
 
 ## Outputs

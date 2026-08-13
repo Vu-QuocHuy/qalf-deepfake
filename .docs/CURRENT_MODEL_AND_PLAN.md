@@ -57,6 +57,9 @@ it for cross-dataset evaluation; it never uses Celeb-DF labels.
 For a resumable full comparison, run `./run_ablation_suite.sh`. It keeps the
 locked baseline unchanged and writes training controls, inference-protocol
 ablations, and corruption robustness to separate experiment directories.
+The default core seed list is `0 17 42 73 123`; every video-level evaluation
+also receives a bootstrap 95% confidence interval from resampling aggregated
+videos, with the FF++ validation threshold held fixed.
 
 Geometry, fixed/learned SRM, fusion gates, reliability loss, modality dropout,
 MixStyle, EfficientNet-B1, and their diagnostic profiles are retired from the
