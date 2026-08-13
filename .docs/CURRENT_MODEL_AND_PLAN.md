@@ -50,3 +50,6 @@ EfficientNet-B0, lightweight attention pooling, EMA decay 0.999, 50 maximum
 epochs, and early stopping patience 5. Mean pooling remains supported as a
 backward-compatible control. Landmark caches remain only for preprocessing
 alignment and SBI mask generation; they are not used as learned features.
+The attention scorer is zero-initialized so its starting behavior is uniform
+mean pooling; entropy regularization is intentionally not enabled in this
+diagnostic revision.

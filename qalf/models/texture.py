@@ -46,10 +46,16 @@ class TextureEncoder(nn.Module):
             nn.Hardswish(),
             nn.Dropout(dropout),
         )
+        self.classifier = nn.Linear(embedding_dim, 1)
+        # Safe start: attention must initially behave exactly like mean pooling.
+        # Creating it after the shared projection/classifier also preserves the
+        # random initialization of all parameters shared with the mean baseline.
         self.temporal_attention = (
             nn.Linear(embedding_dim, 1) if temporal_pooling == "attention" else None
         )
-        self.classifier = nn.Linear(embedding_dim, 1)
+        if self.temporal_attention is not None:
+            nn.init.zeros_(self.temporal_attention.weight)
+            nn.init.zeros_(self.temporal_attention.bias)
 
     def forward(self, texture: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         batch, frames, channels, height, width = texture.shape

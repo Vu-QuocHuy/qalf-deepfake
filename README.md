@@ -51,7 +51,9 @@ The canonical runner trains for up to 50 epochs with early stopping patience
 weights for FF++ validation, and saves those weights in `best.pt`.
 
 The temporal aggregator is a one-layer attention scorer per frame followed by
-a weighted sum; it adds no second modality or fusion gate.
+a weighted sum; it adds no second modality or fusion gate. Its scorer is
+zero-initialized, so training starts exactly at uniform mean pooling and only
+learns to deviate when the validation signal supports it.
 
 The locked protocol uses FF++ c23, 32-frame clip windows, 8 frames during
 training, and 12 frames in each of three evaluation clips. Evaluation uses
