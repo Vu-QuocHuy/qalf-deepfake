@@ -60,14 +60,17 @@ def main() -> None:
         opset_version=args.opset,
         do_constant_folding=True,
     )
+    model_config = checkpoint["config"]["model"]
     report = {
         "checkpoint": str(args.checkpoint),
         "output": str(output),
-        "architecture": "texture_only",
-        "texture_backbone": checkpoint["config"]["model"].get(
+        "architecture": str(checkpoint.get("architecture", "texture_only")),
+        "texture_backbone": model_config.get(
             "texture_backbone", "efficientnet_b0"
         ),
-        "texture_temporal_pooling": "mean",
+        "frequency_preprocess": bool(model_config.get("frequency_preprocess", False)),
+        "multiscale": bool(model_config.get("multiscale", False)),
+        "temporal_attention": bool(model_config.get("temporal_attention", False)),
         "bytes": output.stat().st_size,
         "opset": args.opset,
         "verified": False,

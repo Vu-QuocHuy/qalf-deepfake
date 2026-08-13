@@ -171,6 +171,11 @@ def main() -> None:
     parser.add_argument("--no-balanced-sampler", action="store_true")
     parser.add_argument("--sbi", action="store_true")
     parser.add_argument("--deterministic", action="store_true")
+    # v2 architecture flags
+    parser.add_argument("--frequency-preprocess", action="store_true")
+    parser.add_argument("--multiscale", action="store_true")
+    parser.add_argument("--temporal-attention", action="store_true")
+    parser.add_argument("--label-smoothing", type=float)
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -185,6 +190,13 @@ def main() -> None:
     }.items():
         if value is not None:
             model_config[key] = value
+    # v2 flags: CLI flags override config (only set if explicitly passed)
+    if args.frequency_preprocess:
+        model_config["frequency_preprocess"] = True
+    if args.multiscale:
+        model_config["multiscale"] = True
+    if args.temporal_attention:
+        model_config["temporal_attention"] = True
     if args.no_texture_augmentation:
         data["texture_augmentation"] = {}
     if args.fake_methods is not None:
@@ -214,6 +226,8 @@ def main() -> None:
     }.items():
         if value is not None:
             training[key] = value
+    if args.label_smoothing is not None:
+        training["label_smoothing"] = args.label_smoothing
     if args.seed is not None:
         config["seed"] = args.seed
     if args.no_amp:
@@ -308,6 +322,9 @@ def main() -> None:
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
+        frequency_preprocess=bool(model_config.get("frequency_preprocess", False)),
+        multiscale=bool(model_config.get("multiscale", False)),
+        temporal_attention=bool(model_config.get("temporal_attention", False)),
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(
@@ -321,7 +338,13 @@ def main() -> None:
         optimizer, T_max=max(1, int(training["epochs"]))
     )
     scaler = _make_grad_scaler(bool(training.get("amp", True)) and device.type == "cuda")
-    criterion = nn.BCEWithLogitsLoss()
+    label_smoothing = float(training.get("label_smoothing", 0.0))
+    if label_smoothing > 0.0:
+        # Apply label smoothing: targets become (smoothing, 1 - smoothing)
+        # instead of (0, 1) for BCEWithLogitsLoss.
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.BCEWithLogitsLoss()
     ema = ModelEMA(model, ema_decay) if ema_decay > 0.0 else None
     history: list[dict[str, object]] = []
     best_auc = -float("inf")
@@ -332,20 +355,46 @@ def main() -> None:
     patience = int(training.get("early_stop_patience", 0))
     epochs = int(training["epochs"])
     run_started = time.perf_counter()
+    # Param count breakdown for logging
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    backbone_params = sum(p.numel() for p in model.texture_encoder.features.parameters())
+    head_params = total_params - backbone_params
+    v2_flags = []
+    if model_config.get("frequency_preprocess"):
+        v2_flags.append("freq")
+    if model_config.get("multiscale"):
+        v2_flags.append("ms")
+    if model_config.get("temporal_attention"):
+        v2_flags.append("ta")
+    arch_label = "texture_v2[" + "+".join(v2_flags) + "]" if v2_flags else "texture_v1"
     logger.info(
-        "Training started  output=%s model=texture_only backbone=%s frames=%d/%d "
-        "parameters=%d trainable=%d ema_decay=%.4f validation_weights=%s",
+        "Training started  output=%s model=%s backbone=%s frames=%d/%d "
+        "parameters=%d (backbone=%d, head=%d) trainable=%d "
+        "ema_decay=%.4f validation_weights=%s label_smoothing=%.3f",
         output_dir,
+        arch_label,
         model_config.get("texture_backbone", "efficientnet_b0"),
         int(data["texture_frames"]),
         int(data["num_frames"]),
-        sum(parameter.numel() for parameter in model.parameters()),
-        sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
+        total_params,
+        backbone_params,
+        head_params,
+        trainable_params,
         ema_decay,
         validation_weights,
+        label_smoothing,
     )
     training_plot_path = output_dir / "plots" / "training_history.png"
     plot_enabled = True
+    # Label smoothing wrapper: smooth targets before loss computation
+    _raw_criterion = criterion
+    if label_smoothing > 0.0:
+        def _smoothed_criterion(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+            smoothed = targets * (1.0 - label_smoothing) + 0.5 * label_smoothing
+            return _raw_criterion(logits, smoothed)
+        criterion = _smoothed_criterion  # type: ignore[assignment]
+
     for epoch in range(1, epochs + 1):
         epoch_started = time.perf_counter()
         train_metrics = train_epoch(
@@ -410,7 +459,7 @@ def main() -> None:
             "score_target": "fake",
             "threshold_selection": "youden_j_ffpp_validation",
             "best_metric": "val_auc",
-            "architecture": "texture_only",
+            "architecture": arch_label,
         }
         if val_metrics["auc"] > best_auc:
             best_auc = float(val_metrics["auc"])

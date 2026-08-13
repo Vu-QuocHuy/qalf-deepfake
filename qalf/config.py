@@ -51,6 +51,9 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("model.embedding_dim must be >= 1")
     if not 0.0 <= float(model["dropout"]) < 1.0:
         raise ValueError("model.dropout must be in [0, 1)")
+    # v2 architecture flags (default to False for backward compatibility)
+    for flag in ("frequency_preprocess", "multiscale", "temporal_attention"):
+        model.setdefault(flag, False)
 
     training = config["training"]
     if int(training.get("epochs", 0)) < 1:

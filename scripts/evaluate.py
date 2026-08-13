@@ -117,8 +117,9 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     logger = _create_logger(output_dir / "eval.log")
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
-    if checkpoint.get("architecture", "texture_only") != "texture_only":
-        raise ValueError("This cleaned evaluator only supports texture-only checkpoints")
+    arch = str(checkpoint.get("architecture", "texture_only"))
+    if not (arch == "texture_only" or arch.startswith("texture_v")):
+        raise ValueError(f"This evaluator only supports texture-based checkpoints, got: {arch}")
     config = checkpoint["config"]
     data, model_config = config["data"], config["model"]
     save_json(collect_run_metadata(sys.argv, config, PROJECT_ROOT), output_dir / "run_metadata.json")
