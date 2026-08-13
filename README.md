@@ -50,10 +50,11 @@ The canonical runner trains for up to 50 epochs with early stopping patience
 5, uses EMA decay `0.999`, updates EMA after every optimizer step, selects EMA
 weights for FF++ validation, and saves those weights in `best.pt`.
 
-The locked protocol uses FF++ c23, 32-frame clip windows, 8 frames during
-training, and 12 frames in each of three evaluation clips. Evaluation uses
-mean clip aggregation, horizontal-flip TTA, and an FF++ validation Youden-J
-threshold.
+The locked baseline protocol uses FF++ c23, 32-frame clip windows, and 8
+texture frames during both training and evaluation. Evaluation uses three
+clips per video, mean clip aggregation, horizontal-flip TTA, and an FF++
+validation Youden-J threshold. Set `QALF_TEST_TEXTURE_FRAMES=12` only for a
+separate frame-count ablation.
 
 ### Multi-seed baseline
 
@@ -78,9 +79,11 @@ Run the evaluation-only corruption protocol with the trained baseline:
 ```
 
 It measures clean performance and degradation under JPEG compression, blur,
-downscaling, and additive noise. The script uses the clean FF++ validation
-threshold and never fits anything on Celeb-DF. Corruptions are applied after
-denormalizing RGB tensors and normalized again before inference.
+downscaling, and additive noise using the locked 8-frame baseline protocol.
+Set `QALF_ROBUSTNESS_TEXTURE_FRAMES` only for a separate frame-count
+ablation. The script uses the clean FF++ validation threshold and never fits
+anything on Celeb-DF. Corruptions are applied after denormalizing RGB tensors
+and normalized again before inference.
 
 ## Outputs
 

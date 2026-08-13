@@ -12,8 +12,9 @@ The retained classifier has one visual branch:
 4. project each frame to a 192-dimensional embedding;
 5. mean-pool frame embeddings into one clip embedding;
 6. predict `P(fake)` for the clip;
-7. at evaluation, use 12 frames in each of three clips, horizontal-flip TTA,
-   and mean aggregation to obtain one score per video.
+7. at evaluation, use 8 frames in each of three clips, horizontal-flip TTA,
+   and mean aggregation to obtain one score per video. A 12-frame evaluation
+   is a separate frame-count ablation, not the locked baseline.
 
 Landmarks remain preprocessing metadata only. They align the full-face crop and
 construct the SBI blending mask. They are not converted into classifier
@@ -45,8 +46,9 @@ features and are not passed to the model.
 For a practical robustness table, run `./run_robustness.sh`. This is an
 evaluation-only protocol: it keeps the texture-only EfficientNet-B0 model
 unchanged and applies controlled JPEG, blur, downscale, and noise corruptions
-to RGB frames. The operating threshold is fitted on clean FF++ validation,
-not on Celeb-DF.
+to RGB frames with the locked 8-frame inference protocol. Set
+`QALF_ROBUSTNESS_TEXTURE_FRAMES` only for a separate frame-count ablation.
+The operating threshold is fitted on clean FF++ validation, not on Celeb-DF.
 
 Geometry, fixed/learned SRM, fusion gates, reliability loss, modality dropout,
 MixStyle, EfficientNet-B1, and their diagnostic profiles are retired from the

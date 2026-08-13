@@ -16,13 +16,14 @@ DATA_ROOT="$STORAGE_ROOT/data"
 FFPP_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 CELEBDF_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
 CHECKPOINT="${QALF_ROBUSTNESS_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema/best.pt}"
-OUTPUT="${QALF_ROBUSTNESS_OUTPUT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_robustness.json}"
+TEXTURE_FRAMES="${QALF_ROBUSTNESS_TEXTURE_FRAMES:-8}"
+OUTPUT="${QALF_ROBUSTNESS_OUTPUT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_${TEXTURE_FRAMES}f_robustness.json}"
 "$PYTHON" scripts/evaluate_robustness.py \
   --checkpoint "$CHECKPOINT" \
   --manifest "$CELEBDF_ROOT/manifests/celebdf_test_landmarks.jsonl" \
   --frame-root "$DATA_ROOT/extracted/celebdf" \
   --landmark-root "$CELEBDF_ROOT/landmarks" \
-  --output "$OUTPUT" --texture-frames 12 --clips-per-video 3 \
+  --output "$OUTPUT" --texture-frames "$TEXTURE_FRAMES" --clips-per-video 3 \
   --aggregation mean --top-k 1 --texture-flip-tta \
   --threshold-manifest "$FFPP_ROOT/manifests/ffpp_val_landmarks.jsonl" \
   --threshold-frame-root "$DATA_ROOT/extracted/ffpp" \
