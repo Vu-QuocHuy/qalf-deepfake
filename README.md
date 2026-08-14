@@ -184,6 +184,11 @@ $env:QALF_TEST_CHECKPOINT="E:/DeepFakeData/experiments/qalf_ffpp4_effb0_160_8f_t
 Remove-Item Env:QALF_TEST_CHECKPOINT
 ```
 
+The temporal runner uses `QALF_TEMPORAL_TCN_OUTPUT_DIR` for an optional custom
+destination. It deliberately ignores a stale `QALF_TRAIN_OUTPUT_DIR` left by a
+previous baseline run, so the TCN checkpoint cannot be silently written into
+the baseline directory.
+
 The baseline `run_train.sh` remains mean-pooling and is not changed by this
 candidate. Compare both in-domain and Celeb-DF AUC, video-level bootstrap CIs,
 parameter count, and CPU latency before selecting a final model.
