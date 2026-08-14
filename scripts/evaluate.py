@@ -235,9 +235,12 @@ def main() -> None:
         if args.threshold_manifest
         else str(checkpoint.get("threshold_selection", "youden_j_ffpp_validation"))
     )
+    backbone_name = str(
+        checkpoint["config"]["model"].get("texture_backbone", "efficientnet_b0")
+    )
     context = {
         "Model": (
-            "EfficientNet-B0 texture-only SBI "
+            f"{backbone_name} texture-only SBI "
             f"(weights={checkpoint.get('model_weights', 'raw')}, "
             f"ema_decay={float(checkpoint.get('ema_decay', 0.0)):.4f})"
         ),

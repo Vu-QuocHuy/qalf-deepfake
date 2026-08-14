@@ -155,6 +155,27 @@ Remove-Item Env:QALF_FFPP_SUMMARY_ONLY
 Remove-Item Env:QALF_THRESHOLD_SELECTION
 ```
 
+## MobileNetV3-Large backbone ablation
+
+The `feature/mobilenetv3-large` branch keeps the baseline protocol unchanged
+(full-face RGB, SBI, EMA, eight texture frames, three-clip mean aggregation,
+and FF++ validation EER calibration) while replacing EfficientNet-B0 with an
+ImageNet-pretrained MobileNetV3-Large encoder. It is a stronger lightweight
+alternative to MobileNetV3-Small, and the saved `config.json` records the
+actual backbone used by the run.
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_train_mobilenet_v3_large.sh
+& "C:\Program Files\Git\bin\bash.exe" ./run_test_mobilenet_v3_large.sh
+```
+
+Default directories:
+
+```text
+E:/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_160_8f_texture_sbi_ema
+E:/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_160_8f_texture_sbi_ema_to_celebdf_8f_3clips_mean_eer_tta
+```
+
 ## Outputs
 
 Training writes `best.pt`, configuration, history, logs, and a training plot.

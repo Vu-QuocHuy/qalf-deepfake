@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from qalf.data.sbi import resolve_sbi_config
+from qalf.models.texture import SUPPORTED_TEXTURE_BACKBONES
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -45,8 +46,11 @@ def load_config(path: str | Path) -> dict[str, Any]:
     model.setdefault("embedding_dim", 128)
     model.setdefault("dropout", 0.2)
     model.setdefault("texture_backbone", "efficientnet_b0")
-    if model["texture_backbone"] != "efficientnet_b0":
-        raise ValueError("model.texture_backbone must be efficientnet_b0")
+    if model["texture_backbone"] not in SUPPORTED_TEXTURE_BACKBONES:
+        raise ValueError(
+            "model.texture_backbone must be one of "
+            f"{sorted(SUPPORTED_TEXTURE_BACKBONES)}"
+        )
     if int(model["embedding_dim"]) < 1:
         raise ValueError("model.embedding_dim must be >= 1")
     if not 0.0 <= float(model["dropout"]) < 1.0:

@@ -37,6 +37,7 @@ VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
 OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema}"
 SEED="${QALF_SEED:-42}"
 EPOCHS="${QALF_EPOCHS:-50}"
+TEXTURE_BACKBONE="${QALF_TEXTURE_BACKBONE:-efficientnet_b0}"
 
 export CUBLAS_WORKSPACE_CONFIG=':4096:8'
 
@@ -62,7 +63,7 @@ export CUBLAS_WORKSPACE_CONFIG=':4096:8'
     --image-size 160 \
     --eval-clips-per-video 3 \
     --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
-    --texture-backbone efficientnet_b0 \
+    --texture-backbone "$TEXTURE_BACKBONE" \
     --texture-mode full_face \
     --embedding-dim 192 \
     --dropout 0.3 \

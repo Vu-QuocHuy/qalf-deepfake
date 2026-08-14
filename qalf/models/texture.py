@@ -1,22 +1,33 @@
-"""EfficientNet-B0 encoder for landmark-aligned full-face sequences."""
+"""Lightweight RGB encoders for landmark-aligned full-face sequences."""
 
 from __future__ import annotations
 
 import torch
 from torch import nn
 
-SUPPORTED_TEXTURE_BACKBONES = {"efficientnet_b0"}
+SUPPORTED_TEXTURE_BACKBONES = {"efficientnet_b0", "mobilenet_v3_large"}
 
 
 def _build_backbone(name: str, pretrained: bool) -> tuple[nn.Module, nn.Module, int]:
-    if name != "efficientnet_b0":
-        raise ValueError(f"Unsupported texture backbone: {name}")
-    from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
+    if name == "efficientnet_b0":
+        from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
 
-    weights = EfficientNet_B0_Weights.DEFAULT if pretrained else None
-    model = efficientnet_b0(weights=weights)
-    feature_dim = int(model.classifier[-1].in_features)
-    return model.features, model.avgpool, feature_dim
+        weights = EfficientNet_B0_Weights.DEFAULT if pretrained else None
+        model = efficientnet_b0(weights=weights)
+        feature_dim = int(model.classifier[-1].in_features)
+        return model.features, model.avgpool, feature_dim
+    if name == "mobilenet_v3_large":
+        from torchvision.models import MobileNet_V3_Large_Weights, mobilenet_v3_large
+
+        weights = MobileNet_V3_Large_Weights.DEFAULT if pretrained else None
+        model = mobilenet_v3_large(weights=weights)
+        # MobileNetV3 has a classifier projection before its final logits;
+        # the pooled feature width is the first classifier input (960), not
+        # the final classifier input (1280).
+        feature_dim = int(model.classifier[0].in_features)
+        return model.features, model.avgpool, feature_dim
+    else:
+        raise ValueError(f"Unsupported texture backbone: {name}")
 
 
 class TextureEncoder(nn.Module):

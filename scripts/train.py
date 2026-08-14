@@ -181,7 +181,7 @@ def main() -> None:
     parser.add_argument(
         "--no-texture-pretrained",
         action="store_true",
-        help="Initialize EfficientNet-B0 without ImageNet weights.",
+        help="Initialize the selected texture backbone without ImageNet weights.",
     )
     parser.add_argument("--deterministic", action="store_true")
     args = parser.parse_args()
