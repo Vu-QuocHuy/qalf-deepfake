@@ -141,15 +141,16 @@ def main() -> None:
         "",
         "## Per-seed results",
         "",
-        "| Method | Seed | Status | FF++ val AUC | FF++ test AUC | Gap | AP | EER | Balanced acc | ACER |",
-        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Method | Seed | Status | FF++ val AUC | FF++ test AUC | Gap | AP | EER | Accuracy | Balanced acc | ACER |",
+        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
             f"| {row['method']} | {row['seed']} | {row['status']} | {_fmt(row.get('ffpp_val_auc'))} | "
             f"{_fmt(row.get('auc'))} | {_fmt(row.get('domain_gap'))} | "
             f"{_fmt(row.get('average_precision'))} | {_fmt(row.get('eer'))} | "
-            f"{_fmt(row.get('balanced_accuracy'))} | {_fmt(row.get('acer'))} |"
+            f"{_fmt(row.get('accuracy'))} | {_fmt(row.get('balanced_accuracy'))} | "
+            f"{_fmt(row.get('acer'))} |"
         )
 
     complete = [row for row in rows if row["status"] == "complete"]
@@ -159,11 +160,14 @@ def main() -> None:
             "",
             "## Mean ± standard deviation by method",
             "",
-            "| Method | Seeds | FF++ val AUC | FF++ test AUC | AP | EER | Balanced acc | ACER |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Method | Seeds | FF++ val AUC | FF++ test AUC | AP | EER | Accuracy | Balanced acc | ACER |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         )
     )
-    grouped_metrics = ("ffpp_val_auc", "auc", "average_precision", "eer", "balanced_accuracy", "acer")
+    grouped_metrics = (
+        "ffpp_val_auc", "auc", "average_precision", "eer", "accuracy",
+        "balanced_accuracy", "acer",
+    )
     for method in sorted({str(row["method"]) for row in complete}):
         selected = [row for row in complete if row["method"] == method]
         grouped_row: dict[str, Any] = {"method": method, "seeds": len(selected)}
@@ -175,7 +179,7 @@ def main() -> None:
             rendered.append("NA" if mean is None else f"{mean:.4f} ± {std:.4f}")
         lines.append(
             f"| {method} | {len(selected)} | {rendered[0]} | {rendered[1]} | {rendered[2]} | "
-            f"{rendered[3]} | {rendered[4]} | {rendered[5]} |"
+            f"{rendered[3]} | {rendered[4]} | {rendered[5]} | {rendered[6]} |"
         )
         grouped.append(grouped_row)
 
