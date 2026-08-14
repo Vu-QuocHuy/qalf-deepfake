@@ -171,16 +171,15 @@ from the source tree and are not part of the active model.
 
 ## Experimental temporal residual TCN
 
-The `feature/temporal-residual-tcn` branch adds an optional lightweight temporal
-candidate. It computes frame-to-frame embedding differences and applies two
-depthwise 1D temporal blocks before adding a residual to the original mean
-embedding. The output projection is zero-initialized, so training starts with
-the exact mean-pooling behavior. The candidate remains clip-level and the
-three-clip mean remains the video-level score:
+The `feature/temporal-residual-tcn` branch adds an optional stronger temporal
+candidate. It computes first- and second-order frame differences, applies three
+multi-scale depthwise 1D temporal blocks, and combines temporal mean/max/std
+summaries with the original mean embedding. The candidate remains clip-level
+and the three-clip mean remains the video-level score:
 
 ```powershell
 & "C:\Program Files\Git\bin\bash.exe" ./run_train_temporal_tcn.sh
-$env:QALF_TEST_CHECKPOINT="E:/DeepFakeData/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_temporal_tcn/best.pt"
+$env:QALF_TEST_CHECKPOINT="E:/DeepFakeData/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_temporal_tcn_v2/best.pt"
 & "C:\Program Files\Git\bin\bash.exe" ./run_test.sh
 Remove-Item Env:QALF_TEST_CHECKPOINT
 ```

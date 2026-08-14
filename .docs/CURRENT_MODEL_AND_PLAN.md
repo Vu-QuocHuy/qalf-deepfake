@@ -70,8 +70,8 @@ patience 5. Landmark caches remain only for preprocessing alignment and SBI
 mask generation; they are not used as learned features.
 
 The separate `feature/temporal-residual-tcn` branch contains an experimental
-temporal candidate. It keeps the mean-pooled embedding as a residual base and
-adds a zero-initialized, depthwise TCN over frame embeddings and frame
-differences. It is evaluated as a paired architecture ablation; it is not part
-of the locked baseline until it satisfies both cross-dataset and deployment
-criteria.
+temporal candidate. Its v2 encoder uses first/second-order frame differences,
+three multi-scale depthwise TCN blocks, and temporal mean/max/std summaries
+fused with the RGB mean embedding. It is evaluated as a paired architecture
+ablation; it is not part of the locked baseline until it satisfies both
+cross-dataset and deployment criteria.

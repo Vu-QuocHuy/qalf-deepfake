@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 SUPPORTED_TEXTURE_BACKBONES = {"efficientnet_b0"}
-SUPPORTED_TEMPORAL_POOLING = {"mean", "residual_tcn"}
+SUPPORTED_TEMPORAL_POOLING = {"mean", "residual_tcn", "residual_tcn_v2"}
 
 
 class _DepthwiseTemporalBlock(nn.Module):
@@ -73,6 +73,60 @@ class TemporalResidualTCN(nn.Module):
         return frame_embeddings.mean(dim=1) + residual
 
 
+class TemporalResidualTCNv2(nn.Module):
+    """Stronger same-stream temporal encoder for controlled experiments.
+
+    It combines first- and second-order frame differences, multi-scale
+    depthwise temporal convolutions, and mean/max/std temporal summaries. The
+    auxiliary features are fused with the original mean embedding, so this is
+    still one RGB stream rather than a modality gate.
+    """
+
+    def __init__(self, embedding_dim: int, bottleneck_dim: int = 96) -> None:
+        super().__init__()
+        if bottleneck_dim < 16:
+            raise ValueError("Temporal TCN v2 bottleneck_dim must be at least 16")
+        self.input_projection = nn.Sequential(
+            nn.Linear(embedding_dim * 3, bottleneck_dim),
+            nn.LayerNorm(bottleneck_dim),
+            nn.GELU(),
+        )
+        self.blocks = nn.Sequential(
+            _DepthwiseTemporalBlock(bottleneck_dim, dilation=1),
+            _DepthwiseTemporalBlock(bottleneck_dim, dilation=2),
+            _DepthwiseTemporalBlock(bottleneck_dim, dilation=4),
+        )
+        self.fusion = nn.Sequential(
+            nn.Linear(embedding_dim + 3 * bottleneck_dim, embedding_dim),
+            nn.LayerNorm(embedding_dim),
+            nn.GELU(),
+        )
+
+    def forward(self, frame_embeddings: torch.Tensor) -> torch.Tensor:
+        if frame_embeddings.ndim != 3:
+            raise ValueError("Temporal TCN v2 expects (batch, frames, embedding_dim)")
+        base = frame_embeddings.mean(dim=1)
+        if frame_embeddings.shape[1] < 2:
+            return base
+        first_difference = torch.zeros_like(frame_embeddings)
+        first_difference[:, 1:] = frame_embeddings[:, 1:] - frame_embeddings[:, :-1]
+        second_difference = torch.zeros_like(frame_embeddings)
+        second_difference[:, 2:] = first_difference[:, 2:] - first_difference[:, 1:-1]
+        sequence = self.input_projection(
+            torch.cat((frame_embeddings, first_difference, second_difference), dim=-1)
+        )
+        sequence = self.blocks(sequence.transpose(1, 2)).transpose(1, 2)
+        temporal_summary = torch.cat(
+            (
+                sequence.mean(dim=1),
+                sequence.amax(dim=1),
+                sequence.std(dim=1, unbiased=False),
+            ),
+            dim=-1,
+        )
+        return self.fusion(torch.cat((base, temporal_summary), dim=-1))
+
+
 def _build_backbone(name: str, pretrained: bool) -> tuple[nn.Module, nn.Module, int]:
     if name != "efficientnet_b0":
         raise ValueError(f"Unsupported texture backbone: {name}")
@@ -106,13 +160,17 @@ class TextureEncoder(nn.Module):
             nn.Linear(feature_dim, embedding_dim),
             nn.LayerNorm(embedding_dim),
             nn.Hardswish(),
-            nn.Dropout(dropout),
         )
-        self.temporal_encoder = (
-            TemporalResidualTCN(embedding_dim, int(temporal_bottleneck))
-            if temporal_pooling == "residual_tcn"
-            else None
-        )
+        self.embedding_dropout = nn.Dropout(dropout)
+        self.temporal_encoder: nn.Module | None
+        if temporal_pooling == "residual_tcn":
+            self.temporal_encoder = TemporalResidualTCN(embedding_dim, int(temporal_bottleneck))
+        elif temporal_pooling == "residual_tcn_v2":
+            self.temporal_encoder = TemporalResidualTCNv2(
+                embedding_dim, int(temporal_bottleneck)
+            )
+        else:
+            self.temporal_encoder = None
         self.classifier = nn.Linear(embedding_dim, 1)
 
     def forward(self, texture: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -124,9 +182,12 @@ class TextureEncoder(nn.Module):
             output = layer(output)
         output = self.pool(output).flatten(1)
         output = self.projection(output).reshape(batch, frames, -1)
-        embedding = (
-            output.mean(dim=1)
-            if self.temporal_encoder is None
-            else self.temporal_encoder(output)
-        )
+        if self.temporal_encoder is None:
+            embedding = self.embedding_dropout(output).mean(dim=1)
+        elif self.temporal_pooling == "residual_tcn":
+            embedding = self.temporal_encoder(self.embedding_dropout(output))
+        else:
+            # TCN v2 uses clean projected embeddings so temporal differences
+            # are not dominated by independent dropout noise per frame.
+            embedding = self.temporal_encoder(output)
         return embedding, self.classifier(embedding).squeeze(-1)

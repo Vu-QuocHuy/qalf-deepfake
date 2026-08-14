@@ -4,7 +4,7 @@ import unittest
 
 import torch
 
-from qalf.models.texture import TemporalResidualTCN
+from qalf.models.texture import TemporalResidualTCN, TemporalResidualTCNv2
 
 
 class TemporalResidualTCNTests(unittest.TestCase):
@@ -16,6 +16,11 @@ class TemporalResidualTCNTests(unittest.TestCase):
 
     def test_temporal_module_preserves_clip_shape(self) -> None:
         module = TemporalResidualTCN(embedding_dim=16, bottleneck_dim=8)
+        output = module(torch.randn(3, 8, 16))
+        self.assertEqual(tuple(output.shape), (3, 16))
+
+    def test_temporal_v2_preserves_clip_shape(self) -> None:
+        module = TemporalResidualTCNv2(embedding_dim=16, bottleneck_dim=16)
         output = module(torch.randn(3, 8, 16))
         self.assertEqual(tuple(output.shape), (3, 16))
 

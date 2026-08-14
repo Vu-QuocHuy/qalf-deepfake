@@ -51,8 +51,10 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("model.texture_backbone must be efficientnet_b0")
     if int(model["embedding_dim"]) < 1:
         raise ValueError("model.embedding_dim must be >= 1")
-    if model["temporal_pooling"] not in {"mean", "residual_tcn"}:
-        raise ValueError("model.temporal_pooling must be mean or residual_tcn")
+    if model["temporal_pooling"] not in {"mean", "residual_tcn", "residual_tcn_v2"}:
+        raise ValueError(
+            "model.temporal_pooling must be mean, residual_tcn, or residual_tcn_v2"
+        )
     if int(model["temporal_bottleneck"]) < 8:
         raise ValueError("model.temporal_bottleneck must be >= 8")
     if not 0.0 <= float(model["dropout"]) < 1.0:
