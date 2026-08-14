@@ -60,6 +60,7 @@ def _dataset(
         training=False,
         clips_per_video=clips_per_video,
         fake_methods=fake_methods,
+        landmark_alignment=bool(data.get("landmark_alignment", True)),
     )
 
 
@@ -94,6 +95,11 @@ def main() -> None:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--clips-per-video", type=int)
     parser.add_argument("--texture-frames", type=int)
+    parser.add_argument(
+        "--no-landmark-alignment",
+        action="store_true",
+        help="Use the already-cropped face frames directly and skip landmark alignment.",
+    )
     parser.add_argument("--aggregation", choices=("mean", "median", "topk"))
     parser.add_argument("--top-k", type=int)
     parser.add_argument("--threshold-manifest")
@@ -149,6 +155,8 @@ def main() -> None:
         )
     config = checkpoint["config"]
     data, model_config = config["data"], config["model"]
+    if args.no_landmark_alignment:
+        data["landmark_alignment"] = False
     training_texture_frames = int(data["texture_frames"])
     texture_frames = int(args.texture_frames or training_texture_frames)
     if not 1 <= texture_frames <= int(data["num_frames"]):
@@ -280,6 +288,7 @@ def main() -> None:
             "texture_backbone": model_config.get("texture_backbone", "efficientnet_b0"),
             "texture_temporal_pooling": "mean",
             "texture_mode": data.get("texture_mode", "full_face"),
+            "landmark_alignment": bool(data.get("landmark_alignment", True)),
             "model_weights": checkpoint.get("model_weights", "raw"),
             "ema_decay": float(checkpoint.get("ema_decay", 0.0)),
         },

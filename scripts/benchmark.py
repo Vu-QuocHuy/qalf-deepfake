@@ -52,6 +52,7 @@ def main() -> None:
         texture_frames=int(data["texture_frames"]),
         image_size=int(data["image_size"]),
         texture_mode=str(data.get("texture_mode", "full_face")),
+        landmark_alignment=bool(data.get("landmark_alignment", True)),
         training=False,
     )
     if args.preprocessing_iterations < 1:

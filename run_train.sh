@@ -38,6 +38,12 @@ OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_
 SEED="${QALF_SEED:-42}"
 EPOCHS="${QALF_EPOCHS:-50}"
 TEXTURE_BACKBONE="${QALF_TEXTURE_BACKBONE:-efficientnet_b0}"
+LANDMARK_ALIGNMENT="${QALF_LANDMARK_ALIGNMENT:-1}"
+
+ALIGNMENT_ARGS=()
+if [[ "$LANDMARK_ALIGNMENT" == "0" ]]; then
+    ALIGNMENT_ARGS+=(--no-landmark-alignment)
+fi
 
 export CUBLAS_WORKSPACE_CONFIG=':4096:8'
 
@@ -68,4 +74,5 @@ export CUBLAS_WORKSPACE_CONFIG=':4096:8'
     --embedding-dim 192 \
     --dropout 0.3 \
     --sbi \
-    --deterministic
+    --deterministic \
+    "${ALIGNMENT_ARGS[@]}"

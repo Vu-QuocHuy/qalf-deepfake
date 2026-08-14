@@ -151,6 +151,11 @@ def main() -> None:
     parser.add_argument("--image-size", type=int)
     parser.add_argument("--eval-clips-per-video", type=int)
     parser.add_argument("--texture-mode", choices=tuple(sorted(TEXTURE_MODES)))
+    parser.add_argument(
+        "--no-landmark-alignment",
+        action="store_true",
+        help="Use the already-cropped face frames directly and skip landmark alignment.",
+    )
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--num-workers", type=int)
@@ -194,6 +199,8 @@ def main() -> None:
         model_config["texture_backbone"] = args.texture_backbone
     if args.no_texture_pretrained:
         model_config["texture_pretrained"] = False
+    if args.no_landmark_alignment:
+        data["landmark_alignment"] = False
     for key, value in {
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
@@ -303,6 +310,7 @@ def main() -> None:
         "texture_frames": int(data["texture_frames"]),
         "image_size": int(data["image_size"]),
         "texture_mode": str(data.get("texture_mode", "full_face")),
+        "landmark_alignment": bool(data.get("landmark_alignment", True)),
         "texture_augmentation": data.get("texture_augmentation"),
         "fake_methods": data.get("fake_methods"),
     }

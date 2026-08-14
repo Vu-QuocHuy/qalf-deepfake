@@ -28,6 +28,9 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("data.eval_clips_per_video must be >= 1")
     if data.get("texture_mode", "full_face") != "full_face":
         raise ValueError("data.texture_mode must be full_face")
+    data.setdefault("landmark_alignment", True)
+    if not isinstance(data["landmark_alignment"], bool):
+        raise ValueError("data.landmark_alignment must be boolean")
     if data.get("video_aggregation", "mean") not in {"mean", "median", "topk"}:
         raise ValueError("Unsupported data.video_aggregation")
     if int(data.get("top_k", 1)) < 1:

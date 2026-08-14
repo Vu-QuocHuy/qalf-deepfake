@@ -187,6 +187,7 @@ class QALFVideoDataset(Dataset):
         fake_methods: Sequence[str] | None = None,
         texture_augmentation: dict[str, float] | None = None,
         sbi_config: dict[str, object] | None = None,
+        landmark_alignment: bool = True,
     ) -> None:
         records = load_manifest(manifest_path)
         self.fake_methods: tuple[str, ...] | None = None
@@ -212,6 +213,7 @@ class QALFVideoDataset(Dataset):
         self.records = records
         self.frame_root = Path(frame_root)
         self.landmark_root = Path(landmark_root)
+        self.landmark_alignment = bool(landmark_alignment)
         self.num_frames = int(num_frames)
         self.texture_frames = int(texture_frames)
         self.image_size = int(image_size)
@@ -247,7 +249,7 @@ class QALFVideoDataset(Dataset):
         if self.sbi_enabled and not any(record.label == 1 for record in self.records):
             raise ValueError("SBI hybrid training requires original fake records")
         for record in self.records:
-            if not record.landmark_path:
+            if self.landmark_alignment and not record.landmark_path:
                 raise ValueError(f"Missing landmark_path in manifest: {record.video_id}")
             if len(record.frames) < self.num_frames:
                 raise ValueError(
@@ -291,13 +293,16 @@ class QALFVideoDataset(Dataset):
         sample_index, clip_index = divmod(item, self.clips_per_video)
         record_index, sample_type = self.sample_specs[sample_index]
         record: VideoRecord = self.records[record_index]
-        with np.load(self.landmark_root / str(record.landmark_path)) as cache:
-            landmarks = cache["landmarks"].copy()
-            detected = cache["detected"].copy()
-        if len(landmarks) != len(record.frames) or len(detected) != len(record.frames):
-            raise ValueError(
-                f"{record.video_id}: landmark cache length does not match manifest frames"
-            )
+        landmarks: np.ndarray | None = None
+        detected: np.ndarray | None = None
+        if self.landmark_alignment:
+            with np.load(self.landmark_root / str(record.landmark_path)) as cache:
+                landmarks = cache["landmarks"].copy()
+                detected = cache["detected"].copy()
+            if len(landmarks) != len(record.frames) or len(detected) != len(record.frames):
+                raise ValueError(
+                    f"{record.video_id}: landmark cache length does not match manifest frames"
+                )
         clip = _clip_indices(
             len(record.frames),
             self.num_frames,
@@ -317,12 +322,24 @@ class QALFVideoDataset(Dataset):
             if image_bgr is None:
                 raise FileNotFoundError(self.frame_root / record.frames[source_index])
             image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-            canonical, aligned_landmarks = _aligned_full_face(
-                image_rgb,
-                landmarks[source_index],
-                bool(detected[source_index]),
-                self.image_size,
-            )
+            if self.landmark_alignment:
+                assert landmarks is not None and detected is not None
+                canonical, aligned_landmarks = _aligned_full_face(
+                    image_rgb,
+                    landmarks[source_index],
+                    bool(detected[source_index]),
+                    self.image_size,
+                )
+            else:
+                # Extracted frames are already square main-face crops. The
+                # landmark-free ablation only resizes that crop; SBI uses the
+                # fixed ellipse fallback below instead of a landmark mask.
+                canonical = cv2.resize(
+                    image_rgb,
+                    (self.image_size, self.image_size),
+                    interpolation=cv2.INTER_AREA,
+                )
+                aligned_landmarks = None
             canonical_frames.append(canonical)
             canonical_landmarks.append(aligned_landmarks)
 
