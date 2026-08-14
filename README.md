@@ -119,6 +119,28 @@ video resamples by default. Set `QALF_BOOTSTRAP_REPS` to change the number of
 resamples; the FF++ validation threshold is held fixed during resampling.
 Use `QALF_ABLATION_MODE=train`, `eval`, or `robustness` to run one phase only.
 
+### FF++ in-domain evaluation
+
+To evaluate the already-trained ablation checkpoints on the official FF++ test
+split, without retraining:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_ffpp_indomain_ablation.sh
+```
+
+The runner evaluates `baseline`, `no_sbi`, `no_ema`, `no_pretrain`, `no_aug`,
+and `sbi_half` using the existing checkpoints under
+`E:/DeepFakeData/experiments/ablation`. It uses FF++ validation only for
+threshold calibration, evaluates three clips with mean aggregation, and
+explicitly includes only `Deepfakes`, `Face2Face`, `FaceSwap`, and
+`NeuralTextures`; `FaceShifter` is excluded. Results are written under
+`E:/DeepFakeData/experiments/ablation/ffpp_test` with a consolidated
+`summary_youden_j.md/.csv`. Set `QALF_THRESHOLD_SELECTION=eer` for a parallel
+EER-threshold report, or set `QALF_FFPP_TEST_MANIFEST` if the official test
+manifest is stored at a different path. If only the FF++ validation manifest
+exists, do not use it as a final in-domain test: it is already used for model
+selection and threshold calibration.
+
 ## Outputs
 
 Training writes `best.pt`, configuration, history, logs, and a training plot.

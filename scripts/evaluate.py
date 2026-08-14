@@ -115,6 +115,14 @@ def main() -> None:
             "(for example: Deepfakes Face2Face FaceSwap NeuralTextures)."
         ),
     )
+    parser.add_argument(
+        "--threshold-fake-methods",
+        nargs="+",
+        help=(
+            "Restrict fake videos used for FF++ threshold calibration. If omitted, "
+            "the checkpoint's configured fake-method list is used."
+        ),
+    )
     args = parser.parse_args()
 
     threshold_paths = (
@@ -176,7 +184,11 @@ def main() -> None:
             data,
             texture_frames,
             threshold_clips,
-            fake_methods=data.get("fake_methods"),
+            fake_methods=(
+                args.threshold_fake_methods
+                if args.threshold_fake_methods is not None
+                else data.get("fake_methods")
+            ),
         )
         protocol = (
             sorted({record.dataset for record in threshold_dataset.records}),
@@ -283,6 +295,11 @@ def main() -> None:
             "texture_flip_tta": args.texture_flip_tta,
         },
         "fake_method_filter": args.fake_methods,
+        "threshold_fake_method_filter": (
+            args.threshold_fake_methods
+            if args.threshold_fake_methods is not None
+            else data.get("fake_methods")
+        ),
         "threshold": {
             "value": threshold,
             "source": threshold_source,
