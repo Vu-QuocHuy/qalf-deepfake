@@ -53,7 +53,7 @@ weights for FF++ validation, and saves those weights in `best.pt`.
 The locked baseline protocol uses FF++ c23, 32-frame clip windows, and 8
 texture frames during both training and evaluation. Evaluation uses three
 clips per video, mean clip aggregation, horizontal-flip TTA, and an FF++
-validation Youden-J threshold. Set `QALF_TEST_TEXTURE_FRAMES=12` only for a
+validation closest-to-EER threshold. Set `QALF_TEST_TEXTURE_FRAMES=12` only for a
 separate frame-count ablation.
 
 ### Multi-seed baseline
@@ -85,11 +85,11 @@ ablation. The script uses the clean FF++ validation threshold and never fits
 anything on Celeb-DF. Corruptions are applied after denormalizing RGB tensors
 and normalized again before inference.
 
-The default operating-point rule is Youden-J. To evaluate the alternative
-closest-to-EER threshold without retraining:
+The default operating-point rule is closest-to-EER. To reproduce the historical
+Youden-J operating point without retraining:
 
 ```powershell
-$env:QALF_THRESHOLD_SELECTION="eer"
+$env:QALF_THRESHOLD_SELECTION="youden_j"
 & "C:\Program Files\Git\bin\bash.exe" ./run_test.sh
 Remove-Item Env:QALF_THRESHOLD_SELECTION
 ```
@@ -107,7 +107,7 @@ To run the registered comparisons in one resumable job:
 & "C:\Program Files\Git\bin\bash.exe" ./run_ablation_suite.sh
 ```
 
-The suite runs three seeds for the SBI and EMA controls, one seed for the
+The suite runs five seeds for the SBI and EMA controls, one seed for the
 pretrained, augmentation, and SBI-mixture controls, then evaluates frame
 count, clip count, aggregation, TTA, and corruption robustness. Existing
 checkpoints and metrics are skipped, so it can safely be restarted. Results
@@ -135,10 +135,10 @@ threshold calibration, evaluates three clips with mean aggregation, and
 explicitly includes only `Deepfakes`, `Face2Face`, `FaceSwap`, and
 `NeuralTextures`; `FaceShifter` is excluded. Results are written under
 `E:/DeepFakeData/experiments/ablation/ffpp_test` with a consolidated
-`summary_youden_j.md/.csv`; the report keeps per-seed rows and also writes
-`summary_youden_j_by_method.csv` with method-level mean ± standard deviation.
-Set `QALF_THRESHOLD_SELECTION=eer` for a parallel
-EER-threshold report, or set `QALF_FFPP_TEST_MANIFEST` if the official test
+`summary_eer.md/.csv`; the report keeps per-seed rows and also writes
+`summary_eer_by_method.csv` with method-level mean ± standard deviation.
+Set `QALF_THRESHOLD_SELECTION=youden_j` only for a parallel historical
+Youden-J report, or set `QALF_FFPP_TEST_MANIFEST` if the official test
 manifest is stored at a different path. If only the FF++ validation manifest
 exists, do not use it as a final in-domain test: it is already used for model
 selection and threshold calibration.
@@ -149,10 +149,8 @@ files and never calls the evaluator:
 
 ```powershell
 $env:QALF_FFPP_SUMMARY_ONLY="1"
-$env:QALF_THRESHOLD_SELECTION="eer"
 & "C:\Program Files\Git\bin\bash.exe" ./run_ffpp_indomain_ablation.sh
 Remove-Item Env:QALF_FFPP_SUMMARY_ONLY
-Remove-Item Env:QALF_THRESHOLD_SELECTION
 ```
 
 ## Outputs
@@ -170,3 +168,23 @@ dataset audit.
 See [.docs/CURRENT_MODEL_AND_PLAN.md](.docs/CURRENT_MODEL_AND_PLAN.md) for the
 current scientific protocol. Historical geometry/SRM experiments are retired
 from the source tree and are not part of the active model.
+
+## Experimental temporal residual TCN
+
+The `feature/temporal-residual-tcn` branch adds an optional lightweight temporal
+candidate. It computes frame-to-frame embedding differences and applies two
+depthwise 1D temporal blocks before adding a residual to the original mean
+embedding. The output projection is zero-initialized, so training starts with
+the exact mean-pooling behavior. The candidate remains clip-level and the
+three-clip mean remains the video-level score:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_train_temporal_tcn.sh
+$env:QALF_TEST_CHECKPOINT="E:/DeepFakeData/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_temporal_tcn/best.pt"
+& "C:\Program Files\Git\bin\bash.exe" ./run_test.sh
+Remove-Item Env:QALF_TEST_CHECKPOINT
+```
+
+The baseline `run_train.sh` remains mean-pooling and is not changed by this
+candidate. Compare both in-domain and Celeb-DF AUC, video-level bootstrap CIs,
+parameter count, and CPU latency before selecting a final model.

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qalf-deepfake"
 version = "0.1.0"
-description = "Lightweight quality-aware multimodal deepfake video detection"
+description = "Lightweight texture-only deepfake video detection"
 requires-python = ">=3.10,<3.13"
 dependencies = [
   "numpy>=2.0,<3",

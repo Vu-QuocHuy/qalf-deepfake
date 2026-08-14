@@ -15,13 +15,13 @@ from sklearn.metrics import (
 def select_threshold(
     labels: np.ndarray,
     scores: np.ndarray,
-    strategy: str = "youden_j",
+    strategy: str = "eer",
 ) -> float:
     """Select a validation threshold without using the target test set.
 
-    ``youden_j`` maximizes TPR-FPR and is the historical project default.
-    ``eer`` selects the finite ROC threshold whose FPR and FNR are closest;
-    this is a reproducible closest-to-EER operating point for discrete scores.
+    ``eer`` is the canonical project rule and selects the finite ROC threshold
+    whose FPR and FNR are closest. ``youden_j`` remains available for explicit
+    historical comparisons and maximizes TPR-FPR.
     """
 
     if strategy not in {"youden_j", "eer"}:

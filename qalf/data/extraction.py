@@ -19,7 +19,6 @@ VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv"}
 DEFAULT_FFPP_METHODS = (
     "Deepfakes",
     "Face2Face",
-    "FaceShifter",
     "FaceSwap",
     "NeuralTextures",
 )

@@ -25,7 +25,7 @@ from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.ema import ModelEMA
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import SUPPORTED_TEXTURE_BACKBONES, QALFModel
+from qalf.models import SUPPORTED_TEMPORAL_POOLING, SUPPORTED_TEXTURE_BACKBONES, QALFModel
 from qalf.reporting import save_training_history_plot
 
 
@@ -160,6 +160,9 @@ def main() -> None:
     parser.add_argument("--early-stop-patience", type=int)
     parser.add_argument("--ema-decay", type=float)
     parser.add_argument("--validation-weights", choices=("raw", "ema"))
+    parser.add_argument("--threshold-selection", choices=("eer", "youden_j"))
+    parser.add_argument("--temporal-pooling", choices=tuple(sorted(SUPPORTED_TEMPORAL_POOLING)))
+    parser.add_argument("--temporal-bottleneck", type=int)
     parser.add_argument("--embedding-dim", type=int)
     parser.add_argument("--dropout", type=float)
     parser.add_argument("--fake-methods", nargs="+")
@@ -169,8 +172,9 @@ def main() -> None:
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--no-balanced-sampler", action="store_true")
-    parser.add_argument("--sbi", action="store_true")
-    parser.add_argument("--no-sbi", action="store_true")
+    sbi_group = parser.add_mutually_exclusive_group()
+    sbi_group.add_argument("--sbi", action="store_true")
+    sbi_group.add_argument("--no-sbi", action="store_true")
     parser.add_argument(
         "--sbi-mixture",
         nargs=3,
@@ -197,6 +201,8 @@ def main() -> None:
     for key, value in {
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
+        "temporal_pooling": args.temporal_pooling,
+        "temporal_bottleneck": args.temporal_bottleneck,
     }.items():
         if value is not None:
             model_config[key] = value
@@ -239,6 +245,7 @@ def main() -> None:
         "early_stop_patience": args.early_stop_patience,
         "ema_decay": args.ema_decay,
         "validation_weights": args.validation_weights,
+        "threshold_selection": args.threshold_selection,
     }.items():
         if value is not None:
             training[key] = value
@@ -271,6 +278,11 @@ def main() -> None:
         parser.error("validation_weights must be raw or ema")
     if validation_weights == "ema" and ema_decay <= 0.0:
         parser.error("validation_weights=ema requires ema_decay > 0")
+    if model_config["temporal_pooling"] not in SUPPORTED_TEMPORAL_POOLING:
+        parser.error("temporal_pooling is unsupported")
+    if int(model_config.get("temporal_bottleneck", 48)) < 8:
+        parser.error("temporal_bottleneck must be >= 8")
+    threshold_selection = str(training.get("threshold_selection", "eer"))
 
     seed = int(config.get("seed", 42))
     deterministic = bool(training.get("deterministic", False))
@@ -335,6 +347,8 @@ def main() -> None:
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
+        temporal_pooling=str(model_config.get("temporal_pooling", "mean")),
+        temporal_bottleneck=int(model_config.get("temporal_bottleneck", 48)),
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(
@@ -386,7 +400,7 @@ def main() -> None:
                 model.load_state_dict(raw_state, strict=True)
         labels = np.asarray(validation["label"], dtype=np.int64)
         scores = np.asarray(validation["score"], dtype=np.float64)
-        threshold = select_threshold(labels, scores)
+        threshold = select_threshold(labels, scores, strategy=threshold_selection)
         val_metrics = compute_metrics(labels, scores, threshold)
         history.append({"epoch": epoch, "train": train_metrics, "validation": val_metrics})
         if plot_enabled:
@@ -424,7 +438,7 @@ def main() -> None:
             "ema_decay": ema_decay,
             "label_convention": "real=0,fake=1",
             "score_target": "fake",
-            "threshold_selection": "youden_j_ffpp_validation",
+            "threshold_selection": f"{threshold_selection}_ffpp_validation",
             "best_metric": "val_auc",
             "architecture": "texture_only",
         }
@@ -471,6 +485,7 @@ def main() -> None:
             "best_validation_metrics": best_metrics,
             "ema_decay": ema_decay,
             "validation_weights": validation_weights,
+            "threshold_selection": threshold_selection,
             "duration_seconds": time.perf_counter() - run_started,
             "best_model": str(best_path),
             "history": str(history_path),

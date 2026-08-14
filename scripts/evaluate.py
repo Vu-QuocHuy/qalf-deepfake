@@ -103,7 +103,7 @@ def main() -> None:
     parser.add_argument(
         "--threshold-selection",
         choices=("youden_j", "eer"),
-        default="youden_j",
+        default="eer",
         help="Validation threshold rule; EER means closest finite ROC point.",
     )
     parser.add_argument("--texture-flip-tta", action="store_true")
@@ -275,7 +275,7 @@ def main() -> None:
         "model": {
             "architecture": "texture_only",
             "texture_backbone": model_config.get("texture_backbone", "efficientnet_b0"),
-            "texture_temporal_pooling": "mean",
+            "texture_temporal_pooling": model_config.get("temporal_pooling", "mean"),
             "texture_mode": data.get("texture_mode", "full_face"),
             "model_weights": checkpoint.get("model_weights", "raw"),
             "ema_decay": float(checkpoint.get("ema_decay", 0.0)),

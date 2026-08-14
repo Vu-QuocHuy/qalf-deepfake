@@ -6,52 +6,30 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
-from sklearn.metrics import (
-    accuracy_score,
-    average_precision_score,
-    balanced_accuracy_score,
-    roc_auc_score,
-    roc_curve,
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from qalf.metrics import compute_metrics
+
+
+METRIC_NAMES = (
+    "auc",
+    "average_precision",
+    "eer",
+    "accuracy",
+    "balanced_accuracy",
+    "f1_fake",
+    "f1_real",
+    "f1_macro",
+    "apcer",
+    "bpcer",
+    "acer",
 )
-
-
-def _eer(labels: np.ndarray, scores: np.ndarray) -> float:
-    false_positive, true_positive, _ = roc_curve(labels, scores)
-    false_negative = 1.0 - true_positive
-    index = int(np.argmin(np.abs(false_positive - false_negative)))
-    return float((false_positive[index] + false_negative[index]) / 2.0)
-
-
-def _operating_metrics(
-    labels: np.ndarray, scores: np.ndarray, threshold: float
-) -> dict[str, float]:
-    predictions = scores >= threshold
-    true_negative = int(np.sum((labels == 0) & (predictions == 0)))
-    false_positive = int(np.sum((labels == 0) & (predictions == 1)))
-    false_negative = int(np.sum((labels == 1) & (predictions == 0)))
-    true_positive = int(np.sum((labels == 1) & (predictions == 1)))
-
-    def ratio(numerator: int, denominator: int) -> float:
-        return float(numerator / denominator) if denominator else 0.0
-
-    precision_fake = ratio(true_positive, true_positive + false_positive)
-    precision_real = ratio(true_negative, true_negative + false_negative)
-    recall_fake = ratio(true_positive, true_positive + false_negative)
-    recall_real = ratio(true_negative, true_negative + false_positive)
-    f1_fake = ratio(2 * precision_fake * recall_fake, precision_fake + recall_fake)
-    f1_real = ratio(2 * precision_real * recall_real, precision_real + recall_real)
-    return {
-        "accuracy": float(accuracy_score(labels, predictions)),
-        "balanced_accuracy": float(balanced_accuracy_score(labels, predictions)),
-        "f1_macro": 0.5 * (f1_fake + f1_real),
-        "apcer": 1.0 - recall_fake,
-        "bpcer": 1.0 - recall_real,
-        "acer": 0.5 * ((1.0 - recall_fake) + (1.0 - recall_real)),
-    }
 
 
 def _load_predictions(path: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -71,12 +49,8 @@ def _load_predictions(path: Path) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _point_metrics(labels: np.ndarray, scores: np.ndarray, threshold: float) -> dict[str, float]:
-    return {
-        "auc": float(roc_auc_score(labels, scores)),
-        "average_precision": float(average_precision_score(labels, scores)),
-        "eer": _eer(labels, scores),
-        **_operating_metrics(labels, scores, threshold),
-    }
+    metrics = compute_metrics(labels, scores, threshold)
+    return {name: float(metrics[name]) for name in METRIC_NAMES}
 
 
 def _bootstrap(
@@ -86,13 +60,7 @@ def _bootstrap(
     repetitions: int,
     seed: int,
 ) -> dict[str, dict[str, float]]:
-    metrics: dict[str, Callable[[np.ndarray, np.ndarray], float]] = {
-        "auc": lambda y, s: float(roc_auc_score(y, s)),
-        "average_precision": lambda y, s: float(average_precision_score(y, s)),
-        "eer": _eer,
-    }
-    operating = ("accuracy", "balanced_accuracy", "f1_macro", "apcer", "bpcer", "acer")
-    samples: dict[str, list[float]] = {name: [] for name in (*metrics, *operating)}
+    samples: dict[str, list[float]] = {name: [] for name in METRIC_NAMES}
     rng = np.random.default_rng(seed)
     size = labels.size
     for _ in range(repetitions):
@@ -101,11 +69,9 @@ def _bootstrap(
         if np.unique(sampled_labels).size != 2:
             continue
         sampled_scores = scores[indices]
-        for name, function in metrics.items():
-            samples[name].append(function(sampled_labels, sampled_scores))
-        sampled_operating = _operating_metrics(sampled_labels, sampled_scores, threshold)
-        for name in operating:
-            samples[name].append(sampled_operating[name])
+        sampled_metrics = compute_metrics(sampled_labels, sampled_scores, threshold)
+        for name in METRIC_NAMES:
+            samples[name].append(float(sampled_metrics[name]))
 
     result: dict[str, dict[str, float]] = {}
     for name, values in samples.items():

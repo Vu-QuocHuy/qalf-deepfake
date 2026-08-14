@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Resumable training/evaluation suite for the locked main-branch baseline.
-# Core comparisons use three seeds; lightweight controls use one seed. Every
+# Core comparisons use five seeds by default; lightweight controls use one. Every
 # profile has an independent output directory, so an interrupted run can be
 # restarted without overwriting completed checkpoints or metrics.
 
@@ -47,7 +47,7 @@ FORCE_TRAIN="${QALF_ABLATION_FORCE_TRAIN:-0}"
 FORCE_EVAL="${QALF_ABLATION_FORCE_EVAL:-0}"
 BOOTSTRAP_REPS="${QALF_BOOTSTRAP_REPS:-2000}"
 TEXTURE_FRAMES=8
-THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-youden_j}"
+THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-eer}"
 EVAL_SUFFIX="_to_celebdf_8f_3clips_mean_${THRESHOLD_SELECTION}_tta_ffpp_threshold"
 
 read -r -a CORE_SEEDS <<< "$CORE_SEEDS_RAW"
@@ -94,6 +94,7 @@ train_profile() {
         --texture-mode full_face \
         --embedding-dim 192 \
         --dropout 0.3 \
+        --threshold-selection "$THRESHOLD_SELECTION" \
         --deterministic \
         "$@"
 }
@@ -122,6 +123,7 @@ evaluate_profile() {
     QALF_TEST_TOP_K=1 \
     QALF_TEST_THRESHOLD_CLIPS_PER_VIDEO=3 \
     QALF_TEST_FLIP_TTA=1 \
+    QALF_THRESHOLD_SELECTION="$THRESHOLD_SELECTION" \
         ./run_test.sh
 }
 
@@ -152,11 +154,12 @@ summarize_profile() {
     local profile="$1"
     local prefix="$2"
     shift 2
-    local summary_stem="$ABLATION_ROOT/${profile}_summary"
+    local summary_stem="$ABLATION_ROOT/${profile}_summary_${THRESHOLD_SELECTION}"
     "$PYTHON" scripts/summarize_seed_runs.py \
         --train-prefix "$prefix" \
         --eval-suffix "$EVAL_SUFFIX" \
         --seeds "$@" \
+        --profile "$profile" \
         --output-stem "$summary_stem"
 }
 
@@ -181,7 +184,7 @@ echo "Control seed: $CONTROL_SEED"
 echo "Epochs: $EPOCHS"
 echo "Output root: $ABLATION_ROOT"
 
-# Core three-seed comparisons.
+# Core multi-seed comparisons.
 for seed in "${CORE_SEEDS[@]}"; do
     run_profile_seed baseline "$seed" "$BASELINE_PREFIX" --sbi --ema-decay 0.999 --validation-weights ema
 done
@@ -217,7 +220,7 @@ if (( DO_EVAL )); then
     fi
     run_eval_case() {
         local name="$1" frames="$2" clips="$3" aggregation="$4" flip="$5"
-        local output_dir="$ABLATION_ROOT/eval_${name}"
+        local output_dir="$ABLATION_ROOT/eval_${name}_${THRESHOLD_SELECTION}"
         if [[ "$FORCE_EVAL" != "1" && -f "$output_dir/metrics.json" ]]; then
             echo "[eval/$name] metrics exist; skipping"
             return
@@ -231,6 +234,7 @@ if (( DO_EVAL )); then
         QALF_TEST_TOP_K=1 \
         QALF_TEST_THRESHOLD_CLIPS_PER_VIDEO=3 \
         QALF_TEST_FLIP_TTA="$flip" \
+        QALF_THRESHOLD_SELECTION="$THRESHOLD_SELECTION" \
             ./run_test.sh
     }
     run_eval_case frames4 4 3 mean 1
@@ -249,11 +253,12 @@ if (( DO_ROBUSTNESS )); then
         echo "ERROR: seed-42 baseline checkpoint required for robustness: $BASELINE_SEED42" >&2
         exit 1
     fi
-    robustness_output="$ABLATION_ROOT/baseline_robustness.json"
+    robustness_output="$ABLATION_ROOT/baseline_robustness_${THRESHOLD_SELECTION}.json"
     if [[ "$FORCE_EVAL" == "1" || ! -f "$robustness_output" ]]; then
         QALF_ROBUSTNESS_CHECKPOINT="$BASELINE_SEED42" \
         QALF_ROBUSTNESS_OUTPUT="$robustness_output" \
         QALF_ROBUSTNESS_TEXTURE_FRAMES=8 \
+        QALF_THRESHOLD_SELECTION="$THRESHOLD_SELECTION" \
             ./run_robustness.sh
     else
         echo "[robustness] report exists; skipping"

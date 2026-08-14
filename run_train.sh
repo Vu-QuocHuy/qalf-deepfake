@@ -37,6 +37,9 @@ VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
 OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema}"
 SEED="${QALF_SEED:-42}"
 EPOCHS="${QALF_EPOCHS:-50}"
+THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-eer}"
+TEMPORAL_POOLING="${QALF_TEMPORAL_POOLING:-mean}"
+TEMPORAL_BOTTLENECK="${QALF_TEMPORAL_BOTTLENECK:-48}"
 
 export CUBLAS_WORKSPACE_CONFIG=':4096:8'
 
@@ -57,6 +60,9 @@ export CUBLAS_WORKSPACE_CONFIG=':4096:8'
     --early-stop-patience 5 \
     --ema-decay 0.999 \
     --validation-weights ema \
+    --threshold-selection "$THRESHOLD_SELECTION" \
+    --temporal-pooling "$TEMPORAL_POOLING" \
+    --temporal-bottleneck "$TEMPORAL_BOTTLENECK" \
     --num-frames 32 \
     --texture-frames 8 \
     --image-size 160 \

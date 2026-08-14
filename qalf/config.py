@@ -45,10 +45,16 @@ def load_config(path: str | Path) -> dict[str, Any]:
     model.setdefault("embedding_dim", 128)
     model.setdefault("dropout", 0.2)
     model.setdefault("texture_backbone", "efficientnet_b0")
+    model.setdefault("temporal_pooling", "mean")
+    model.setdefault("temporal_bottleneck", 48)
     if model["texture_backbone"] != "efficientnet_b0":
         raise ValueError("model.texture_backbone must be efficientnet_b0")
     if int(model["embedding_dim"]) < 1:
         raise ValueError("model.embedding_dim must be >= 1")
+    if model["temporal_pooling"] not in {"mean", "residual_tcn"}:
+        raise ValueError("model.temporal_pooling must be mean or residual_tcn")
+    if int(model["temporal_bottleneck"]) < 8:
+        raise ValueError("model.temporal_bottleneck must be >= 8")
     if not 0.0 <= float(model["dropout"]) < 1.0:
         raise ValueError("model.dropout must be in [0, 1)")
 
@@ -65,6 +71,9 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("training.validation_weights must be raw or ema")
     if validation_weights == "ema" and ema_decay <= 0.0:
         raise ValueError("EMA validation requires training.ema_decay > 0")
+    threshold_selection = str(training.setdefault("threshold_selection", "eer"))
+    if threshold_selection not in {"eer", "youden_j"}:
+        raise ValueError("training.threshold_selection must be eer or youden_j")
     return config
 
 

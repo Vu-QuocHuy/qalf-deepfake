@@ -1,6 +1,6 @@
 # Current model and protocol
 
-Status: texture-only SBI model, 2026-08-12.
+Status: texture-only SBI model, protocol locked 2026-08-14.
 
 ## Architecture
 
@@ -31,7 +31,7 @@ features and are not passed to the model.
 ## Evaluation
 
 - Cross-dataset development benchmark: Celeb-DF-v2 official 518-video list.
-- Threshold: Youden-J calibrated only on FF++ validation.
+- Threshold: closest-to-EER calibrated only on FF++ validation.
 - Labels: `0=real`, `1=fake`; score is `P(fake)`.
 - Celeb-DF has already been inspected repeatedly and is not an untouched final
   test set. A final paper claim requires another untouched dataset.
@@ -50,9 +50,10 @@ to RGB frames with the locked 8-frame inference protocol. Set
 `QALF_ROBUSTNESS_TEXTURE_FRAMES` only for a separate frame-count ablation.
 The operating threshold is fitted on clean FF++ validation, not on Celeb-DF.
 
-Threshold selection supports `youden_j` (default) and `eer`. The EER option
-selects the closest finite ROC operating point on FF++ validation and freezes
-it for cross-dataset evaluation; it never uses Celeb-DF labels.
+Threshold selection defaults to `eer` and also supports `youden_j` for
+historical comparisons. EER selects the closest finite ROC operating point on
+FF++ validation and freezes it for cross-dataset evaluation; it never uses
+Celeb-DF labels.
 
 For a resumable full comparison, run `./run_ablation_suite.sh`. It keeps the
 locked baseline unchanged and writes training controls, inference-protocol
@@ -67,3 +68,10 @@ active codebase. The active baseline is texture-only full-face RGB with SBI,
 EfficientNet-B0, EMA decay 0.999, 50 maximum epochs, and early stopping
 patience 5. Landmark caches remain only for preprocessing alignment and SBI
 mask generation; they are not used as learned features.
+
+The separate `feature/temporal-residual-tcn` branch contains an experimental
+temporal candidate. It keeps the mean-pooled embedding as a residual base and
+adds a zero-initialized, depthwise TCN over frame embeddings and frame
+differences. It is evaluated as a paired architecture ablation; it is not part
+of the locked baseline until it satisfies both cross-dataset and deployment
+criteria.

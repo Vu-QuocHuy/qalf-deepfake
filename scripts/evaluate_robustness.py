@@ -204,7 +204,7 @@ def main() -> None:
     parser.add_argument(
         "--threshold-selection",
         choices=("youden_j", "eer"),
-        default="youden_j",
+        default="eer",
         help="Validation threshold rule; EER means closest finite ROC point.",
     )
     parser.add_argument("--texture-frames", type=int, default=12)

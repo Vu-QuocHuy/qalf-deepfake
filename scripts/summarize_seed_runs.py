@@ -17,6 +17,8 @@ METRIC_KEYS = (
     "balanced_accuracy",
     "accuracy",
     "f1_fake",
+    "f1_real",
+    "f1_macro",
     "acer",
 )
 
@@ -48,6 +50,7 @@ def main() -> None:
     parser.add_argument("--eval-suffix", required=True)
     parser.add_argument("--seeds", nargs="+", type=int, required=True)
     parser.add_argument("--output-stem", required=True)
+    parser.add_argument("--profile", default="baseline")
     args = parser.parse_args()
 
     rows: list[dict[str, Any]] = []
@@ -83,15 +86,15 @@ def main() -> None:
         writer.writerows(rows)
 
     markdown_lines = [
-        "# QALF baseline multi-seed summary",
+        f"# QALF {args.profile} multi-seed summary",
         "",
-        "| Seed | Status | Best epoch | FF++ val AUC | Celeb-DF AUC | AP | EER | Balanced acc | Accuracy | F1 fake | ACER |",
-        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Seed | Status | Best epoch | FF++ val AUC | Celeb-DF AUC | AP | EER | Balanced acc | Accuracy | F1 fake | F1 real | F1 macro | ACER |",
+        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         markdown_lines.append(
             "| {seed} | {status} | {best_epoch} | {ffpp_val_auc} | {auc} | {average_precision} | "
-            "{eer} | {balanced_accuracy} | {accuracy} | {f1_fake} | {acer} |".format(
+            "{eer} | {balanced_accuracy} | {accuracy} | {f1_fake} | {f1_real} | {f1_macro} | {acer} |".format(
                 seed=row["seed"],
                 status=row["status"],
                 best_epoch=row.get("best_epoch", "NA"),
@@ -102,6 +105,8 @@ def main() -> None:
                 balanced_accuracy=_format(row.get("balanced_accuracy")),
                 accuracy=_format(row.get("accuracy")),
                 f1_fake=_format(row.get("f1_fake")),
+                f1_real=_format(row.get("f1_real")),
+                f1_macro=_format(row.get("f1_macro")),
                 acer=_format(row.get("acer")),
             )
         )
@@ -116,7 +121,7 @@ def main() -> None:
     markdown_lines.extend(("", f"CSV: {output_stem.with_suffix('.csv')}", ""))
     output_stem.with_suffix(".md").write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
 
-    print("# QALF baseline multi-seed summary")
+    print(f"# QALF {args.profile} multi-seed summary")
     for line in markdown_lines[4:]:
         if line.startswith("CSV:"):
             break

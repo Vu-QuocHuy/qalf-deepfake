@@ -17,6 +17,8 @@ class QALFModel(nn.Module):
         dropout: float = 0.2,
         texture_pretrained: bool = True,
         texture_backbone: str = "efficientnet_b0",
+        temporal_pooling: str = "mean",
+        temporal_bottleneck: int = 48,
     ) -> None:
         super().__init__()
         self.texture_encoder = TextureEncoder(
@@ -24,6 +26,8 @@ class QALFModel(nn.Module):
             dropout=dropout,
             pretrained=texture_pretrained,
             backbone=texture_backbone,
+            temporal_pooling=temporal_pooling,
+            temporal_bottleneck=temporal_bottleneck,
         )
 
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:

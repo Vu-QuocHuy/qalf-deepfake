@@ -32,7 +32,7 @@ if (( ${#SEEDS[@]} == 0 )); then
 fi
 
 TEXTURE_FRAMES="${QALF_TEST_TEXTURE_FRAMES:-8}"
-THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-youden_j}"
+THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-eer}"
 EPOCHS="${QALF_EPOCHS:-50}"
 FORCE_TRAIN="${QALF_FORCE_TRAIN:-0}"
 FORCE_TEST="${QALF_FORCE_TEST:-0}"
@@ -81,6 +81,7 @@ for seed in "${SEEDS[@]}"; do
         QALF_TEST_CHECKPOINT="$train_output/best.pt" \
         QALF_TEST_OUTPUT_DIR="$eval_output" \
         QALF_TEST_TEXTURE_FRAMES="$TEXTURE_FRAMES" \
+        QALF_THRESHOLD_SELECTION="$THRESHOLD_SELECTION" \
         ./run_test.sh
     fi
 done

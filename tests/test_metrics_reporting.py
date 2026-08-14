@@ -17,6 +17,14 @@ class ComprehensiveMetricTests(unittest.TestCase):
         threshold = select_threshold(labels, scores, strategy="eer")
         self.assertTrue(0.0 <= threshold <= 1.0)
 
+    def test_eer_is_the_default_threshold_strategy(self) -> None:
+        labels = np.asarray([0, 0, 1, 1])
+        scores = np.asarray([0.1, 0.6, 0.4, 0.9])
+        self.assertEqual(
+            select_threshold(labels, scores),
+            select_threshold(labels, scores, strategy="eer"),
+        )
+
     def test_unknown_threshold_strategy_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             select_threshold(np.asarray([0, 1]), np.asarray([0.1, 0.9]), "bad")
@@ -37,6 +45,7 @@ class ComprehensiveMetricTests(unittest.TestCase):
         self.assertAlmostEqual(float(metrics["recall_real"]), 0.5)
         self.assertAlmostEqual(float(metrics["f1_fake"]), 0.5)
         self.assertAlmostEqual(float(metrics["f1_real"]), 0.5)
+        self.assertAlmostEqual(float(metrics["f1_macro"]), 0.5)
         self.assertAlmostEqual(float(metrics["acer"]), 0.5)
 
 
