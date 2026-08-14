@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import statistics
 from pathlib import Path
 from typing import Any
@@ -36,8 +37,22 @@ def _parse_run(spec: str) -> tuple[str, Path]:
     return profile, Path(directory)
 
 
+def _method_seed(profile: str) -> tuple[str, str]:
+    match = re.fullmatch(r"(.+)_seed(\d+)", profile)
+    if match is None:
+        return profile, "NA"
+    return match.group(1), match.group(2)
+
+
 def _fmt(value: object) -> str:
     return "NA" if value is None else f"{float(value):.4f}"
+
+
+def _mean_std(rows: list[dict[str, Any]], key: str) -> tuple[float | None, float | None]:
+    values = [float(row[key]) for row in rows if row.get(key) is not None]
+    if not values:
+        return None, None
+    return statistics.mean(values), statistics.stdev(values) if len(values) > 1 else 0.0
 
 
 def main() -> None:
@@ -49,8 +64,15 @@ def main() -> None:
     rows: list[dict[str, Any]] = []
     for spec in args.run:
         profile, eval_dir = _parse_run(spec)
+        method, seed = _method_seed(profile)
         metrics_path = eval_dir / "metrics.json"
-        row: dict[str, Any] = {"profile": profile, "eval_dir": str(eval_dir), "status": "complete"}
+        row: dict[str, Any] = {
+            "method": method,
+            "seed": seed,
+            "profile": profile,
+            "eval_dir": str(eval_dir),
+            "status": "complete",
+        }
         if not metrics_path.is_file():
             row["status"] = "missing_metrics"
             rows.append(row)
@@ -74,7 +96,7 @@ def main() -> None:
     stem = Path(args.output_stem)
     stem.parent.mkdir(parents=True, exist_ok=True)
     fields = [
-        "profile", "status", "best_epoch", "ffpp_val_auc", "auc", "domain_gap",
+        "method", "seed", "profile", "status", "best_epoch", "ffpp_val_auc", "auc", "domain_gap",
         "average_precision", "eer", "balanced_accuracy", "accuracy", "f1_fake",
         "acer", "threshold", "fake_method_filter", "eval_dir",
     ]
@@ -89,37 +111,66 @@ def main() -> None:
         "The evaluation split is the official FF++ test split. Thresholds are calibrated on FF++ validation only.",
         "FaceShifter is excluded; fake methods are listed per row.",
         "",
-        "| Profile | Status | FF++ val AUC | FF++ test AUC | Gap | AP | EER | Balanced acc | ACER |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "## Per-seed results",
+        "",
+        "| Method | Seed | Status | FF++ val AUC | FF++ test AUC | Gap | AP | EER | Balanced acc | ACER |",
+        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
-            f"| {row['profile']} | {row['status']} | {_fmt(row.get('ffpp_val_auc'))} | "
+            f"| {row['method']} | {row['seed']} | {row['status']} | {_fmt(row.get('ffpp_val_auc'))} | "
             f"{_fmt(row.get('auc'))} | {_fmt(row.get('domain_gap'))} | "
             f"{_fmt(row.get('average_precision'))} | {_fmt(row.get('eer'))} | "
             f"{_fmt(row.get('balanced_accuracy'))} | {_fmt(row.get('acer'))} |"
         )
 
     complete = [row for row in rows if row["status"] == "complete"]
-    lines.extend(("", "## Mean ± standard deviation by profile", ""))
-    for profile in sorted({str(row["profile"]) for row in complete}):
-        selected = [row for row in complete if row["profile"] == profile]
-        values: list[str] = []
-        for key in ("ffpp_val_auc", "auc", "average_precision", "eer", "balanced_accuracy", "acer"):
-            numeric = [float(row[key]) for row in selected if row.get(key) is not None]
-            if not numeric:
-                values.append("NA")
-            elif len(numeric) == 1:
-                values.append(f"{numeric[0]:.4f} ± 0.0000")
-            else:
-                values.append(f"{statistics.mean(numeric):.4f} ± {statistics.stdev(numeric):.4f}")
-        lines.append(
-            f"- **{profile}** — val AUC {values[0]}, test AUC {values[1]}, AP {values[2]}, "
-            f"EER {values[3]}, balanced acc {values[4]}, ACER {values[5]}"
+    grouped: list[dict[str, Any]] = []
+    lines.extend(
+        (
+            "",
+            "## Mean ± standard deviation by method",
+            "",
+            "| Method | Seeds | FF++ val AUC | FF++ test AUC | AP | EER | Balanced acc | ACER |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         )
-    lines.extend(("", f"CSV: `{stem.with_suffix('.csv')}`", ""))
+    )
+    grouped_metrics = ("ffpp_val_auc", "auc", "average_precision", "eer", "balanced_accuracy", "acer")
+    for method in sorted({str(row["method"]) for row in complete}):
+        selected = [row for row in complete if row["method"] == method]
+        grouped_row: dict[str, Any] = {"method": method, "seeds": len(selected)}
+        rendered: list[str] = []
+        for key in grouped_metrics:
+            mean, std = _mean_std(selected, key)
+            grouped_row[f"{key}_mean"] = mean
+            grouped_row[f"{key}_std"] = std
+            rendered.append("NA" if mean is None else f"{mean:.4f} ± {std:.4f}")
+        lines.append(
+            f"| {method} | {len(selected)} | {rendered[0]} | {rendered[1]} | {rendered[2]} | "
+            f"{rendered[3]} | {rendered[4]} | {rendered[5]} |"
+        )
+        grouped.append(grouped_row)
+
+    grouped_fields = ["method", "seeds"]
+    for key in grouped_metrics:
+        grouped_fields.extend((f"{key}_mean", f"{key}_std"))
+    grouped_path = stem.with_name(f"{stem.name}_by_method").with_suffix(".csv")
+    with grouped_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=grouped_fields)
+        writer.writeheader()
+        writer.writerows(grouped)
+
+    lines.extend(
+        (
+            "",
+            f"Per-seed CSV: `{stem.with_suffix('.csv')}`",
+            f"Grouped CSV: `{grouped_path}`",
+            "",
+        )
+    )
     stem.with_suffix(".md").write_text("\n".join(lines), encoding="utf-8")
-    print(f"CSV: {stem.with_suffix('.csv')}")
+    print(f"Per-seed CSV: {stem.with_suffix('.csv')}")
+    print(f"Grouped CSV: {grouped_path}")
     print(f"Markdown: {stem.with_suffix('.md')}")
 
 

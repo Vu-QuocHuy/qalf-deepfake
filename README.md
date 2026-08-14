@@ -135,7 +135,9 @@ threshold calibration, evaluates three clips with mean aggregation, and
 explicitly includes only `Deepfakes`, `Face2Face`, `FaceSwap`, and
 `NeuralTextures`; `FaceShifter` is excluded. Results are written under
 `E:/DeepFakeData/experiments/ablation/ffpp_test` with a consolidated
-`summary_youden_j.md/.csv`. Set `QALF_THRESHOLD_SELECTION=eer` for a parallel
+`summary_youden_j.md/.csv`; the report keeps per-seed rows and also writes
+`summary_youden_j_by_method.csv` with method-level mean ± standard deviation.
+Set `QALF_THRESHOLD_SELECTION=eer` for a parallel
 EER-threshold report, or set `QALF_FFPP_TEST_MANIFEST` if the official test
 manifest is stored at a different path. If only the FF++ validation manifest
 exists, do not use it as a final in-domain test: it is already used for model
