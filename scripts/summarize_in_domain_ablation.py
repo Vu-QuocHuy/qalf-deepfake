@@ -19,6 +19,8 @@ METRICS = (
     "balanced_accuracy",
     "accuracy",
     "f1_fake",
+    "f1_real",
+    "f1_macro",
     "acer",
 )
 
@@ -125,7 +127,7 @@ def main() -> None:
     stem.parent.mkdir(parents=True, exist_ok=True)
     fields = [
         "method", "seed", "profile", "status", "best_epoch", "ffpp_val_auc", "auc", "domain_gap",
-        "average_precision", "eer", "balanced_accuracy", "accuracy", "f1_fake",
+        "average_precision", "eer", "balanced_accuracy", "accuracy", "f1_fake", "f1_real", "f1_macro",
         "acer", "threshold", "fake_method_filter", "eval_dir",
     ]
     with stem.with_suffix(".csv").open("w", newline="", encoding="utf-8") as handle:
@@ -141,8 +143,8 @@ def main() -> None:
         "",
         "## Per-seed results",
         "",
-        "| Method | Seed | Status | FF++ val AUC | FF++ test AUC | Gap | AP | EER | Accuracy | Balanced acc | ACER |",
-        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Method | Seed | Status | FF++ val AUC | FF++ test AUC | Gap | AP | EER | Accuracy | Balanced acc | F1 fake | F1 real | F1 macro | ACER |",
+        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
@@ -150,6 +152,7 @@ def main() -> None:
             f"{_fmt(row.get('auc'))} | {_fmt(row.get('domain_gap'))} | "
             f"{_fmt(row.get('average_precision'))} | {_fmt(row.get('eer'))} | "
             f"{_fmt(row.get('accuracy'))} | {_fmt(row.get('balanced_accuracy'))} | "
+            f"{_fmt(row.get('f1_fake'))} | {_fmt(row.get('f1_real'))} | {_fmt(row.get('f1_macro'))} | "
             f"{_fmt(row.get('acer'))} |"
         )
 
@@ -160,13 +163,13 @@ def main() -> None:
             "",
             "## Mean ± standard deviation by method",
             "",
-            "| Method | Seeds | FF++ val AUC | FF++ test AUC | AP | EER | Accuracy | Balanced acc | ACER |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Method | Seeds | FF++ val AUC | FF++ test AUC | AP | EER | Accuracy | Balanced acc | F1 fake | F1 real | F1 macro | ACER |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         )
     )
     grouped_metrics = (
         "ffpp_val_auc", "auc", "average_precision", "eer", "accuracy",
-        "balanced_accuracy", "acer",
+        "balanced_accuracy", "f1_fake", "f1_real", "f1_macro", "acer",
     )
     for method in sorted({str(row["method"]) for row in complete}):
         selected = [row for row in complete if row["method"] == method]
@@ -179,7 +182,8 @@ def main() -> None:
             rendered.append("NA" if mean is None else f"{mean:.4f} ± {std:.4f}")
         lines.append(
             f"| {method} | {len(selected)} | {rendered[0]} | {rendered[1]} | {rendered[2]} | "
-            f"{rendered[3]} | {rendered[4]} | {rendered[5]} | {rendered[6]} |"
+            f"{rendered[3]} | {rendered[4]} | {rendered[5]} | {rendered[6]} | "
+            f"{rendered[7]} | {rendered[8]} | {rendered[9]} |"
         )
         grouped.append(grouped_row)
 
