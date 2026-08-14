@@ -58,6 +58,7 @@ if [[ "$SUMMARY_ONLY" == 1 ]]; then
     echo "Summary-only mode: existing FF++ metrics will be read; no evaluation will run."
     "$PYTHON" scripts/summarize_in_domain_ablation.py \
         --discover-root "$OUTPUT_ROOT" \
+        --threshold-selection "$THRESHOLD_SELECTION" \
         --output-stem "$OUTPUT_ROOT/summary_${THRESHOLD_SELECTION}"
     exit 0
 fi

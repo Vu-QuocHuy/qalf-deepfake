@@ -55,7 +55,7 @@ def _mean_std(rows: list[dict[str, Any]], key: str) -> tuple[float | None, float
     return statistics.mean(values), statistics.stdev(values) if len(values) > 1 else 0.0
 
 
-def _discover_runs(root: Path) -> list[str]:
+def _discover_runs(root: Path, threshold_selection: str | None) -> list[str]:
     """Find existing FF++ metrics without assuming the current output suffix."""
     specs: list[str] = []
     for metrics_path in sorted(root.rglob("metrics.json")):
@@ -65,6 +65,9 @@ def _discover_runs(root: Path) -> list[str]:
             continue
         protocol = payload.get("protocol", {})
         if "ffpp" not in {str(value) for value in protocol.get("datasets", [])}:
+            continue
+        selection = str(protocol.get("threshold", {}).get("selection", ""))
+        if threshold_selection and threshold_selection not in selection:
             continue
         directory_name = metrics_path.parent.name
         match = re.match(r"(.+?)(?:_to)?_?ffpp_test(?:_|$)", directory_name)
@@ -79,9 +82,10 @@ def main() -> None:
     source.add_argument("--run", action="append", metavar="PROFILE=DIR")
     source.add_argument("--discover-root", type=Path)
     parser.add_argument("--output-stem", required=True)
+    parser.add_argument("--threshold-selection", choices=("youden_j", "eer"))
     args = parser.parse_args()
 
-    specs = args.run or _discover_runs(args.discover_root)
+    specs = args.run or _discover_runs(args.discover_root, args.threshold_selection)
     if not specs:
         raise SystemExit(f"No FF++ metrics.json found under {args.discover_root}")
 
