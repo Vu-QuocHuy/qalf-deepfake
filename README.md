@@ -143,6 +143,18 @@ manifest is stored at a different path. If only the FF++ validation manifest
 exists, do not use it as a final in-domain test: it is already used for model
 selection and threshold calibration.
 
+If FF++ metrics have already been evaluated and only the report must be
+recomputed, use summary-only mode. It discovers existing FF++ `metrics.json`
+files and never calls the evaluator:
+
+```powershell
+$env:QALF_FFPP_SUMMARY_ONLY="1"
+$env:QALF_THRESHOLD_SELECTION="eer"
+& "C:\Program Files\Git\bin\bash.exe" ./run_ffpp_indomain_ablation.sh
+Remove-Item Env:QALF_FFPP_SUMMARY_ONLY
+Remove-Item Env:QALF_THRESHOLD_SELECTION
+```
+
 ## Outputs
 
 Training writes `best.pt`, configuration, history, logs, and a training plot.

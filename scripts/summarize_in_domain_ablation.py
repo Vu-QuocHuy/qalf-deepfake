@@ -55,14 +55,38 @@ def _mean_std(rows: list[dict[str, Any]], key: str) -> tuple[float | None, float
     return statistics.mean(values), statistics.stdev(values) if len(values) > 1 else 0.0
 
 
+def _discover_runs(root: Path) -> list[str]:
+    """Find existing FF++ metrics without assuming the current output suffix."""
+    specs: list[str] = []
+    for metrics_path in sorted(root.rglob("metrics.json")):
+        try:
+            payload = _load(metrics_path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        protocol = payload.get("protocol", {})
+        if "ffpp" not in {str(value) for value in protocol.get("datasets", [])}:
+            continue
+        directory_name = metrics_path.parent.name
+        match = re.match(r"(.+?)(?:_to)?_?ffpp_test(?:_|$)", directory_name)
+        profile = match.group(1) if match else directory_name
+        specs.append(f"{profile}={metrics_path.parent}")
+    return specs
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run", action="append", required=True, metavar="PROFILE=DIR")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--run", action="append", metavar="PROFILE=DIR")
+    source.add_argument("--discover-root", type=Path)
     parser.add_argument("--output-stem", required=True)
     args = parser.parse_args()
 
+    specs = args.run or _discover_runs(args.discover_root)
+    if not specs:
+        raise SystemExit(f"No FF++ metrics.json found under {args.discover_root}")
+
     rows: list[dict[str, Any]] = []
-    for spec in args.run:
+    for spec in specs:
         profile, eval_dir = _parse_run(spec)
         method, seed = _method_seed(profile)
         metrics_path = eval_dir / "metrics.json"

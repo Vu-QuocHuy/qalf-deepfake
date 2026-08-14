@@ -46,12 +46,21 @@ BATCH_SIZE="${QALF_FFPP_BATCH_SIZE:-8}"
 FORCE_EVAL="${QALF_FFPP_FORCE_EVAL:-0}"
 BOOTSTRAP="${QALF_FFPP_BOOTSTRAP:-1}"
 BOOTSTRAP_REPS="${QALF_FFPP_BOOTSTRAP_REPS:-2000}"
+SUMMARY_ONLY="${QALF_FFPP_SUMMARY_ONLY:-0}"
 if [[ "$FLIP_TTA" == 1 ]]; then
     TTA_SUFFIX="tta"
 else
     TTA_SUFFIX="no_tta"
 fi
 EVAL_SUFFIX="_ffpp_test_${TEXTURE_FRAMES}f_${CLIPS_PER_VIDEO}clips_${AGGREGATION}_${THRESHOLD_SELECTION}_${TTA_SUFFIX}"
+
+if [[ "$SUMMARY_ONLY" == 1 ]]; then
+    echo "Summary-only mode: existing FF++ metrics will be read; no evaluation will run."
+    "$PYTHON" scripts/summarize_in_domain_ablation.py \
+        --discover-root "$OUTPUT_ROOT" \
+        --output-stem "$OUTPUT_ROOT/summary_${THRESHOLD_SELECTION}"
+    exit 0
+fi
 
 FAKE_METHODS=(Deepfakes Face2Face FaceSwap NeuralTextures)
 read -r -a SEEDS <<< "$SEEDS_RAW"
