@@ -6,9 +6,9 @@ set -euo pipefail
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
-EXPERIMENT_DIR="${QALF_MOBILENET_OUTPUT_DIR:-E:/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_224_8f_texture_sbi_ema}"
+EXPERIMENT_DIR="${QALF_MOBILENET_OUTPUT_DIR:-E:/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_224_tuned_8f_texture_sbi_ema}"
 if [[ "$(uname -s)" == Linux* ]]; then
-    EXPERIMENT_DIR="${QALF_MOBILENET_OUTPUT_DIR:-/mnt/e/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_224_8f_texture_sbi_ema}"
+    EXPERIMENT_DIR="${QALF_MOBILENET_OUTPUT_DIR:-/mnt/e/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_224_tuned_8f_texture_sbi_ema}"
 fi
 CHECKPOINT="$EXPERIMENT_DIR/best.pt"
 OUTPUT_DIR="${QALF_MOBILENET_TEST_OUTPUT_DIR:-${EXPERIMENT_DIR}_to_celebdf_8f_3clips_mean_eer_tta}"

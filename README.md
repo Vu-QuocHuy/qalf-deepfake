@@ -176,8 +176,8 @@ in the generated configuration.
 Default directories:
 
 ```text
-E:/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_224_8f_texture_sbi_ema
-E:/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_224_8f_texture_sbi_ema_to_celebdf_8f_3clips_mean_eer_tta
+E:/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_224_tuned_8f_texture_sbi_ema
+E:/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_224_tuned_8f_texture_sbi_ema_to_celebdf_8f_3clips_mean_eer_tta
 ```
 
 ## Outputs
