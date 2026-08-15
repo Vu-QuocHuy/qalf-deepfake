@@ -38,6 +38,7 @@ OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_
 SEED="${QALF_SEED:-42}"
 EPOCHS="${QALF_EPOCHS:-50}"
 TEXTURE_BACKBONE="${QALF_TEXTURE_BACKBONE:-efficientnet_b0}"
+IMAGE_SIZE="${QALF_IMAGE_SIZE:-160}"
 
 export CUBLAS_WORKSPACE_CONFIG=':4096:8'
 
@@ -60,7 +61,7 @@ export CUBLAS_WORKSPACE_CONFIG=':4096:8'
     --validation-weights ema \
     --num-frames 32 \
     --texture-frames 8 \
-    --image-size 160 \
+    --image-size "$IMAGE_SIZE" \
     --eval-clips-per-video 3 \
     --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
     --texture-backbone "$TEXTURE_BACKBONE" \
