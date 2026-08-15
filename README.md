@@ -176,20 +176,6 @@ E:/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_160_8f_texture_sbi_ema
 E:/DeepFakeData/experiments/qalf_ffpp4_mobilenet_v3_large_160_8f_texture_sbi_ema_to_celebdf_8f_3clips_mean_eer_tta
 ```
 
-## Landmark-free preprocessing diagnostic
-
-The `run_train_no_landmark.sh` and `run_test_no_landmark.sh` scripts are a
-diagnostic only. They keep EfficientNet-B0, SBI, EMA, and the locked inference
-protocol, but skip the second landmark-based affine alignment because the
-stored frames are already square MTCNN face crops. SBI uses its fixed-ellipse
-fallback mask in this mode. This is not the paper baseline and must be trained
-from scratch because the input preprocessing distribution changes.
-
-```powershell
-& "C:\Program Files\Git\bin\bash.exe" ./run_train_no_landmark.sh
-& "C:\Program Files\Git\bin\bash.exe" ./run_test_no_landmark.sh
-```
-
 ## Outputs
 
 Training writes `best.pt`, configuration, history, logs, and a training plot.

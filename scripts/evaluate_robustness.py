@@ -159,7 +159,6 @@ def _dataset(
         num_frames=int(data["num_frames"]), texture_frames=frames,
         image_size=int(data["image_size"]), texture_mode=str(data.get("texture_mode", "full_face")),
         training=False, clips_per_video=clips, fake_methods=fake_methods,
-        landmark_alignment=bool(data.get("landmark_alignment", True)),
     )
 
 
