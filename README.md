@@ -163,6 +163,10 @@ and FF++ validation EER calibration) while replacing EfficientNet-B0 with an
 ImageNet-pretrained MobileNetV3-Large encoder at 224×224 input resolution. It
 is a stronger lightweight alternative to MobileNetV3-Small, and the saved
 `config.json` records the actual backbone and resolution used by the run.
+The runner uses a smaller `1e-5` learning rate for the pretrained MobileNet
+backbone, while keeping the classifier learning rate at `3e-4`; embedding size,
+dropout, EMA, SBI mixture, frame count, and video aggregation remain explicit
+in the generated configuration.
 
 ```powershell
 & "C:\Program Files\Git\bin\bash.exe" ./run_train_mobilenet_v3_large.sh

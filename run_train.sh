@@ -39,6 +39,15 @@ SEED="${QALF_SEED:-42}"
 EPOCHS="${QALF_EPOCHS:-50}"
 TEXTURE_BACKBONE="${QALF_TEXTURE_BACKBONE:-efficientnet_b0}"
 IMAGE_SIZE="${QALF_IMAGE_SIZE:-160}"
+BATCH_SIZE="${QALF_BATCH_SIZE:-8}"
+LEARNING_RATE="${QALF_LEARNING_RATE:-0.0003}"
+BACKBONE_LEARNING_RATE="${QALF_BACKBONE_LEARNING_RATE:-0.00003}"
+WEIGHT_DECAY="${QALF_WEIGHT_DECAY:-0.0003}"
+EARLY_STOP_PATIENCE="${QALF_EARLY_STOP_PATIENCE:-5}"
+EMA_DECAY="${QALF_EMA_DECAY:-0.999}"
+TEXTURE_FRAMES="${QALF_TEXTURE_FRAMES:-8}"
+EMBEDDING_DIM="${QALF_EMBEDDING_DIM:-192}"
+DROPOUT="${QALF_DROPOUT:-0.3}"
 
 export CUBLAS_WORKSPACE_CONFIG=':4096:8'
 
@@ -51,22 +60,22 @@ export CUBLAS_WORKSPACE_CONFIG=':4096:8'
     --output-dir "$OUTPUT_DIR" \
     --seed "$SEED" \
     --epochs "$EPOCHS" \
-    --batch-size 8 \
+    --batch-size "$BATCH_SIZE" \
     --num-workers 4 \
-    --learning-rate 0.0003 \
-    --backbone-learning-rate 0.00003 \
-    --weight-decay 0.0003 \
-    --early-stop-patience 5 \
-    --ema-decay 0.999 \
+    --learning-rate "$LEARNING_RATE" \
+    --backbone-learning-rate "$BACKBONE_LEARNING_RATE" \
+    --weight-decay "$WEIGHT_DECAY" \
+    --early-stop-patience "$EARLY_STOP_PATIENCE" \
+    --ema-decay "$EMA_DECAY" \
     --validation-weights ema \
     --num-frames 32 \
-    --texture-frames 8 \
+    --texture-frames "$TEXTURE_FRAMES" \
     --image-size "$IMAGE_SIZE" \
     --eval-clips-per-video 3 \
     --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
     --texture-backbone "$TEXTURE_BACKBONE" \
     --texture-mode full_face \
-    --embedding-dim 192 \
-    --dropout 0.3 \
+    --embedding-dim "$EMBEDDING_DIM" \
+    --dropout "$DROPOUT" \
     --sbi \
     --deterministic
