@@ -1,0 +1,14 @@
+# Requirements specifically optimized for Raspberry Pi 4 (ARM64 / aarch64)
+# Run on Raspberry Pi OS 64-bit with Python 3.10 or 3.11
+
+numpy>=1.26,<3
+opencv-python-headless>=4.8,<5
+Pillow>=10.0,<11
+requests>=2,<3
+mediapipe>=0.10.14
+scikit-learn>=1.3,<2
+matplotlib>=3.8,<4
+torch>=2.2.0
+torchvision>=0.17.0
+tqdm>=4.66,<5
+onnxruntime>=1.17.0
