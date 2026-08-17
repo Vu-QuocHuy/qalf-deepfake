@@ -57,16 +57,30 @@ def main() -> None:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    torch.onnx.export(
-        wrapper,
-        example,
-        output,
-        input_names=("texture",),
-        output_names=("logit",),
-        dynamic_axes={"texture": {0: "batch", 1: "texture_frames"}, "logit": {0: "batch"}},
-        opset_version=args.opset,
-        do_constant_folding=True,
-    )
+    try:
+        torch.onnx.export(
+            wrapper,
+            example,
+            output,
+            input_names=("texture",),
+            output_names=("logit",),
+            dynamic_axes={"texture": {0: "batch", 1: "texture_frames"}, "logit": {0: "batch"}},
+            opset_version=args.opset,
+            do_constant_folding=True,
+            dynamo=False,
+        )
+    except TypeError:
+        # For older PyTorch versions without dynamo argument
+        torch.onnx.export(
+            wrapper,
+            example,
+            output,
+            input_names=("texture",),
+            output_names=("logit",),
+            dynamic_axes={"texture": {0: "batch", 1: "texture_frames"}, "logit": {0: "batch"}},
+            opset_version=args.opset,
+            do_constant_folding=True,
+        )
 
     metadata = {
         "architecture": "TextureSBIModel",
