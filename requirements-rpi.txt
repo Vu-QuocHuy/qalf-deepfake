@@ -1,5 +1,6 @@
-# Requirements specifically optimized for Raspberry Pi 4 (ARM64 / aarch64)
-# Run on Raspberry Pi OS 64-bit with Python 3.10 or 3.11
+# Lightweight requirements specifically optimized for Raspberry Pi 4 (ARM64 / aarch64 CPU)
+# CPU-only PyTorch index to prevent downloading massive NVIDIA CUDA wheels (>3GB)
+--extra-index-url https://download.pytorch.org/whl/cpu
 
 numpy>=1.26,<3
 opencv-python-headless>=4.8,<5
@@ -12,3 +13,4 @@ torch>=2.2.0
 torchvision>=0.17.0
 tqdm>=4.66,<5
 onnxruntime>=1.17.0
+psutil>=5.9.0
