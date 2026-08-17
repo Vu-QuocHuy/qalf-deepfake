@@ -89,32 +89,59 @@ def _landmark_fingerprint(
 
 
 class OpenCVAfflineLandmarker:
-    """Ultra-fast, native OpenCV face & eye landmark fallback for ARM CPUs without AES extension."""
+    """Ultra-fast, native OpenCV face & eye landmark fallback for ARM CPUs with margin expansion and tracking."""
 
     def __init__(self) -> None:
         cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         self.face_cascade = cv2.CascadeClassifier(cascade_path) if cv2.data.haarcascades else None
+        self.last_face_box: tuple[int, int, int, int] | None = None
 
     def close(self) -> None:
-        pass
+        self.last_face_box = None
 
     def process(self, image_rgb: np.ndarray, timestamp_ms: int | None = None) -> np.ndarray | None:
         height, width = image_rgb.shape[:2]
         if height < 16 or width < 16:
             return None
         gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY)
-        faces = self.face_cascade.detectMultiScale(gray, 1.2, 3, minSize=(32, 32)) if self.face_cascade else ()
+        faces = self.face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=4,
+            minSize=(int(min(height, width) * 0.15), int(min(height, width) * 0.15)),
+        ) if self.face_cascade else ()
+
         if len(faces) > 0:
+            # Pick the largest detected face box in the frame
+            faces = sorted(faces, key=lambda b: b[2] * b[3], reverse=True)
             fx, fy, fw, fh = faces[0]
+            self.last_face_box = (fx, fy, fw, fh)
+        elif self.last_face_box is not None:
+            # Use temporal tracking from previous frames in video
+            fx, fy, fw, fh = self.last_face_box
         else:
-            # If no face box found (or image is already cropped face), use full image bounding box
-            fx, fy, fw, fh = 0, 0, width, height
+            # Center face fallback if no face detected yet
+            side = int(min(height, width) * 0.70)
+            fx = max(0, (width - side) // 2)
+            fy = max(0, (height - side) // 2)
+            fw, fh = side, side
+
+        # Expand face box by 35% margin to exactly match MTCNN canonical training crop
+        cx = fx + fw / 2.0
+        cy = fy + fh / 2.0
+        side = max(fw, fh) * 1.35
+        x1 = max(0.0, cx - side / 2.0)
+        y1 = max(0.0, cy - side / 2.0)
+        x2 = min(float(width), cx + side / 2.0)
+        y2 = min(float(height), cy + side / 2.0)
+        fw_exp = max(1.0, x2 - x1)
+        fh_exp = max(1.0, y2 - y1)
 
         pts = np.zeros((468, 3), dtype=np.float32)
-        # Canonical eye & mouth coordinates for affine alignment
-        left_eye_pt = np.array([(fx + 0.32 * fw) / width, (fy + 0.38 * fh) / height, 0.0], dtype=np.float32)
-        right_eye_pt = np.array([(fx + 0.68 * fw) / width, (fy + 0.38 * fh) / height, 0.0], dtype=np.float32)
-        mouth_pt = np.array([(fx + 0.50 * fw) / width, (fy + 0.72 * fh) / height, 0.0], dtype=np.float32)
+        # Canonical eye & mouth coordinates for affine alignment matching 160x160 training distribution
+        left_eye_pt = np.array([(x1 + 0.32 * fw_exp) / width, (y1 + 0.38 * fh_exp) / height, 0.0], dtype=np.float32)
+        right_eye_pt = np.array([(x1 + 0.68 * fw_exp) / width, (y1 + 0.38 * fh_exp) / height, 0.0], dtype=np.float32)
+        mouth_pt = np.array([(x1 + 0.50 * fw_exp) / width, (y1 + 0.72 * fh_exp) / height, 0.0], dtype=np.float32)
 
         for idx in [33, 133, 159, 145]:
             pts[idx] = left_eye_pt
