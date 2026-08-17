@@ -395,20 +395,40 @@ def main() -> None:
         print(f"PREDICTION       : >>> {rep['detection']['prediction']} <<<")
         print("=" * 60 + "\n")
     else:
-        # Multi-video summary
+        # Multi-video comprehensive scientific summary
         total_latencies = [r["timings_ms"]["total_end_to_end_ms"] for r in reports]
+        decode_latencies = [r["timings_ms"]["1_video_decode_ms"] for r in reports]
+        lm_latencies = [r["timings_ms"]["2_landmark_extraction_ms"] for r in reports]
+        align_latencies = [r["timings_ms"]["3_face_align_and_preprocess_ms"] for r in reports]
         model_latencies = [r["timings_ms"]["4_model_forward_ms"] for r in reports]
         fps_list = [r["performance"]["end_to_end_fps"] for r in reports]
-        print("\n" + "=" * 60)
-        print(f"      QALF BATCH SUBSET BENCHMARK REPORT ({len(reports)} VIDEOS)")
-        print("=" * 60)
+        correct_predictions = sum(1 for r in reports if r["detection"]["prediction"] == ("FAKE" if "synthesis" in str(r["video_info"]["path"]).lower() else "REAL"))
+
+        def stats_str(data: list[float]) -> str:
+            m = statistics.mean(data)
+            s = statistics.stdev(data) if len(data) > 1 else 0.0
+            p50 = percentile(data, 0.50)
+            p95 = percentile(data, 0.95)
+            return f"{m:>8.2f} ± {s:<6.2f} | {p50:>8.2f} | {p95:>8.2f}"
+
+        print("\n" + "=" * 78)
+        print(f"      QALF SCIENTIFIC HARDWARE PROFILING REPORT ({len(reports)} VIDEOS)")
+        print("=" * 78)
         print(f"Total Videos Processed : {len(reports)}")
-        print(f"Mean Pipeline Latency  : {statistics.mean(total_latencies):.2f} ms")
-        print(f"P50 (Median) Latency   : {percentile(total_latencies, 0.50):.2f} ms")
-        print(f"P95 Latency            : {percentile(total_latencies, 0.95):.2f} ms")
-        print(f"Mean Model Forward     : {statistics.mean(model_latencies):.2f} ms")
-        print(f"Average Throughput     : {statistics.mean(fps_list):.2f} FPS")
-        print("=" * 60 + "\n")
+        print(f"Batch Detection Accuracy: {correct_predictions}/{len(reports)} ({correct_predictions/len(reports)*100:.1f}%)")
+        print("-" * 78)
+        print(f"{'Pipeline Stage':<35} | {'Mean ± Std (ms)':<17} | {'P50 (ms)':<8} | {'P95 (ms)':<8}")
+        print("-" * 78)
+        print(f"{'1. Video Decode & Sampling (32f)':<35} | {stats_str(decode_latencies)}")
+        print(f"{'2. Face & Landmark Extraction':<35} | {stats_str(lm_latencies)}")
+        print(f"{'3. Canonical Affine Alignment':<35} | {stats_str(align_latencies)}")
+        print(f"{'4. Neural Model Forward (ONNX)':<35} | {stats_str(model_latencies)}")
+        print("-" * 78)
+        print(f"{'TOTAL END-TO-END PIPELINE':<35} | {stats_str(total_latencies)}")
+        print("-" * 78)
+        print(f"Throughput (End-to-End) : {statistics.mean(fps_list):.2f} ± {statistics.stdev(fps_list) if len(fps_list)>1 else 0.0:.2f} FPS")
+        print(f"Throughput (Model-Only) : {(args.clips * args.texture_frames) / (statistics.mean(model_latencies) / 1000.0):.2f} FPS")
+        print("=" * 78 + "\n")
 
     if args.output_json:
         out_path = Path(args.output_json)
