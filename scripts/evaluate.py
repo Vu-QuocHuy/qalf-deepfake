@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate a texture-only QALF checkpoint at video level."""
+"""Evaluate a TextureSBI checkpoint at video level."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from qalf.reporting import format_evaluation_report, save_evaluation_plots
 
 
 def _create_logger(path: Path) -> logging.Logger:
-    logger = logging.getLogger("qalf.evaluate")
+    logger = logging.getLogger("texturesbi.evaluate")
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
     formatter = logging.Formatter("%(asctime)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -142,9 +142,10 @@ def main() -> None:
     # ``dfa5486`` called the same mean-pooled baseline ``texture_v1``.
     # Accept that legacy label; v2 checkpoints remain intentionally rejected.
     checkpoint_architecture = str(checkpoint.get("architecture", "texture_only"))
-    if checkpoint_architecture not in {"texture_only", "texture_v1"}:
+    if checkpoint_architecture not in {"texture_sbi", "texture_only", "texture_v1"}:
         raise ValueError(
-            "This cleaned evaluator only supports texture-only checkpoints "
+            "This evaluator only supports TextureSBI checkpoints and known legacy "
+            "texture-only checkpoints "
             f"(got architecture={checkpoint_architecture!r})"
         )
     config = checkpoint["config"]
@@ -237,7 +238,7 @@ def main() -> None:
     )
     context = {
         "Model": (
-            "EfficientNet-B0 texture-only SBI "
+            "TextureSBI-B0 "
             f"(weights={checkpoint.get('model_weights', 'raw')}, "
             f"ema_decay={float(checkpoint.get('ema_decay', 0.0)):.4f})"
         ),
@@ -273,9 +274,9 @@ def main() -> None:
         "label_convention": str(checkpoint.get("label_convention", "real=0,fake=1")),
         "score_target": str(checkpoint.get("score_target", "fake")),
         "model": {
-            "architecture": "texture_only",
+            "architecture": checkpoint_architecture,
             "texture_backbone": model_config.get("texture_backbone", "efficientnet_b0"),
-            "texture_temporal_pooling": "mean",
+            "texture_temporal_pooling": model_config.get("texture_temporal_pooling", "mean"),
             "texture_mode": data.get("texture_mode", "full_face"),
             "model_weights": checkpoint.get("model_weights", "raw"),
             "ema_decay": float(checkpoint.get("ema_decay", 0.0)),
@@ -317,7 +318,7 @@ def main() -> None:
     (output_dir / "evaluation_protocol.txt").write_text(
         "\n".join(
             (
-                "QALF TEXTURE-ONLY EVALUATION PROTOCOL",
+                "TEXTURESBI EVALUATION PROTOCOL",
                 "=" * 72,
                 f"checkpoint: {protocol['checkpoint']}",
                 f"manifest: {protocol['manifest']}",

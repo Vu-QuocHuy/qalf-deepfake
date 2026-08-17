@@ -114,7 +114,7 @@ for spec in \
     done
 done
 
-echo "QALF FF++ in-domain ablation evaluation"
+echo "TextureSBI FF++ in-domain ablation evaluation"
 echo "Target: $TEST_MANIFEST"
 echo "Threshold calibration: $VAL_MANIFEST ($THRESHOLD_SELECTION)"
 echo "Fake methods: ${FAKE_METHODS[*]} (FaceShifter excluded)"

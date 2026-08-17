@@ -14,7 +14,7 @@ from torch import nn
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.export_onnx import ONNXQALFWrapper, build_model
+from scripts.export_onnx import ONNXTextureSBIWrapper, build_model
 
 
 def main() -> None:
@@ -28,7 +28,7 @@ def main() -> None:
     texture_channels = 3
     model = build_model(checkpoint)
     quantized = torch.ao.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
-    wrapper = ONNXQALFWrapper(quantized).eval()
+    wrapper = ONNXTextureSBIWrapper(quantized).eval()
     examples = (
         torch.zeros(
             1,

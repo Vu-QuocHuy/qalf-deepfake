@@ -166,7 +166,7 @@ def main() -> None:
     output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     lines = [
-        "# QALF bootstrap confidence intervals",
+        "# TextureSBI bootstrap confidence intervals",
         "",
         "Bootstrap resampling is performed at the video level after clip aggregation.",
         "The threshold is fixed from FF++ validation and is not reselected per sample.",

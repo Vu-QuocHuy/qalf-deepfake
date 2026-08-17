@@ -1,4 +1,4 @@
-"""Texture-only training and video inference loops."""
+"""TextureSBI training and video inference loops."""
 
 from __future__ import annotations
 

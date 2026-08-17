@@ -170,7 +170,7 @@ def _loader(dataset: QALFVideoDataset, batch_size: int, workers: int) -> DataLoa
 def _write_markdown(path: Path, rows: list[dict[str, object]], protocol: dict[str, object]) -> None:
     clean_auc = float(rows[0]["auc"])
     lines = [
-        "# QALF robustness evaluation", "",
+        "# TextureSBI robustness evaluation", "",
         "Corruptions are applied after RGB denormalization. The threshold is "
         "selected on clean FF++ validation only.", "",
         f"- checkpoint: `{protocol['checkpoint']}`",

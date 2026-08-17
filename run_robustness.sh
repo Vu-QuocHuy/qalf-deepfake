@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Evaluation-only robustness protocol for the texture-only baseline.
+# Evaluation-only robustness protocol for the TextureSBI baseline.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

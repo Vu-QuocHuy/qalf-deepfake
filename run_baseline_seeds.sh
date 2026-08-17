@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reproducible multi-seed runner for the canonical main-branch baseline:
+# Reproducible multi-seed runner for the canonical main-branch TextureSBI baseline:
 # EfficientNet-B0 + full-face texture + SBI + EMA + mean temporal pooling.
 # Seeds are space-separated and can be overridden with QALF_SEEDS.
 
@@ -44,7 +44,7 @@ if ! [[ "$TEXTURE_FRAMES" =~ ^[0-9]+$ ]] || (( TEXTURE_FRAMES < 1 || TEXTURE_FRA
     exit 1
 fi
 
-echo "QALF baseline multi-seed run"
+echo "TextureSBI baseline multi-seed run"
 echo "Seeds: ${SEEDS[*]}"
 echo "Epochs: $EPOCHS"
 echo "Evaluation texture frames: $TEXTURE_FRAMES"

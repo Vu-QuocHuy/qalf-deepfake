@@ -59,7 +59,7 @@ REPORT_SECTIONS = (
 def format_evaluation_report(
     metrics: Mapping[str, float | int],
     *,
-    title: str = "QALF EVALUATION RESULTS",
+    title: str = "TextureSBI EVALUATION RESULTS",
     context: Mapping[str, object] | None = None,
 ) -> str:
     """Render metrics in a stable, protocol-aware order."""
@@ -99,7 +99,7 @@ def _pyplot():
 
 
 def save_training_history_plot(history: Sequence[Mapping[str, object]], path: str | Path) -> None:
-    """Write a compact texture-only training summary."""
+    """Write a compact TextureSBI training summary."""
 
     if not history:
         return
@@ -198,7 +198,7 @@ def save_evaluation_plots(
         axis.set_yticks((0, 1), labels=("Real", "Fake"))
         axis.set_xlabel("Predicted label")
         axis.set_ylabel("True label")
-        axis.set_title(f"QALF confusion matrix @ threshold={threshold:.4f}")
+        axis.set_title(f"TextureSBI confusion matrix @ threshold={threshold:.4f}")
         figure.colorbar(image, ax=axis, label=colorbar_label)
         figure.savefig(output / name, dpi=180, bbox_inches="tight")
         plt.close(figure)
@@ -212,7 +212,7 @@ def save_evaluation_plots(
             false_positive_rate,
             true_positive_rate,
             linewidth=2,
-            label=f"QALF (AUC={roc_auc:.4f})",
+            label=f"TextureSBI (AUC={roc_auc:.4f})",
         )
         axis.plot((0, 1), (0, 1), "--", color="gray", label="Random")
         axis.set(xlabel="False positive rate", ylabel="True positive rate", title="ROC curve")
@@ -229,7 +229,7 @@ def save_evaluation_plots(
             recall,
             precision,
             linewidth=2,
-            label=f"QALF (AP={average_precision:.4f})",
+            label=f"TextureSBI (AP={average_precision:.4f})",
         )
         axis.axhline(labels.mean(), linestyle="--", color="gray", label="Class prior")
         axis.set(xlabel="Recall", ylabel="Precision", title="Precision–recall curve")

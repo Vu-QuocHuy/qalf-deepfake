@@ -216,7 +216,7 @@ class QALFVideoDataset(Dataset):
         self.texture_frames = int(texture_frames)
         self.image_size = int(image_size)
         if self.num_frames < 2:
-            raise ValueError("num_frames must be at least two for temporal derivatives")
+            raise ValueError("num_frames must be at least two for a video clip")
         if not 1 <= self.texture_frames <= self.num_frames:
             raise ValueError("texture_frames must be between one and num_frames")
         if self.image_size < 32:

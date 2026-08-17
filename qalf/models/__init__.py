@@ -1,18 +1,18 @@
-"""QALF model components."""
+"""TextureSBI model components."""
 
 from typing import Any
 
-from .qalf import QALFModel
+from .texture_sbi import TextureSBIModel
 from .texture import SUPPORTED_TEXTURE_BACKBONES
 
 
 def build_model_from_checkpoint(
     checkpoint: dict[str, Any], *, load_weights: bool = True
-) -> QALFModel:
-    """Build the texture-only architecture recorded in a current checkpoint."""
+) -> TextureSBIModel:
+    """Build the TextureSBI architecture recorded in a checkpoint."""
 
     model_config = checkpoint["config"]["model"]
-    model = QALFModel(
+    model = TextureSBIModel(
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=False,
@@ -24,7 +24,7 @@ def build_model_from_checkpoint(
 
 
 __all__ = [
-    "QALFModel",
+    "TextureSBIModel",
     "SUPPORTED_TEXTURE_BACKBONES",
     "build_model_from_checkpoint",
 ]

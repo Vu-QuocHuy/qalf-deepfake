@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Canonical texture-only + SBI + EMA evaluation entry point.
+# Canonical TextureSBI + SBI + EMA evaluation entry point.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 

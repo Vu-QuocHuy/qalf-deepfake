@@ -174,7 +174,7 @@ run_profile_seed() {
     fi
 }
 
-echo "QALF ablation suite"
+echo "TextureSBI ablation suite"
 echo "Mode: $MODE"
 echo "Core seeds: ${CORE_SEEDS[*]}"
 echo "Control seed: $CONTROL_SEED"

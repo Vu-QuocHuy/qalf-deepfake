@@ -1,4 +1,4 @@
-"""Texture-only QALF video classifier."""
+"""TextureSBI video classifier: aligned RGB texture with SBI training."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from torch import nn
 from .texture import TextureEncoder
 
 
-class QALFModel(nn.Module):
-    """Classify a video clip from uniformly sampled aligned RGB face frames."""
+class TextureSBIModel(nn.Module):
+    """Classify a video clip from aligned full-face RGB texture frames."""
 
     def __init__(
         self,

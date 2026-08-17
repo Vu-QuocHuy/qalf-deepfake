@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export a texture-only QALF checkpoint to ONNX."""
+"""Export a TextureSBI checkpoint to ONNX."""
 
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ from torch import nn
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from qalf.models import QALFModel, build_model_from_checkpoint
+from qalf.models import TextureSBIModel, build_model_from_checkpoint
 
 
-class ONNXQALFWrapper(nn.Module):
-    def __init__(self, model: QALFModel) -> None:
+class ONNXTextureSBIWrapper(nn.Module):
+    def __init__(self, model: TextureSBIModel) -> None:
         super().__init__()
         self.model = model
 
@@ -26,7 +26,7 @@ class ONNXQALFWrapper(nn.Module):
         return self.model({"texture": texture})["logit"]
 
 
-def build_model(checkpoint: dict[str, object]) -> QALFModel:
+def build_model(checkpoint: dict[str, object]) -> TextureSBIModel:
     return build_model_from_checkpoint(checkpoint).eval()
 
 
@@ -40,7 +40,7 @@ def main() -> None:
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
     data = checkpoint["config"]["data"]
-    wrapper = ONNXQALFWrapper(build_model(checkpoint)).eval()
+    wrapper = ONNXTextureSBIWrapper(build_model(checkpoint)).eval()
     example = torch.zeros(
         1,
         int(data["texture_frames"]),
@@ -63,11 +63,13 @@ def main() -> None:
     report = {
         "checkpoint": str(args.checkpoint),
         "output": str(output),
-        "architecture": "texture_only",
+        "architecture": checkpoint.get("architecture", "texture_only"),
         "texture_backbone": checkpoint["config"]["model"].get(
             "texture_backbone", "efficientnet_b0"
         ),
-        "texture_temporal_pooling": "mean",
+        "texture_temporal_pooling": checkpoint["config"]["model"].get(
+            "texture_temporal_pooling", "mean"
+        ),
         "bytes": output.stat().st_size,
         "opset": args.opset,
         "verified": False,

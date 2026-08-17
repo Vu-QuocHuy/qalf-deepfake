@@ -83,7 +83,7 @@ def main() -> None:
         writer.writerows(rows)
 
     markdown_lines = [
-        "# QALF baseline multi-seed summary",
+        "# TextureSBI baseline multi-seed summary",
         "",
         "| Seed | Status | Best epoch | FF++ val AUC | Celeb-DF AUC | AP | EER | Balanced acc | Accuracy | F1 fake | ACER |",
         "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -116,7 +116,7 @@ def main() -> None:
     markdown_lines.extend(("", f"CSV: {output_stem.with_suffix('.csv')}", ""))
     output_stem.with_suffix(".md").write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
 
-    print("# QALF baseline multi-seed summary")
+    print("# TextureSBI baseline multi-seed summary")
     for line in markdown_lines[4:]:
         if line.startswith("CSV:"):
             break

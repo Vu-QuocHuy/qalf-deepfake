@@ -136,7 +136,7 @@ def main() -> None:
         writer.writerows(rows)
 
     lines = [
-        "# QALF FF++ in-domain ablation summary",
+        "# TextureSBI FF++ in-domain ablation summary",
         "",
         "The evaluation split is the official FF++ test split. Thresholds are calibrated on FF++ validation only.",
         "FaceShifter is excluded; fake methods are listed per row.",

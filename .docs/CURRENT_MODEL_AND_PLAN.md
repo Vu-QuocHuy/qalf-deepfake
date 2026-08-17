@@ -1,6 +1,6 @@
 # Current model and protocol
 
-Status: texture-only SBI model, 2026-08-12.
+Status: TextureSBI (texture-only SBI) model, 2026-08-12.
 
 ## Architecture
 
@@ -44,7 +44,7 @@ features and are not passed to the model.
 ```
 
 For a practical robustness table, run `./run_robustness.sh`. This is an
-evaluation-only protocol: it keeps the texture-only EfficientNet-B0 model
+evaluation-only protocol: it keeps the TextureSBI EfficientNet-B0 model
 unchanged and applies controlled JPEG, blur, downscale, and noise corruptions
 to RGB frames with the locked 8-frame inference protocol. Set
 `QALF_ROBUSTNESS_TEXTURE_FRAMES` only for a separate frame-count ablation.
@@ -63,7 +63,8 @@ videos, with the FF++ validation threshold held fixed.
 
 Geometry, fixed/learned SRM, fusion gates, reliability loss, modality dropout,
 MixStyle, EfficientNet-B1, and their diagnostic profiles are retired from the
-active codebase. The active baseline is texture-only full-face RGB with SBI,
+active codebase. The active baseline is TextureSBI: texture-only full-face RGB
+with SBI,
 EfficientNet-B0, EMA decay 0.999, 50 maximum epochs, and early stopping
 patience 5. Landmark caches remain only for preprocessing alignment and SBI
 mask generation; they are not used as learned features.

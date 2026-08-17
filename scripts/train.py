@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train the texture-only QALF video classifier on FF++."""
+"""Train the TextureSBI video classifier on FF++."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.ema import ModelEMA
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import SUPPORTED_TEXTURE_BACKBONES, QALFModel
+from qalf.models import SUPPORTED_TEXTURE_BACKBONES, TextureSBIModel
 from qalf.reporting import save_training_history_plot
 
 
@@ -102,7 +102,7 @@ def _loader(
 
 
 def _create_logger(path: Path) -> logging.Logger:
-    logger = logging.getLogger("qalf.train")
+    logger = logging.getLogger("texturesbi.train")
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
     formatter = logging.Formatter("%(asctime)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -116,7 +116,7 @@ def _create_logger(path: Path) -> logging.Logger:
 
 
 def _optimizer_groups(
-    model: QALFModel,
+    model: TextureSBIModel,
     learning_rate: float,
     backbone_learning_rate: float,
 ) -> list[dict[str, object]]:
@@ -330,7 +330,7 @@ def main() -> None:
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = QALFModel(
+    model = TextureSBIModel(
         embedding_dim=int(model_config.get("embedding_dim", 128)),
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
@@ -426,7 +426,7 @@ def main() -> None:
             "score_target": "fake",
             "threshold_selection": "youden_j_ffpp_validation",
             "best_metric": "val_auc",
-            "architecture": "texture_only",
+            "architecture": "texture_sbi",
         }
         if val_metrics["auc"] > best_auc:
             best_auc = float(val_metrics["auc"])

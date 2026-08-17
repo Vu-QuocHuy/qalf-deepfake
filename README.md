@@ -1,7 +1,7 @@
-# QALF deepfake detector
+# TextureSBI deepfake detector
 
-Lightweight video-level deepfake detection with aligned full-face RGB frames,
-EfficientNet-B0, and Self-Blended Images (SBI) training.
+Lightweight video-level deepfake detection with aligned full-face RGB texture,
+an EfficientNet-B0 backbone, and Self-Blended Images (SBI) training.
 
 ## Current pipeline
 

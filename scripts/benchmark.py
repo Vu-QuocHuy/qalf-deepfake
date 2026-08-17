@@ -96,9 +96,9 @@ def main() -> None:
 
     report = {
         "device": str(device),
-        "architecture": "texture_only",
+        "architecture": checkpoint.get("architecture", "texture_only"),
         "texture_backbone": str(model_config.get("texture_backbone", "efficientnet_b0")),
-        "texture_temporal_pooling": "mean",
+        "texture_temporal_pooling": model_config.get("texture_temporal_pooling", "mean"),
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
         "trainable_parameters": sum(
             parameter.numel() for parameter in model.parameters() if parameter.requires_grad

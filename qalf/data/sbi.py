@@ -1,7 +1,7 @@
 """Training-only, temporally coherent Self-Blended Image generation.
 
 The implementation follows the data-generation idea from Self-Blended Images
-(Shiohara and Yamasaki, CVPR 2022) while remaining native to QALF's OpenCV and
+(Shiohara and Yamasaki, CVPR 2022) while remaining native to the project's OpenCV and
 NumPy input pipeline. It deliberately operates on an aligned clip, not on
 independent frames, so the synthetic artifact cannot become a temporal-flicker
 shortcut.
