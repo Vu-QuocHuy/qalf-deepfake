@@ -14,11 +14,6 @@ video -> extracted frame sequence -> landmark face alignment (preprocessing)
 Landmarks are used only to align faces and create the SBI mask. The classifier
 does not contain a geometry or SRM branch.
 
-For a paper-ready visual reference, open
-[`.docs/TextureSBI_ARCHITECTURE.html`](.docs/TextureSBI_ARCHITECTURE.html) in a browser.
-Its companion stylesheet is
-[`.docs/TextureSBI_ARCHITECTURE.css`](.docs/TextureSBI_ARCHITECTURE.css).
-
 ## Environment
 
 Use Python 3.11 and install a CUDA-compatible PyTorch build for the target GPU
@@ -172,6 +167,5 @@ Landmark caches remain a preprocessing dependency: they align the full-face
 crop and provide the SBI face mask. They are not a model branch or a runtime
 dataset audit.
 
-See [.docs/CURRENT_MODEL_AND_PLAN.md](.docs/CURRENT_MODEL_AND_PLAN.md) for the
-current scientific protocol. Historical geometry/SRM experiments are retired
-from the source tree and are not part of the active model.
+Historical geometry/SRM experiments are retired from the source tree and are
+not part of the active model.
