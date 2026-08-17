@@ -286,11 +286,17 @@ def main() -> None:
         int(data["texture_frames"]) < 2 or int(data["texture_frames"]) % 2
     ):
         parser.error("paired temporal sampling requires an even texture_frames value >= 2")
+    if temporal_sampling == "dual_rate" and int(data["texture_frames"]) % 4:
+        parser.error(
+            "dual-rate temporal sampling requires texture_frames to be a multiple of 4"
+        )
     temporal_pooling = str(model_config.get("temporal_pooling", "mean"))
     if temporal_pooling not in SUPPORTED_TEMPORAL_POOLING:
         parser.error(f"unsupported temporal_pooling: {temporal_pooling}")
     if temporal_pooling == "paired_residual" and temporal_sampling != "paired":
         parser.error("paired_residual pooling requires paired temporal sampling")
+    if temporal_pooling == "dual_rate_residual" and temporal_sampling != "dual_rate":
+        parser.error("dual_rate_residual pooling requires dual-rate temporal sampling")
     if int(model_config.get("temporal_bottleneck", 32)) < 8:
         parser.error("temporal_bottleneck must be >= 8")
     if not 0.0 < float(model_config.get("temporal_residual_scale", 0.1)) <= 1.0:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Experimental paired-frame temporal residual. The canonical baseline runner is unchanged.
+# Experimental dual-rate temporal residual. The canonical baseline runner is unchanged.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 
@@ -33,10 +33,10 @@ LANDMARK_OUTPUT_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 LANDMARK_ROOT="$LANDMARK_OUTPUT_ROOT/landmarks"
 TRAIN_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_train_landmarks.jsonl"
 VAL_MANIFEST="$LANDMARK_OUTPUT_ROOT/manifests/ffpp_val_landmarks.jsonl"
-TEMPORAL_POOLING="${QALF_TEMPORAL_POOLING:-paired_residual}"
+TEMPORAL_POOLING="${QALF_TEMPORAL_POOLING:-dual_rate_residual}"
 TEMPORAL_BOTTLENECK="${QALF_TEMPORAL_BOTTLENECK:-32}"
-TEMPORAL_RESIDUAL_SCALE="${QALF_TEMPORAL_RESIDUAL_SCALE:-0.1}"
-OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_paired_sampling_${TEMPORAL_POOLING}}"
+TEMPORAL_RESIDUAL_SCALE="${QALF_TEMPORAL_RESIDUAL_SCALE:-0.05}"
+OUTPUT_DIR="${QALF_TRAIN_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_dual_rate_${TEMPORAL_POOLING}}"
 SEED="${QALF_SEED:-42}"
 EPOCHS="${QALF_EPOCHS:-50}"
 
@@ -66,7 +66,7 @@ export CUBLAS_WORKSPACE_CONFIG=':4096:8'
     --fake-methods Deepfakes Face2Face FaceSwap NeuralTextures \
     --texture-backbone efficientnet_b0 \
     --texture-mode full_face \
-    --temporal-sampling paired \
+    --temporal-sampling dual_rate \
     --coherent-augmentation \
     --temporal-pooling "$TEMPORAL_POOLING" \
     --temporal-bottleneck "$TEMPORAL_BOTTLENECK" \

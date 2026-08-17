@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Evaluate the paired temporal experiment with its checkpoint-recorded sampling protocol.
+# Evaluate the dual-rate temporal experiment with its checkpoint-recorded sampling protocol.
 WINDOWS_PROJECT_ROOT='E:/DeepFakeData'
 WSL_PROJECT_ROOT='/mnt/e/DeepFakeData'
 
@@ -17,7 +17,7 @@ case "$(uname -s)" in
         ;;
 esac
 
-EXPERIMENT_ROOT="${QALF_EXPERIMENT_ROOT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_paired_sampling_paired_residual}"
+EXPERIMENT_ROOT="${QALF_EXPERIMENT_ROOT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_dual_rate_dual_rate_residual}"
 export QALF_TEST_CHECKPOINT="${QALF_TEST_CHECKPOINT:-$EXPERIMENT_ROOT/best.pt}"
 export QALF_TEST_OUTPUT_DIR="${QALF_TEST_OUTPUT_DIR:-${EXPERIMENT_ROOT}_to_celebdf}"
 export QALF_TEST_TEXTURE_FRAMES="${QALF_TEST_TEXTURE_FRAMES:-8}"

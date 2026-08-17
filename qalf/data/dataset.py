@@ -25,7 +25,7 @@ from .sbi import (
 IMAGE_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGE_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
 TEXTURE_MODES = frozenset({"full_face"})
-TEMPORAL_SAMPLING_MODES = frozenset({"uniform", "paired"})
+TEMPORAL_SAMPLING_MODES = frozenset({"uniform", "paired", "dual_rate"})
 
 
 DEFAULT_TEXTURE_AUGMENTATION = {
@@ -95,6 +95,37 @@ def _texture_positions(total: int, count: int, temporal_sampling: str) -> np.nda
         raise ValueError("texture frame count must be in [1, clip length]")
     if temporal_sampling == "uniform":
         return np.rint(np.linspace(0, total - 1, count)).astype(np.int64)
+    if temporal_sampling == "dual_rate":
+        if count < 4 or count % 4:
+            raise ValueError(
+                "dual-rate temporal sampling requires texture_frames to be a multiple of 4"
+            )
+
+        # Preserve broad texture coverage with half of the budget while using
+        # the other half for one genuinely local, consecutive temporal burst.
+        # Sorting keeps the frames chronological; the local burst occupies the
+        # centered half of the returned sequence for the temporal encoder.
+        local_count = count // 2
+        local_start = (total - local_count) // 2
+        local_positions = np.arange(local_start, local_start + local_count, dtype=np.int64)
+        local_set = set(local_positions.tolist())
+        available = [position for position in range(total) if position not in local_set]
+        global_targets = np.rint(
+            np.linspace(0, total - 1, count - local_count)
+        ).astype(np.int64)
+        global_positions: list[int] = []
+        for target in global_targets:
+            if not available:
+                raise ValueError("dual-rate temporal sampling exhausted global positions")
+            selected = min(available, key=lambda value: (abs(value - int(target)), value))
+            global_positions.append(selected)
+            available.remove(selected)
+        positions = np.sort(
+            np.concatenate((local_positions, np.asarray(global_positions, dtype=np.int64)))
+        )
+        if len(np.unique(positions)) != count:
+            raise ValueError("dual-rate temporal sampling produced duplicate positions")
+        return positions
     if temporal_sampling != "paired":
         raise ValueError(f"Unsupported temporal sampling mode: {temporal_sampling}")
     if count < 2 or count % 2:
@@ -208,6 +239,7 @@ def _augment(
     image: np.ndarray,
     settings: dict[str, float],
     plan: TextureAugmentationPlan | None = None,
+    noise_offset: int = 0,
 ) -> np.ndarray:
     if plan is None:
         # Preserve the canonical baseline's independent per-frame augmentation
@@ -267,7 +299,10 @@ def _augment(
     if plan.blur_sigma > 0.0:
         output = cv2.GaussianBlur(output, (3, 3), sigmaX=plan.blur_sigma)
     if plan.noise_seed is not None:
-        noise = np.random.default_rng(plan.noise_seed).normal(
+        # Share whether/how strongly noise is applied at clip level, but do not
+        # stamp the exact same pixel pattern onto every aligned frame.
+        noise_seed = (plan.noise_seed + int(noise_offset)) % (2**32)
+        noise = np.random.default_rng(noise_seed).normal(
             0.0,
             settings["noise_std"],
             size=output.shape,
@@ -363,6 +398,10 @@ class QALFVideoDataset(Dataset):
         ):
             raise ValueError(
                 "paired temporal sampling requires an even texture_frames value >= 2"
+            )
+        if temporal_sampling == "dual_rate" and self.texture_frames % 4:
+            raise ValueError(
+                "dual-rate temporal sampling requires texture_frames to be a multiple of 4"
             )
         self.temporal_sampling = temporal_sampling
         self.coherent_augmentation = bool(coherent_augmentation)
@@ -475,13 +514,14 @@ class QALFVideoDataset(Dataset):
         augmentation_plan = None
         if self.training and self.texture_augmentation and self.coherent_augmentation:
             augmentation_plan = _sample_augmentation_plan(self.texture_augmentation)
-        for canonical in canonical_frames:
+        for frame_offset, canonical in enumerate(canonical_frames):
             if self.training:
                 if self.texture_augmentation:
                     canonical = _augment(
                         canonical,
                         self.texture_augmentation,
                         augmentation_plan,
+                        noise_offset=frame_offset,
                     )
             normalized = canonical.astype(np.float32) / 255.0
             normalized = (normalized - IMAGE_MEAN) / IMAGE_STD

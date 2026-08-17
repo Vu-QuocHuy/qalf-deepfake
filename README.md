@@ -56,20 +56,22 @@ clips per video, mean clip aggregation, horizontal-flip TTA, and an FF++
 validation Youden-J threshold. Set `QALF_TEST_TEXTURE_FRAMES=12` only for a
 separate frame-count ablation.
 
-### Paired temporal residual experiment
+### Dual-rate temporal residual experiment
 
 This branch includes an opt-in temporal candidate without changing the canonical
-mean-pooling configuration. It keeps eight EfficientNet frames but samples them
-as four adjacent pairs spread across the 32-frame window. Training augmentation
-parameters are shared across the clip so the temporal branch does not learn
-synthetic flip, color, JPEG, or noise discontinuities.
+mean-pooling configuration. It keeps eight EfficientNet frames: four global
+frames preserve texture coverage across the 32-frame window, while four
+consecutive local frames provide three genuine 100 ms temporal transitions.
+Training augmentation parameters are shared across the clip, while each frame
+retains its own pixel-noise realization.
 
-The temporal head is a bounded residual over the original mean embedding: a
-single depthwise temporal convolution with a 32-channel bottleneck and a
-zero-initialized output projection. It adds only a small correction capped at
-`0.1` per embedding dimension while retaining unit gradient around zero. With
-the 192-dimensional baseline embedding, the head adds 19,936 parameters
-(approximately 0.47% over the 4.25M-parameter baseline).
+The base path keeps the baseline's standard dropout and mean pooling over all
+eight frames. The temporal head receives clean projected embeddings, normalizes
+the centered local burst, and summarizes its three absolute frame-to-frame
+changes with mean/std pooling. Its zero-initialized output projection starts
+exactly at the mean baseline and receives gradient immediately; the correction
+is capped at `0.05` per embedding dimension. The head adds fewer than 20K
+parameters and does not add any EfficientNet evaluations.
 
 ```powershell
 & "C:\Program Files\Git\bin\bash.exe" ./run_train_paired_temporal.sh
@@ -77,9 +79,9 @@ the 192-dimensional baseline embedding, the head adds 19,936 parameters
 ```
 
 Use `QALF_SEED`, `QALF_EPOCHS`, and `QALF_TRAIN_OUTPUT_DIR` for training
-overrides. Set `QALF_TEMPORAL_POOLING=mean` to train the required paired-frame,
+overrides. Set `QALF_TEMPORAL_POOLING=mean` to train the required dual-rate,
 coherent-augmentation control without the residual head. `QALF_EXPERIMENT_ROOT`
-selects the checkpoint directory used by the paired test runner. Compare against
+selects the checkpoint directory used by the temporal test runner. Compare against
 the baseline with the same seed and locked eight-frame, three-clip, flip-TTA
 evaluation protocol.
 

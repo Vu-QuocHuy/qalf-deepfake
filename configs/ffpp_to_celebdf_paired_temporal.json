@@ -15,7 +15,7 @@
       "NeuralTextures"
     ],
     "texture_mode": "full_face",
-    "temporal_sampling": "paired",
+    "temporal_sampling": "dual_rate",
     "coherent_augmentation": true,
     "sbi": {
       "enabled": true
@@ -44,9 +44,9 @@
     "dropout": 0.3,
     "texture_pretrained": true,
     "texture_backbone": "efficientnet_b0",
-    "temporal_pooling": "paired_residual",
+    "temporal_pooling": "dual_rate_residual",
     "temporal_bottleneck": 32,
-    "temporal_residual_scale": 0.1
+    "temporal_residual_scale": 0.05
   },
   "training": {
     "epochs": 50,
@@ -62,5 +62,5 @@
     "ema_decay": 0.999,
     "validation_weights": "ema"
   },
-  "output_dir": "outputs/qalf_ffpp4_effb0_160_8f_paired_temporal"
+  "output_dir": "outputs/qalf_ffpp4_effb0_160_8f_dual_rate_temporal"
 }

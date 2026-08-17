@@ -28,11 +28,15 @@ def load_config(path: str | Path) -> dict[str, Any]:
     if data.get("texture_mode", "full_face") != "full_face":
         raise ValueError("data.texture_mode must be full_face")
     temporal_sampling = str(data.setdefault("temporal_sampling", "uniform"))
-    if temporal_sampling not in {"uniform", "paired"}:
-        raise ValueError("data.temporal_sampling must be uniform or paired")
+    if temporal_sampling not in {"uniform", "paired", "dual_rate"}:
+        raise ValueError("data.temporal_sampling must be uniform, paired, or dual_rate")
     if temporal_sampling == "paired" and (texture_frames < 2 or texture_frames % 2):
         raise ValueError(
             "data.texture_frames must be even and >= 2 for paired temporal sampling"
+        )
+    if temporal_sampling == "dual_rate" and texture_frames % 4:
+        raise ValueError(
+            "data.texture_frames must be a multiple of 4 for dual-rate temporal sampling"
         )
     coherent_augmentation = data.setdefault("coherent_augmentation", False)
     if not isinstance(coherent_augmentation, bool):
@@ -62,8 +66,14 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("model.texture_backbone must be efficientnet_b0")
     if int(model["embedding_dim"]) < 1:
         raise ValueError("model.embedding_dim must be >= 1")
-    if model["temporal_pooling"] not in {"mean", "paired_residual"}:
-        raise ValueError("model.temporal_pooling must be mean or paired_residual")
+    if model["temporal_pooling"] not in {
+        "mean",
+        "paired_residual",
+        "dual_rate_residual",
+    }:
+        raise ValueError(
+            "model.temporal_pooling must be mean, paired_residual, or dual_rate_residual"
+        )
     if int(model["temporal_bottleneck"]) < 8:
         raise ValueError("model.temporal_bottleneck must be >= 8")
     if not 0.0 < float(model["temporal_residual_scale"]) <= 1.0:
@@ -71,6 +81,14 @@ def load_config(path: str | Path) -> dict[str, Any]:
     if model["temporal_pooling"] == "paired_residual" and temporal_sampling != "paired":
         raise ValueError(
             "model.temporal_pooling=paired_residual requires data.temporal_sampling=paired"
+        )
+    if (
+        model["temporal_pooling"] == "dual_rate_residual"
+        and temporal_sampling != "dual_rate"
+    ):
+        raise ValueError(
+            "model.temporal_pooling=dual_rate_residual requires "
+            "data.temporal_sampling=dual_rate"
         )
     if not 0.0 <= float(model["dropout"]) < 1.0:
         raise ValueError("model.dropout must be in [0, 1)")
