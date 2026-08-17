@@ -158,6 +158,7 @@ def _dataset(
         manifest, frame_root, landmark_root,
         num_frames=int(data["num_frames"]), texture_frames=frames,
         image_size=int(data["image_size"]), texture_mode=str(data.get("texture_mode", "full_face")),
+        temporal_sampling=str(data.get("temporal_sampling", "uniform")),
         training=False, clips_per_video=clips, fake_methods=fake_methods,
     )
 
@@ -230,6 +231,7 @@ def main() -> None:
         flush=True,
     )
     data = checkpoint["config"]["data"]
+    model_config = checkpoint["config"]["model"]
     dataset = _dataset(args.manifest, args.frame_root, args.landmark_root, data, args.texture_frames, args.clips_per_video)
     loader = _loader(dataset, args.batch_size, args.num_workers)
     threshold = float(checkpoint.get("threshold", 0.5))
@@ -283,6 +285,8 @@ def main() -> None:
         "threshold_source": threshold_source,
         "threshold_selection": args.threshold_selection,
         "corruption_seed": args.seed,
+        "temporal_sampling": data.get("temporal_sampling", "uniform"),
+        "temporal_pooling": model_config.get("temporal_pooling", "mean"),
     }
     output.write_text(json.dumps({"protocol": protocol, "results": rows}, indent=2), encoding="utf-8")
     _write_markdown(output.with_suffix(".md"), rows, protocol)

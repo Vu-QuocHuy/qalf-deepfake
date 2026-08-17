@@ -52,6 +52,7 @@ def main() -> None:
         texture_frames=int(data["texture_frames"]),
         image_size=int(data["image_size"]),
         texture_mode=str(data.get("texture_mode", "full_face")),
+        temporal_sampling=str(data.get("temporal_sampling", "uniform")),
         training=False,
     )
     if args.preprocessing_iterations < 1:
@@ -98,7 +99,8 @@ def main() -> None:
         "device": str(device),
         "architecture": "texture_only",
         "texture_backbone": str(model_config.get("texture_backbone", "efficientnet_b0")),
-        "texture_temporal_pooling": "mean",
+        "texture_temporal_pooling": str(model_config.get("temporal_pooling", "mean")),
+        "temporal_sampling": str(data.get("temporal_sampling", "uniform")),
         "parameters": sum(parameter.numel() for parameter in model.parameters()),
         "trainable_parameters": sum(
             parameter.numel() for parameter in model.parameters() if parameter.requires_grad

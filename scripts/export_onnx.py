@@ -67,7 +67,10 @@ def main() -> None:
         "texture_backbone": checkpoint["config"]["model"].get(
             "texture_backbone", "efficientnet_b0"
         ),
-        "texture_temporal_pooling": "mean",
+        "texture_temporal_pooling": checkpoint["config"]["model"].get(
+            "temporal_pooling", "mean"
+        ),
+        "temporal_sampling": data.get("temporal_sampling", "uniform"),
         "bytes": output.stat().st_size,
         "opset": args.opset,
         "verified": False,

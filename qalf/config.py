@@ -27,6 +27,16 @@ def load_config(path: str | Path) -> dict[str, Any]:
         raise ValueError("data.eval_clips_per_video must be >= 1")
     if data.get("texture_mode", "full_face") != "full_face":
         raise ValueError("data.texture_mode must be full_face")
+    temporal_sampling = str(data.setdefault("temporal_sampling", "uniform"))
+    if temporal_sampling not in {"uniform", "paired"}:
+        raise ValueError("data.temporal_sampling must be uniform or paired")
+    if temporal_sampling == "paired" and (texture_frames < 2 or texture_frames % 2):
+        raise ValueError(
+            "data.texture_frames must be even and >= 2 for paired temporal sampling"
+        )
+    coherent_augmentation = data.setdefault("coherent_augmentation", False)
+    if not isinstance(coherent_augmentation, bool):
+        raise ValueError("data.coherent_augmentation must be boolean")
     if data.get("video_aggregation", "mean") not in {"mean", "median", "topk"}:
         raise ValueError("Unsupported data.video_aggregation")
     if int(data.get("top_k", 1)) < 1:
@@ -45,10 +55,23 @@ def load_config(path: str | Path) -> dict[str, Any]:
     model.setdefault("embedding_dim", 128)
     model.setdefault("dropout", 0.2)
     model.setdefault("texture_backbone", "efficientnet_b0")
+    model.setdefault("temporal_pooling", "mean")
+    model.setdefault("temporal_bottleneck", 32)
+    model.setdefault("temporal_residual_scale", 0.1)
     if model["texture_backbone"] != "efficientnet_b0":
         raise ValueError("model.texture_backbone must be efficientnet_b0")
     if int(model["embedding_dim"]) < 1:
         raise ValueError("model.embedding_dim must be >= 1")
+    if model["temporal_pooling"] not in {"mean", "paired_residual"}:
+        raise ValueError("model.temporal_pooling must be mean or paired_residual")
+    if int(model["temporal_bottleneck"]) < 8:
+        raise ValueError("model.temporal_bottleneck must be >= 8")
+    if not 0.0 < float(model["temporal_residual_scale"]) <= 1.0:
+        raise ValueError("model.temporal_residual_scale must be in (0, 1]")
+    if model["temporal_pooling"] == "paired_residual" and temporal_sampling != "paired":
+        raise ValueError(
+            "model.temporal_pooling=paired_residual requires data.temporal_sampling=paired"
+        )
     if not 0.0 <= float(model["dropout"]) < 1.0:
         raise ValueError("model.dropout must be in [0, 1)")
 

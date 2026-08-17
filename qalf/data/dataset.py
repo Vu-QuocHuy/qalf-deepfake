@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
@@ -24,6 +25,7 @@ from .sbi import (
 IMAGE_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGE_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
 TEXTURE_MODES = frozenset({"full_face"})
+TEMPORAL_SAMPLING_MODES = frozenset({"uniform", "paired"})
 
 
 DEFAULT_TEXTURE_AUGMENTATION = {
@@ -41,6 +43,20 @@ DEFAULT_TEXTURE_AUGMENTATION = {
     "jpeg_min_quality": 35.0,
     "jpeg_max_quality": 90.0,
 }
+
+
+@dataclass(frozen=True)
+class TextureAugmentationPlan:
+    """One set of appearance transforms that can be shared by a whole clip."""
+
+    flip: bool
+    brightness_alpha: float
+    brightness_beta: float
+    gamma: float
+    downsample_scale: float
+    blur_sigma: float
+    noise_seed: int | None
+    jpeg_quality: int | None
 
 
 def _clip_indices(
@@ -70,6 +86,25 @@ def _clip_indices(
             raise ValueError("clips_per_video requests duplicate temporal windows")
         start = int(starts[clip_index])
     return np.arange(start, start + count)
+
+
+def _texture_positions(total: int, count: int, temporal_sampling: str) -> np.ndarray:
+    """Select texture positions while keeping the baseline uniform mode unchanged."""
+
+    if not 1 <= count <= total:
+        raise ValueError("texture frame count must be in [1, clip length]")
+    if temporal_sampling == "uniform":
+        return np.rint(np.linspace(0, total - 1, count)).astype(np.int64)
+    if temporal_sampling != "paired":
+        raise ValueError(f"Unsupported temporal sampling mode: {temporal_sampling}")
+    if count < 2 or count % 2:
+        raise ValueError("paired temporal sampling requires an even texture frame count >= 2")
+
+    pair_starts = np.rint(np.linspace(0, total - 2, count // 2)).astype(np.int64)
+    positions = np.stack((pair_starts, pair_starts + 1), axis=1).reshape(-1)
+    if len(np.unique(positions)) != count:
+        raise ValueError("paired temporal sampling produced overlapping frame pairs")
+    return positions
 
 
 def _aligned_full_face(
@@ -134,37 +169,115 @@ def _resolve_texture_augmentation(config: dict[str, float]) -> dict[str, float]:
     return settings
 
 
-def _augment(image: np.ndarray, settings: dict[str, float]) -> np.ndarray:
-    output = image.astype(np.float32)
-    if random.random() < settings["flip_probability"]:
-        output = np.ascontiguousarray(output[:, ::-1])
+def _sample_augmentation_plan(settings: dict[str, float]) -> TextureAugmentationPlan:
+    brightness_alpha = 1.0
+    brightness_beta = 0.0
     if random.random() < settings["brightness_contrast_probability"]:
-        alpha = random.uniform(0.85, 1.15)
-        beta = random.uniform(-12.0, 12.0)
-        output = np.clip(output * alpha + beta, 0, 255)
+        brightness_alpha = random.uniform(0.85, 1.15)
+        brightness_beta = random.uniform(-12.0, 12.0)
+    gamma = 1.0
     if random.random() < settings["gamma_probability"]:
         gamma = random.uniform(settings["gamma_min"], settings["gamma_max"])
-        output = 255.0 * np.power(np.clip(output / 255.0, 0.0, 1.0), gamma)
+    downsample_scale = 1.0
     if random.random() < settings["downsample_probability"]:
-        height, width = output.shape[:2]
-        scale = random.uniform(settings["downsample_min_scale"], 0.9)
-        small_width = max(16, int(round(width * scale)))
-        small_height = max(16, int(round(height * scale)))
-        output = cv2.resize(output, (small_width, small_height), interpolation=cv2.INTER_AREA)
-        output = cv2.resize(output, (width, height), interpolation=cv2.INTER_LINEAR)
+        downsample_scale = random.uniform(settings["downsample_min_scale"], 0.9)
+    blur_sigma = 0.0
     if random.random() < settings["blur_probability"]:
-        output = cv2.GaussianBlur(output, (3, 3), sigmaX=random.uniform(0.1, 1.2))
+        blur_sigma = random.uniform(0.1, 1.2)
+    noise_seed = None
     if random.random() < settings["noise_probability"] and settings["noise_std"] > 0:
-        noise = np.random.normal(0.0, settings["noise_std"], size=output.shape)
-        output = np.clip(output + noise, 0, 255)
+        noise_seed = random.randrange(2**32)
+    jpeg_quality = None
     if random.random() < settings["jpeg_probability"]:
-        quality = random.randint(
+        jpeg_quality = random.randint(
             int(settings["jpeg_min_quality"]), int(settings["jpeg_max_quality"])
         )
+    return TextureAugmentationPlan(
+        flip=random.random() < settings["flip_probability"],
+        brightness_alpha=brightness_alpha,
+        brightness_beta=brightness_beta,
+        gamma=gamma,
+        downsample_scale=downsample_scale,
+        blur_sigma=blur_sigma,
+        noise_seed=noise_seed,
+        jpeg_quality=jpeg_quality,
+    )
+
+
+def _augment(
+    image: np.ndarray,
+    settings: dict[str, float],
+    plan: TextureAugmentationPlan | None = None,
+) -> np.ndarray:
+    if plan is None:
+        # Preserve the canonical baseline's independent per-frame augmentation
+        # and random-number order exactly. Coherent augmentation is opt-in.
+        output = image.astype(np.float32)
+        if random.random() < settings["flip_probability"]:
+            output = np.ascontiguousarray(output[:, ::-1])
+        if random.random() < settings["brightness_contrast_probability"]:
+            alpha = random.uniform(0.85, 1.15)
+            beta = random.uniform(-12.0, 12.0)
+            output = np.clip(output * alpha + beta, 0, 255)
+        if random.random() < settings["gamma_probability"]:
+            gamma = random.uniform(settings["gamma_min"], settings["gamma_max"])
+            output = 255.0 * np.power(np.clip(output / 255.0, 0.0, 1.0), gamma)
+        if random.random() < settings["downsample_probability"]:
+            height, width = output.shape[:2]
+            scale = random.uniform(settings["downsample_min_scale"], 0.9)
+            small_width = max(16, int(round(width * scale)))
+            small_height = max(16, int(round(height * scale)))
+            output = cv2.resize(output, (small_width, small_height), interpolation=cv2.INTER_AREA)
+            output = cv2.resize(output, (width, height), interpolation=cv2.INTER_LINEAR)
+        if random.random() < settings["blur_probability"]:
+            output = cv2.GaussianBlur(output, (3, 3), sigmaX=random.uniform(0.1, 1.2))
+        if random.random() < settings["noise_probability"] and settings["noise_std"] > 0:
+            noise = np.random.normal(0.0, settings["noise_std"], size=output.shape)
+            output = np.clip(output + noise, 0, 255)
+        if random.random() < settings["jpeg_probability"]:
+            quality = random.randint(
+                int(settings["jpeg_min_quality"]), int(settings["jpeg_max_quality"])
+            )
+            ok, encoded = cv2.imencode(
+                ".jpg",
+                cv2.cvtColor(output.astype(np.uint8), cv2.COLOR_RGB2BGR),
+                [int(cv2.IMWRITE_JPEG_QUALITY), quality],
+            )
+            if ok:
+                decoded = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+                output = cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
+        return output.astype(np.uint8)
+
+    output = image.astype(np.float32)
+    if plan.flip:
+        output = np.ascontiguousarray(output[:, ::-1])
+    output = np.clip(
+        output * plan.brightness_alpha + plan.brightness_beta,
+        0,
+        255,
+    )
+    if plan.gamma != 1.0:
+        output = 255.0 * np.power(np.clip(output / 255.0, 0.0, 1.0), plan.gamma)
+    if plan.downsample_scale != 1.0:
+        height, width = output.shape[:2]
+        small_width = max(16, int(round(width * plan.downsample_scale)))
+        small_height = max(16, int(round(height * plan.downsample_scale)))
+        output = cv2.resize(output, (small_width, small_height), interpolation=cv2.INTER_AREA)
+        output = cv2.resize(output, (width, height), interpolation=cv2.INTER_LINEAR)
+    if plan.blur_sigma > 0.0:
+        output = cv2.GaussianBlur(output, (3, 3), sigmaX=plan.blur_sigma)
+    if plan.noise_seed is not None:
+        noise = np.random.default_rng(plan.noise_seed).normal(
+            0.0,
+            settings["noise_std"],
+            size=output.shape,
+        )
+        output = np.clip(output + noise, 0, 255)
+    if plan.jpeg_quality is not None:
         ok, encoded = cv2.imencode(
             ".jpg",
             cv2.cvtColor(output.astype(np.uint8), cv2.COLOR_RGB2BGR),
-            [int(cv2.IMWRITE_JPEG_QUALITY), quality],
+            [int(cv2.IMWRITE_JPEG_QUALITY), plan.jpeg_quality],
         )
         if ok:
             decoded = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
@@ -184,6 +297,8 @@ class QALFVideoDataset(Dataset):
         training: bool = False,
         clips_per_video: int = 1,
         texture_mode: str = "full_face",
+        temporal_sampling: str = "uniform",
+        coherent_augmentation: bool = False,
         fake_methods: Sequence[str] | None = None,
         texture_augmentation: dict[str, float] | None = None,
         sbi_config: dict[str, object] | None = None,
@@ -238,6 +353,19 @@ class QALFVideoDataset(Dataset):
                 f"Unsupported texture mode: {texture_mode}; only full_face is retained"
             )
         self.texture_mode = texture_mode
+        if temporal_sampling not in TEMPORAL_SAMPLING_MODES:
+            raise ValueError(
+                f"Unsupported temporal sampling: {temporal_sampling}; "
+                f"choose one of {sorted(TEMPORAL_SAMPLING_MODES)}"
+            )
+        if temporal_sampling == "paired" and (
+            self.texture_frames < 2 or self.texture_frames % 2
+        ):
+            raise ValueError(
+                "paired temporal sampling requires an even texture_frames value >= 2"
+            )
+        self.temporal_sampling = temporal_sampling
+        self.coherent_augmentation = bool(coherent_augmentation)
         self.sbi_config = resolve_sbi_config(sbi_config)
         self.sbi_enabled = self.training and bool(self.sbi_config["enabled"])
         if self.sbi_enabled and self.texture_mode != "full_face":
@@ -305,8 +433,10 @@ class QALFVideoDataset(Dataset):
             clip_index,
             self.clips_per_video,
         )
-        texture_positions = np.rint(np.linspace(0, len(clip) - 1, self.texture_frames)).astype(
-            np.int64
+        texture_positions = _texture_positions(
+            len(clip),
+            self.texture_frames,
+            self.temporal_sampling,
         )
         texture_tensors: list[np.ndarray] = []
         canonical_frames: list[np.ndarray] = []
@@ -342,10 +472,17 @@ class QALFVideoDataset(Dataset):
             )
             canonical_frames = list(generated)
 
+        augmentation_plan = None
+        if self.training and self.texture_augmentation and self.coherent_augmentation:
+            augmentation_plan = _sample_augmentation_plan(self.texture_augmentation)
         for canonical in canonical_frames:
             if self.training:
                 if self.texture_augmentation:
-                    canonical = _augment(canonical, self.texture_augmentation)
+                    canonical = _augment(
+                        canonical,
+                        self.texture_augmentation,
+                        augmentation_plan,
+                    )
             normalized = canonical.astype(np.float32) / 255.0
             normalized = (normalized - IMAGE_MEAN) / IMAGE_STD
             texture_tensors.append(normalized.transpose(2, 0, 1))

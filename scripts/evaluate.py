@@ -57,6 +57,7 @@ def _dataset(
         texture_frames=texture_frames,
         image_size=int(data["image_size"]),
         texture_mode=str(data.get("texture_mode", "full_face")),
+        temporal_sampling=str(data.get("temporal_sampling", "uniform")),
         training=False,
         clips_per_video=clips_per_video,
         fake_methods=fake_methods,
@@ -243,7 +244,10 @@ def main() -> None:
         ),
         "Inference": (
             f"clips={clips_per_video}, aggregation={aggregation}, "
-            f"texture_frames={texture_frames}, flip_tta={args.texture_flip_tta}"
+            f"texture_frames={texture_frames}, "
+            f"temporal_sampling={data.get('temporal_sampling', 'uniform')}, "
+            f"temporal_pooling={model_config.get('temporal_pooling', 'mean')}, "
+            f"flip_tta={args.texture_flip_tta}"
         ),
         "Fake-method filter": (
             ", ".join(args.fake_methods) if args.fake_methods else "none (all manifest methods)"
@@ -275,7 +279,12 @@ def main() -> None:
         "model": {
             "architecture": "texture_only",
             "texture_backbone": model_config.get("texture_backbone", "efficientnet_b0"),
-            "texture_temporal_pooling": "mean",
+            "texture_temporal_pooling": model_config.get("temporal_pooling", "mean"),
+            "temporal_sampling": data.get("temporal_sampling", "uniform"),
+            "temporal_bottleneck": int(model_config.get("temporal_bottleneck", 32)),
+            "temporal_residual_scale": float(
+                model_config.get("temporal_residual_scale", 0.1)
+            ),
             "texture_mode": data.get("texture_mode", "full_face"),
             "model_weights": checkpoint.get("model_weights", "raw"),
             "ema_decay": float(checkpoint.get("ema_decay", 0.0)),

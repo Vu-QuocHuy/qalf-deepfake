@@ -20,12 +20,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from qalf.config import load_config, save_json
-from qalf.data.dataset import TEXTURE_MODES, QALFVideoDataset
+from qalf.data.dataset import TEMPORAL_SAMPLING_MODES, TEXTURE_MODES, QALFVideoDataset
 from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.ema import ModelEMA
 from qalf.metrics import compute_metrics, select_threshold
-from qalf.models import SUPPORTED_TEXTURE_BACKBONES, QALFModel
+from qalf.models import (
+    QALFModel,
+    SUPPORTED_TEMPORAL_POOLING,
+    SUPPORTED_TEXTURE_BACKBONES,
+)
 from qalf.reporting import save_training_history_plot
 
 
@@ -151,6 +155,14 @@ def main() -> None:
     parser.add_argument("--image-size", type=int)
     parser.add_argument("--eval-clips-per-video", type=int)
     parser.add_argument("--texture-mode", choices=tuple(sorted(TEXTURE_MODES)))
+    parser.add_argument(
+        "--temporal-sampling", choices=tuple(sorted(TEMPORAL_SAMPLING_MODES))
+    )
+    parser.add_argument(
+        "--coherent-augmentation",
+        action="store_true",
+        help="Share appearance augmentation parameters across every frame in a clip.",
+    )
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--num-workers", type=int)
@@ -162,6 +174,11 @@ def main() -> None:
     parser.add_argument("--validation-weights", choices=("raw", "ema"))
     parser.add_argument("--embedding-dim", type=int)
     parser.add_argument("--dropout", type=float)
+    parser.add_argument(
+        "--temporal-pooling", choices=tuple(sorted(SUPPORTED_TEMPORAL_POOLING))
+    )
+    parser.add_argument("--temporal-bottleneck", type=int)
+    parser.add_argument("--temporal-residual-scale", type=float)
     parser.add_argument("--fake-methods", nargs="+")
     parser.add_argument(
         "--texture-backbone", choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES))
@@ -190,6 +207,10 @@ def main() -> None:
     data, model_config, training = config["data"], config["model"], config["training"]
     if args.texture_mode:
         data["texture_mode"] = args.texture_mode
+    if args.temporal_sampling:
+        data["temporal_sampling"] = args.temporal_sampling
+    if args.coherent_augmentation:
+        data["coherent_augmentation"] = True
     if args.texture_backbone:
         model_config["texture_backbone"] = args.texture_backbone
     if args.no_texture_pretrained:
@@ -197,6 +218,9 @@ def main() -> None:
     for key, value in {
         "embedding_dim": args.embedding_dim,
         "dropout": args.dropout,
+        "temporal_pooling": args.temporal_pooling,
+        "temporal_bottleneck": args.temporal_bottleneck,
+        "temporal_residual_scale": args.temporal_residual_scale,
     }.items():
         if value is not None:
             model_config[key] = value
@@ -255,6 +279,22 @@ def main() -> None:
         parser.error("SBI requires the explicit three-stratum sampler")
     if not 1 <= int(data["texture_frames"]) <= int(data["num_frames"]):
         parser.error("texture_frames must be in [1, num_frames]")
+    temporal_sampling = str(data.get("temporal_sampling", "uniform"))
+    if temporal_sampling not in TEMPORAL_SAMPLING_MODES:
+        parser.error(f"unsupported temporal_sampling: {temporal_sampling}")
+    if temporal_sampling == "paired" and (
+        int(data["texture_frames"]) < 2 or int(data["texture_frames"]) % 2
+    ):
+        parser.error("paired temporal sampling requires an even texture_frames value >= 2")
+    temporal_pooling = str(model_config.get("temporal_pooling", "mean"))
+    if temporal_pooling not in SUPPORTED_TEMPORAL_POOLING:
+        parser.error(f"unsupported temporal_pooling: {temporal_pooling}")
+    if temporal_pooling == "paired_residual" and temporal_sampling != "paired":
+        parser.error("paired_residual pooling requires paired temporal sampling")
+    if int(model_config.get("temporal_bottleneck", 32)) < 8:
+        parser.error("temporal_bottleneck must be >= 8")
+    if not 0.0 < float(model_config.get("temporal_residual_scale", 0.1)) <= 1.0:
+        parser.error("temporal_residual_scale must be in (0, 1]")
     if int(training.get("num_workers", 4)) < 0:
         parser.error("num_workers cannot be negative")
     if float(training["learning_rate"]) <= 0 or float(training["backbone_learning_rate"]) <= 0:
@@ -303,6 +343,8 @@ def main() -> None:
         "texture_frames": int(data["texture_frames"]),
         "image_size": int(data["image_size"]),
         "texture_mode": str(data.get("texture_mode", "full_face")),
+        "temporal_sampling": temporal_sampling,
+        "coherent_augmentation": bool(data.get("coherent_augmentation", False)),
         "texture_augmentation": data.get("texture_augmentation"),
         "fake_methods": data.get("fake_methods"),
     }
@@ -335,6 +377,9 @@ def main() -> None:
         dropout=float(model_config.get("dropout", 0.2)),
         texture_pretrained=bool(model_config.get("texture_pretrained", True)),
         texture_backbone=str(model_config.get("texture_backbone", "efficientnet_b0")),
+        temporal_pooling=temporal_pooling,
+        temporal_bottleneck=int(model_config.get("temporal_bottleneck", 32)),
+        temporal_residual_scale=float(model_config.get("temporal_residual_scale", 0.1)),
     ).to(device)
     optimizer = AdamW(
         _optimizer_groups(

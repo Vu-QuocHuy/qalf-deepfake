@@ -67,6 +67,7 @@ def main() -> None:
         texture_frames=int(data["texture_frames"]),
         image_size=int(data["image_size"]),
         texture_mode="full_face",
+        temporal_sampling=str(data.get("temporal_sampling", "uniform")),
         training=True,
         clips_per_video=1,
         texture_augmentation={},
