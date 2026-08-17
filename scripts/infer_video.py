@@ -265,6 +265,7 @@ def main() -> None:
     parser.add_argument("--clips", type=int, default=1, help="Number of clips per video (default 1 for fast edge inference)")
     parser.add_argument("--image-size", type=int, default=160, help="Input resolution (160x160)")
     parser.add_argument("--threshold", type=float, default=None, help="Decision threshold for Real vs Fake")
+    parser.add_argument("--landmark-backend", default="auto", choices=["auto", "opencv", "mediapipe"], help="Face landmark backend (auto defaults to opencv on ARM/Pi 4)")
     parser.add_argument("--cpu-threads", type=int, default=4, help="Number of CPU threads to use on Pi 4")
     parser.add_argument("--output-json", default=None, help="Save timing and prediction report to JSON")
     args = parser.parse_args()
@@ -321,8 +322,17 @@ def main() -> None:
         return
 
     # If video or video-dir is provided, setup Face Landmarker
-    lm_model_path = ensure_face_landmarker_model(args.model_task, download=True)
-    landmarker = FaceLandmarkerExtractor(lm_model_path, running_mode="image", min_confidence=0.5)
+    import platform
+    is_arm = platform.machine().lower() in ("aarch64", "arm64", "armv7l", "armv8l")
+    lm_model_path = args.model_task
+    if args.landmark_backend == "mediapipe" or (args.landmark_backend == "auto" and not is_arm):
+        lm_model_path = ensure_face_landmarker_model(args.model_task, download=True)
+    landmarker = FaceLandmarkerExtractor(
+        lm_model_path,
+        running_mode="image",
+        min_confidence=0.5,
+        backend=args.landmark_backend,
+    )
 
     video_files = []
     if args.video:

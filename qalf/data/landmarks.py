@@ -131,14 +131,24 @@ class FaceLandmarkerExtractor:
 
     def __init__(
         self,
-        model_path: str | Path,
+        model_path: str | Path | None = None,
         running_mode: str = "image",
         min_confidence: float = 0.5,
+        backend: str = "auto",
     ) -> None:
+        import platform
         if running_mode not in SUPPORTED_RUNNING_MODES:
             raise ValueError(f"Unsupported Face Landmarker running mode: {running_mode}")
         self.running_mode = running_mode
         self.fallback = None
+        self.mp = None
+        self.landmarker = None
+
+        is_arm = platform.machine().lower() in ("aarch64", "arm64", "armv7l", "armv8l")
+        if backend == "opencv" or (backend == "auto" and is_arm):
+            # Native OpenCV fallback avoids hardware SIGILL on ARM CPUs lacking AES (e.g. Raspberry Pi 4)
+            self.fallback = OpenCVAfflineLandmarker()
+            return
 
         try:
             import mediapipe as mp
@@ -159,9 +169,7 @@ class FaceLandmarkerExtractor:
                 output_facial_transformation_matrixes=False,
             )
             self.landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(options)
-        except Exception as e:
-            # Fallback for processors without ARMv8 AES crypto extension (e.g. Raspberry Pi 4 BCM2711)
-            print(f"[Info] MediaPipe Tasks unavailable ({e}). Using native OpenCV Face Landmarker.")
+        except Exception:
             self.mp = None
             self.landmarker = None
             self.fallback = OpenCVAfflineLandmarker()
