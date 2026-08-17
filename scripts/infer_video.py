@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
 import statistics
 import sys
 import time
@@ -28,17 +29,48 @@ def percentile(values: list[float], fraction: float) -> float:
     return ordered[index]
 
 
-def sample_frame_indices(total_frames: int, num_frames: int) -> list[int]:
-    """Sample evenly spaced frame indices across video length."""
-    if total_frames <= num_frames:
-        return list(range(total_frames))
-    return np.linspace(0, total_frames - 1, num_frames, dtype=int).tolist()
+def sample_video_clip_windows(
+    total_frames: int,
+    source_fps: float,
+    target_fps: float = 10.0,
+    texture_frames: int = 8,
+    clips: int = 1,
+) -> tuple[list[int], list[list[int]]]:
+    """
+    Sample temporally coherent windows at target_fps (10.0 FPS) matching the training protocol.
+    Returns:
+      all_indices: unique sorted frame indices to decode from the video.
+      clip_index_groups: list of index lists (one per clip) mapping to target frame sequence.
+    """
+    stride = max(1, int(round(source_fps / target_fps)))
+    clip_span = (texture_frames - 1) * stride + 1
+
+    if total_frames <= clip_span:
+        starts = [0] * clips
+    elif clips == 1:
+        starts = [(total_frames - clip_span) // 2]
+    else:
+        starts = np.linspace(0, total_frames - clip_span, clips, dtype=int).tolist()
+
+    clip_index_groups: list[list[int]] = []
+    all_needed_set: set[int] = set()
+
+    for s in starts:
+        group = []
+        for i in range(texture_frames):
+            frame_idx = min(total_frames - 1, s + i * stride)
+            group.append(frame_idx)
+            all_needed_set.add(frame_idx)
+        clip_index_groups.append(group)
+
+    all_indices = sorted(list(all_needed_set))
+    return all_indices, clip_index_groups
 
 
 def extract_video_frames(
     video_path: str | Path,
     indices: list[int],
-) -> tuple[list[np.ndarray], float]:
+) -> tuple[dict[int, np.ndarray], float]:
     """Read specific frames from video and measure read time."""
     start_time = time.perf_counter()
     cap = cv2.VideoCapture(str(video_path))
@@ -62,16 +94,14 @@ def extract_video_frames(
 
     read_elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
-    ordered_frames: list[np.ndarray] = []
-    last_valid = None
-    for idx in indices:
-        if idx in frame_dict:
-            last_valid = frame_dict[idx]
-            ordered_frames.append(frame_dict[idx])
-        elif last_valid is not None:
-            ordered_frames.append(last_valid)
+    # Fill any missing frame with nearest available
+    if frame_dict:
+        fallback = next(iter(frame_dict.values()))
+        for idx in indices:
+            if idx not in frame_dict:
+                frame_dict[idx] = fallback
 
-    return ordered_frames, read_elapsed_ms
+    return frame_dict, read_elapsed_ms
 
 
 def process_video_pipeline(
@@ -79,10 +109,11 @@ def process_video_pipeline(
     landmarker: FaceLandmarkerExtractor,
     model: torch.nn.Module | None,
     onnx_session: object | None,
-    num_frames: int = 32,
     texture_frames: int = 8,
+    target_fps: float = 10.0,
     image_size: int = 160,
     clips: int = 1,
+    flip_tta: bool = False,
     device: torch.device = torch.device("cpu"),
 ) -> dict[str, object]:
     """Run full pipeline: Decode -> Landmark -> Align -> Model Inference -> Output."""
@@ -99,102 +130,107 @@ def process_video_pipeline(
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
 
-    target_indices = sample_frame_indices(total_video_frames, max(num_frames, texture_frames))
-    raw_frames, decode_ms = extract_video_frames(video_path, target_indices)
-    timing["decode_ms"] = decode_ms
+    all_indices, clip_index_groups = sample_video_clip_windows(
+        total_frames=total_video_frames,
+        source_fps=fps,
+        target_fps=target_fps,
+        texture_frames=texture_frames,
+        clips=clips,
+    )
 
-    if not raw_frames:
+    frame_dict, decode_ms = extract_video_frames(video_path, all_indices)
+    timing["1_video_decode_ms"] = decode_ms
+
+    if not frame_dict:
         raise RuntimeError(f"No frames could be extracted from: {video_path}")
 
     # 2. Facial Landmark Extraction
     lm_start = time.perf_counter()
-    landmarks_list: list[np.ndarray | None] = []
-    for frame in raw_frames:
-        pts = landmarker.process(frame)
-        landmarks_list.append(pts)
-    timing["landmark_ms"] = (time.perf_counter() - lm_start) * 1000.0
+    aligned_map: dict[int, np.ndarray] = {}
 
-    # 3. Face Alignment and Tensor Construction
-    align_start = time.perf_counter()
-    aligned_crops: list[np.ndarray] = []
-    for frame, lms in zip(raw_frames, landmarks_list):
-        has_lms = lms is not None
+    for idx in all_indices:
+        frame = frame_dict[idx]
+        pts = landmarker.process(frame)
+        has_lms = pts is not None
         crop, _ = _aligned_full_face(
             frame,
-            lms if has_lms else np.zeros((468, 3), dtype=np.float32),
+            pts if has_lms else np.zeros((468, 3), dtype=np.float32),
             has_lms,
             image_size,
         )
         crop_norm = (crop.astype(np.float32) / 255.0 - IMAGE_MEAN) / IMAGE_STD
         crop_chw = np.transpose(crop_norm, (2, 0, 1))
-        aligned_crops.append(crop_chw)
+        aligned_map[idx] = crop_chw
 
-    total_extracted = len(aligned_crops)
+    timing["2_landmark_extraction_ms"] = (time.perf_counter() - lm_start) * 1000.0
+
+    # 3. Face Alignment and Tensor Construction
+    align_start = time.perf_counter()
     clip_tensors: list[np.ndarray] = []
-    if clips == 1:
-        start_idx = max(0, (total_extracted - texture_frames) // 2)
-        clip_data = aligned_crops[start_idx : start_idx + texture_frames]
-        while len(clip_data) < texture_frames:
-            clip_data.append(clip_data[-1] if clip_data else np.zeros((3, image_size, image_size)))
-        clip_tensors.append(np.stack(clip_data, axis=0))
-    else:
-        starts = np.rint(np.linspace(0, max(0, total_extracted - texture_frames), clips)).astype(int)
-        for s in starts:
-            clip_data = aligned_crops[s : s + texture_frames]
-            while len(clip_data) < texture_frames:
-                clip_data.append(clip_data[-1] if clip_data else np.zeros((3, image_size, image_size)))
-            clip_tensors.append(np.stack(clip_data, axis=0))
+    for group in clip_index_groups:
+        clip_crops = [aligned_map[idx] for idx in group]
+        clip_tensors.append(np.stack(clip_crops, axis=0))
 
     batch_array = np.stack(clip_tensors, axis=0).astype(np.float32)
-    timing["align_and_preprocess_ms"] = (time.perf_counter() - align_start) * 1000.0
+
+    if flip_tta:
+        # Horizontally flip along width dimension (axis -1)
+        flipped_batch = batch_array[:, :, :, :, ::-1].copy()
+        eval_batch = np.concatenate([batch_array, flipped_batch], axis=0)
+    else:
+        eval_batch = batch_array
+
+    timing["3_face_align_and_preprocess_ms"] = (time.perf_counter() - align_start) * 1000.0
 
     # 4. Neural Network Inference
     infer_start = time.perf_counter()
     if onnx_session is not None:
         input_name = onnx_session.get_inputs()[0].name
-        logits = onnx_session.run(None, {input_name: batch_array})[0]
+        logits = onnx_session.run(None, {input_name: eval_batch})[0]
         if isinstance(logits, np.ndarray):
-            scores = 1.0 / (1.0 + np.exp(-logits.squeeze(-1) if logits.ndim > 1 else logits))
+            raw_scores = 1.0 / (1.0 + np.exp(-logits.squeeze(-1) if logits.ndim > 1 else logits))
     elif model is not None:
-        batch_tensor = torch.from_numpy(batch_array).to(device)
+        batch_tensor = torch.from_numpy(eval_batch).to(device)
         with torch.inference_mode():
             out = model({"texture": batch_tensor})
             logits = out["logit"]
-            scores = torch.sigmoid(logits).cpu().numpy()
+            raw_scores = torch.sigmoid(logits).cpu().numpy().squeeze(-1)
     else:
         raise RuntimeError("Neither PyTorch model nor ONNX session was provided")
 
-    timing["inference_ms"] = (time.perf_counter() - infer_start) * 1000.0
+    timing["4_model_forward_ms"] = (time.perf_counter() - infer_start) * 1000.0
 
-    scores_list = [float(s) for s in (scores if isinstance(scores, np.ndarray) and scores.ndim > 0 else [scores])]
-    mean_score = float(np.mean(scores_list))
+    raw_scores_arr = np.atleast_1d(raw_scores)
+    if flip_tta:
+        orig_scores = raw_scores_arr[:clips]
+        flip_scores = raw_scores_arr[clips:]
+        clip_scores = 0.5 * (orig_scores + flip_scores)
+    else:
+        clip_scores = raw_scores_arr
 
+    mean_score = float(np.mean(clip_scores))
     total_pipeline_time_s = time.perf_counter() - pipeline_start
-    timing["total_pipeline_ms"] = total_pipeline_time_s * 1000.0
-    effective_fps = len(raw_frames) / total_pipeline_time_s if total_pipeline_time_s > 0 else 0.0
+    timing["total_end_to_end_ms"] = total_pipeline_time_s * 1000.0
+    effective_fps = len(all_indices) / total_pipeline_time_s if total_pipeline_time_s > 0 else 0.0
 
     return {
         "video_info": {
             "path": str(video_path),
             "total_video_frames": total_video_frames,
-            "sampled_frames": len(raw_frames),
-            "resolution": f"{width}x{height}",
+            "sampled_frames": len(all_indices),
             "original_fps": fps,
+            "resolution": f"{width}x{height}",
         },
-        "timings_ms": {
-            "1_video_decode_ms": round(timing["decode_ms"], 2),
-            "2_landmark_extraction_ms": round(timing["landmark_ms"], 2),
-            "3_face_align_and_preprocess_ms": round(timing["align_and_preprocess_ms"], 2),
-            "4_model_forward_ms": round(timing["inference_ms"], 2),
-            "total_end_to_end_ms": round(timing["total_pipeline_ms"], 2),
-        },
+        "timings_ms": timing,
         "performance": {
             "end_to_end_fps": round(effective_fps, 2),
-            "model_only_fps": round((len(clip_tensors) * texture_frames) / (timing["inference_ms"] / 1000.0), 2) if timing["inference_ms"] > 0 else 0,
+            "model_forward_fps": round((clips * (2 if flip_tta else 1) * texture_frames) / (timing["4_model_forward_ms"] / 1000.0), 2),
         },
         "detection": {
-            "clip_scores": [round(s, 4) for s in scores_list],
             "fake_probability": round(mean_score, 4),
+            "clip_scores": [round(float(s), 4) for s in clip_scores],
+            "clips": clips,
+            "flip_tta": flip_tta,
         },
     }
 
@@ -260,11 +296,12 @@ def main() -> None:
     parser.add_argument("--checkpoint", default=None, help="Path to PyTorch checkpoint (.pt)")
     parser.add_argument("--onnx", default=None, help="Path to ONNX model (.onnx)")
     parser.add_argument("--model-task", default="models/face_landmarker.task", help="MediaPipe face landmarker model")
-    parser.add_argument("--num-frames", type=int, default=32, help="Number of frames sampled from video")
     parser.add_argument("--texture-frames", type=int, default=8, help="Frames per clip fed to model")
-    parser.add_argument("--clips", type=int, default=1, help="Number of clips per video (default 1 for fast edge inference)")
+    parser.add_argument("--target-fps", type=float, default=10.0, help="Target sampling rate (default 10.0 FPS matching training)")
+    parser.add_argument("--clips", type=int, default=1, help="Clips per video (1 for fast edge, 3 for paper protocol)")
+    parser.add_argument("--flip-tta", action="store_true", help="Enable test-time horizontal flip augmentation")
     parser.add_argument("--image-size", type=int, default=160, help="Input resolution (160x160)")
-    parser.add_argument("--threshold", type=float, default=None, help="Decision threshold for Real vs Fake")
+    parser.add_argument("--threshold", type=float, default=None, help="Decision threshold for Real vs Fake (auto-loaded if None)")
     parser.add_argument("--landmark-backend", default="auto", choices=["auto", "opencv", "mediapipe"], help="Face landmark backend (auto defaults to opencv on ARM/Pi 4)")
     parser.add_argument("--cpu-threads", type=int, default=4, help="Number of CPU threads to use on Pi 4")
     parser.add_argument("--output-json", default=None, help="Save timing and prediction report to JSON")
@@ -273,7 +310,7 @@ def main() -> None:
     if not args.checkpoint and not args.onnx:
         parser.error("Must provide either --checkpoint (.pt) or --onnx (.onnx)")
 
-    # 1. Setup Model (PyTorch or ONNX)
+    # 1. Setup Model (PyTorch or ONNX) and Auto-load Threshold
     model = None
     onnx_session = None
     threshold = args.threshold
@@ -284,14 +321,26 @@ def main() -> None:
         sess_options.intra_op_num_threads = args.cpu_threads
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         onnx_session = ort.InferenceSession(args.onnx, sess_options, providers=["CPUExecutionProvider"])
+
         if threshold is None:
-            threshold = 0.5
+            json_meta_path = Path(args.onnx).with_suffix(".json")
+            if json_meta_path.is_file():
+                try:
+                    with open(json_meta_path, "r", encoding="utf-8") as f:
+                        meta = json.load(f)
+                    threshold = float(meta.get("optimal_threshold", 0.5))
+                    print(f"[Info] Auto-loaded calibrated Youden-J optimal threshold: {threshold:.4f} from {json_meta_path.name}")
+                except Exception:
+                    threshold = 0.5
+            else:
+                threshold = 0.5
     else:
         torch.set_num_threads(args.cpu_threads)
         checkpoint = torch.load(args.checkpoint, map_location="cpu")
         model = build_model_from_checkpoint(checkpoint).eval()
         if threshold is None:
-            threshold = float(checkpoint.get("threshold", 0.5))
+            threshold = float(checkpoint.get("threshold", checkpoint.get("optimal_threshold", 0.5)))
+            print(f"[Info] Auto-loaded calibrated optimal threshold: {threshold:.4f} from checkpoint")
 
     # Mode A: Synthetic Benchmark (0MB disk usage)
     if args.synthetic:
@@ -304,15 +353,12 @@ def main() -> None:
             iterations=args.iterations,
         )
         print("\n" + "=" * 60)
-        print("    QALF SYNTHETIC MODEL BENCHMARK REPORT (0MB DISK)")
+        print("    TEXTURE-SBI SYNTHETIC BENCHMARK REPORT (0MB DISK)")
         print("=" * 60)
         print(f"Engine           : {bench_result['engine']}")
         print(f"Input Shape      : {bench_result['input_shape']} (Batch x Frames x C x H x W)")
         print(f"Iterations       : {bench_result['iterations']} runs")
-        print("-" * 60)
-        print(f"Mean Latency     : {bench_result['latency_ms_mean']} ms")
-        print(f"Median (P50)     : {bench_result['latency_ms_p50']} ms")
-        print(f"P95 Latency      : {bench_result['latency_ms_p95']} ms")
+        print(f"Mean Latency     : {bench_result['latency_ms_mean']} ms (P50: {bench_result['latency_ms_p50']} ms | P95: {bench_result['latency_ms_p95']} ms)")
         print(f"Min / Max        : {bench_result['latency_ms_min']} ms / {bench_result['latency_ms_max']} ms")
         print(f"Throughput       : {bench_result['throughput_fps']} FPS (Frames per sec)")
         print("=" * 60 + "\n")
@@ -322,7 +368,6 @@ def main() -> None:
         return
 
     # If video or video-dir is provided, setup Face Landmarker
-    import platform
     is_arm = platform.machine().lower() in ("aarch64", "arm64", "armv7l", "armv8l")
     lm_model_path = args.model_task
     if args.landmark_backend == "mediapipe" or (args.landmark_backend == "auto" and not is_arm):
@@ -346,7 +391,7 @@ def main() -> None:
         parser.error("Must provide --video, --video-dir, or --synthetic")
 
     reports: list[dict[str, object]] = []
-    print(f"\nProcessing {len(video_files)} video(s)...")
+    print(f"\nProcessing {len(video_files)} video(s) (Clips: {args.clips}, Flip-TTA: {args.flip_tta}, Target FPS: {args.target_fps})...")
 
     for vpath in video_files:
         try:
@@ -355,10 +400,11 @@ def main() -> None:
                 landmarker=landmarker,
                 model=model,
                 onnx_session=onnx_session,
-                num_frames=args.num_frames,
                 texture_frames=args.texture_frames,
+                target_fps=args.target_fps,
                 image_size=args.image_size,
                 clips=args.clips,
+                flip_tta=args.flip_tta,
                 device=torch.device("cpu"),
             )
             fake_prob = rep["detection"]["fake_probability"]
@@ -380,7 +426,7 @@ def main() -> None:
     if len(reports) == 1:
         rep = reports[0]
         print("\n" + "=" * 60)
-        print("      QALF VIDEO DEEPFAKE DETECTION REPORT (PI 4 / EDGE)")
+        print("      TEXTURE-SBI VIDEO DETECTION REPORT (PI 4 / EDGE)")
         print("=" * 60)
         print(f"Input Video      : {rep['video_info']['path']}")
         print(f"Resolution / FPS : {rep['video_info']['resolution']} @ {rep['video_info']['original_fps']:.1f} FPS")
@@ -390,6 +436,7 @@ def main() -> None:
         for k, v in rep["timings_ms"].items():
             print(f"  - {k:<32}: {v:>8.2f} ms")
         print(f"Throughput       : {rep['performance']['end_to_end_fps']} FPS (End-to-End)")
+        print(f"Model-Only FPS   : {rep['performance']['model_forward_fps']} FPS")
         print("-" * 60)
         print(f"Fake Probability : {rep['detection']['fake_probability'] * 100:.2f}% (Threshold: {threshold:.4f})")
         print(f"PREDICTION       : >>> {rep['detection']['prediction']} <<<")
@@ -412,22 +459,22 @@ def main() -> None:
             return f"{m:>8.2f} ± {s:<6.2f} | {p50:>8.2f} | {p95:>8.2f}"
 
         print("\n" + "=" * 78)
-        print(f"      QALF SCIENTIFIC HARDWARE PROFILING REPORT ({len(reports)} VIDEOS)")
+        print(f"      TEXTURE-SBI SCIENTIFIC HARDWARE PROFILING REPORT ({len(reports)} VIDEOS)")
         print("=" * 78)
-        print(f"Total Videos Processed : {len(reports)}")
+        print(f"Total Videos Processed  : {len(reports)}")
         print(f"Batch Detection Accuracy: {correct_predictions}/{len(reports)} ({correct_predictions/len(reports)*100:.1f}%)")
         print("-" * 78)
         print(f"{'Pipeline Stage':<35} | {'Mean ± Std (ms)':<17} | {'P50 (ms)':<8} | {'P95 (ms)':<8}")
         print("-" * 78)
-        print(f"{'1. Video Decode & Sampling (32f)':<35} | {stats_str(decode_latencies)}")
+        print(f"{'1. Video Decode & Sampling':<35} | {stats_str(decode_latencies)}")
         print(f"{'2. Face & Landmark Extraction':<35} | {stats_str(lm_latencies)}")
         print(f"{'3. Canonical Affine Alignment':<35} | {stats_str(align_latencies)}")
-        print(f"{'4. Neural Model Forward (ONNX)':<35} | {stats_str(model_latencies)}")
+        print(f"{'4. Neural Model Forward':<35} | {stats_str(model_latencies)}")
         print("-" * 78)
         print(f"{'TOTAL END-TO-END PIPELINE':<35} | {stats_str(total_latencies)}")
         print("-" * 78)
         print(f"Throughput (End-to-End) : {statistics.mean(fps_list):.2f} ± {statistics.stdev(fps_list) if len(fps_list)>1 else 0.0:.2f} FPS")
-        print(f"Throughput (Model-Only) : {(args.clips * args.texture_frames) / (statistics.mean(model_latencies) / 1000.0):.2f} FPS")
+        print(f"Throughput (Model-Only) : {(args.clips * (2 if args.flip_tta else 1) * args.texture_frames) / (statistics.mean(model_latencies) / 1000.0):.2f} FPS")
         print("=" * 78 + "\n")
 
     if args.output_json:

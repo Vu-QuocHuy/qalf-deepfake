@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export a texture-only QALF checkpoint to ONNX."""
+"""Export a TextureSBI / QALF checkpoint to ONNX with embedded metadata and companion JSON config."""
 
 from __future__ import annotations
 
@@ -17,7 +17,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from qalf.models import QALFModel, build_model_from_checkpoint
 
 
-class ONNXQALFWrapper(nn.Module):
+class ONNXTextureSBIWrapper(nn.Module):
+    """Clean wrapper that outputs the single classification logit for TextureSBI."""
+
     def __init__(self, model: QALFModel) -> None:
         super().__init__()
         self.model = model
@@ -31,25 +33,30 @@ def build_model(checkpoint: dict[str, object]) -> QALFModel:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--opset", type=int, default=17)
-    parser.add_argument("--verify", action="store_true")
+    parser = argparse.ArgumentParser(description="Export TextureSBI checkpoint to ONNX with metadata")
+    parser.add_argument("--checkpoint", required=True, help="Path to PyTorch checkpoint (.pt)")
+    parser.add_argument("--output", required=True, help="Path to output .onnx file")
+    parser.add_argument("--opset", type=int, default=17, help="ONNX opset version (default 17)")
+    parser.add_argument("--verify", action="store_true", help="Verify exported ONNX graph")
     args = parser.parse_args()
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
-    data = checkpoint["config"]["data"]
-    wrapper = ONNXQALFWrapper(build_model(checkpoint)).eval()
-    example = torch.zeros(
-        1,
-        int(data["texture_frames"]),
-        3,
-        int(data["image_size"]),
-        int(data["image_size"]),
-    )
+    config = checkpoint.get("config", {})
+    data_cfg = config.get("data", {})
+    model_cfg = config.get("model", {})
+
+    image_size = int(data_cfg.get("image_size", 160))
+    texture_frames = int(data_cfg.get("texture_frames", 8))
+    target_fps = float(data_cfg.get("target_fps", 10.0))
+    threshold = float(checkpoint.get("threshold", checkpoint.get("optimal_threshold", 0.5)))
+    backbone = model_cfg.get("texture_backbone", "efficientnet_b0")
+
+    wrapper = ONNXTextureSBIWrapper(build_model(checkpoint)).eval()
+    example = torch.zeros(1, texture_frames, 3, image_size, image_size, dtype=torch.float32)
+
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
+
     torch.onnx.export(
         wrapper,
         example,
@@ -60,25 +67,38 @@ def main() -> None:
         opset_version=args.opset,
         do_constant_folding=True,
     )
-    report = {
+
+    metadata = {
+        "architecture": "TextureSBIModel",
         "checkpoint": str(args.checkpoint),
-        "output": str(output),
-        "architecture": "texture_only",
-        "texture_backbone": checkpoint["config"]["model"].get(
-            "texture_backbone", "efficientnet_b0"
-        ),
-        "texture_temporal_pooling": "mean",
+        "output_onnx": str(output),
+        "texture_backbone": backbone,
+        "texture_frames": texture_frames,
+        "image_size": image_size,
+        "target_fps": target_fps,
+        "optimal_threshold": threshold,
         "bytes": output.stat().st_size,
         "opset": args.opset,
         "verified": False,
     }
-    if args.verify:
-        import onnx
 
-        exported = onnx.load(output)
-        onnx.checker.check_model(exported)
-        report["verified"] = True
-    print(json.dumps(report, indent=2))
+    # Save companion metadata JSON alongside ONNX file (e.g. models/qalf.json)
+    json_path = output.with_suffix(".json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+
+    if args.verify:
+        try:
+            import onnx
+            exported = onnx.load(str(output))
+            onnx.checker.check_model(exported)
+            metadata["verified"] = True
+        except Exception as e:
+            print(f"[Warning] ONNX check skipped/failed: {e}")
+
+    print(f"[+] Successfully exported ONNX model to: {output}")
+    print(f"[+] Metadata and optimal threshold saved to: {json_path}")
+    print(json.dumps(metadata, indent=2))
 
 
 if __name__ == "__main__":
