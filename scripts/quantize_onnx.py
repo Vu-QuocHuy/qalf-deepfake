@@ -35,6 +35,7 @@ def main() -> None:
         weight_type=QuantType.QInt8,
         per_channel=args.per_channel,
         reduce_range=False,
+        extra_options={"DisableShapeInference": True},
     )
 
     orig_size_mb = input_path.stat().st_size / (1024 * 1024)
