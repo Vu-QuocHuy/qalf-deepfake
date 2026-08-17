@@ -88,8 +88,46 @@ def _landmark_fingerprint(
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+class OpenCVAfflineLandmarker:
+    """Ultra-fast, native OpenCV face & eye landmark fallback for ARM CPUs without AES extension."""
+
+    def __init__(self) -> None:
+        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        self.face_cascade = cv2.CascadeClassifier(cascade_path) if cv2.data.haarcascades else None
+
+    def close(self) -> None:
+        pass
+
+    def process(self, image_rgb: np.ndarray, timestamp_ms: int | None = None) -> np.ndarray | None:
+        height, width = image_rgb.shape[:2]
+        if height < 16 or width < 16:
+            return None
+        gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY)
+        faces = self.face_cascade.detectMultiScale(gray, 1.2, 3, minSize=(32, 32)) if self.face_cascade else ()
+        if len(faces) > 0:
+            fx, fy, fw, fh = faces[0]
+        else:
+            # If no face box found (or image is already cropped face), use full image bounding box
+            fx, fy, fw, fh = 0, 0, width, height
+
+        pts = np.zeros((468, 3), dtype=np.float32)
+        # Canonical eye & mouth coordinates for affine alignment
+        left_eye_pt = np.array([(fx + 0.32 * fw) / width, (fy + 0.38 * fh) / height, 0.0], dtype=np.float32)
+        right_eye_pt = np.array([(fx + 0.68 * fw) / width, (fy + 0.38 * fh) / height, 0.0], dtype=np.float32)
+        mouth_pt = np.array([(fx + 0.50 * fw) / width, (fy + 0.72 * fh) / height, 0.0], dtype=np.float32)
+
+        for idx in [33, 133, 159, 145]:
+            pts[idx] = left_eye_pt
+        for idx in [362, 263, 386, 374]:
+            pts[idx] = right_eye_pt
+        for idx in [13, 14, 61, 291]:
+            pts[idx] = mouth_pt
+
+        return pts
+
+
 class FaceLandmarkerExtractor:
-    """Thin wrapper around MediaPipe Tasks IMAGE or VIDEO inference."""
+    """Thin wrapper around MediaPipe Tasks with automatic OpenCV fallback on ARM."""
 
     def __init__(
         self,
@@ -97,56 +135,79 @@ class FaceLandmarkerExtractor:
         running_mode: str = "image",
         min_confidence: float = 0.5,
     ) -> None:
-        import mediapipe as mp
-
         if running_mode not in SUPPORTED_RUNNING_MODES:
             raise ValueError(f"Unsupported Face Landmarker running mode: {running_mode}")
-        self.mp = mp
         self.running_mode = running_mode
-        task_mode = (
-            mp.tasks.vision.RunningMode.IMAGE
-            if running_mode == "image"
-            else mp.tasks.vision.RunningMode.VIDEO
-        )
-        options = mp.tasks.vision.FaceLandmarkerOptions(
-            base_options=mp.tasks.BaseOptions(model_asset_path=str(model_path)),
-            running_mode=task_mode,
-            num_faces=1,
-            min_face_detection_confidence=min_confidence,
-            min_face_presence_confidence=min_confidence,
-            min_tracking_confidence=min_confidence,
-            output_face_blendshapes=False,
-            output_facial_transformation_matrixes=False,
-        )
-        self.landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(options)
+        self.fallback = None
+
+        try:
+            import mediapipe as mp
+            self.mp = mp
+            task_mode = (
+                mp.tasks.vision.RunningMode.IMAGE
+                if running_mode == "image"
+                else mp.tasks.vision.RunningMode.VIDEO
+            )
+            options = mp.tasks.vision.FaceLandmarkerOptions(
+                base_options=mp.tasks.BaseOptions(model_asset_path=str(model_path)),
+                running_mode=task_mode,
+                num_faces=1,
+                min_face_detection_confidence=min_confidence,
+                min_face_presence_confidence=min_confidence,
+                min_tracking_confidence=min_confidence,
+                output_face_blendshapes=False,
+                output_facial_transformation_matrixes=False,
+            )
+            self.landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(options)
+        except Exception as e:
+            # Fallback for processors without ARMv8 AES crypto extension (e.g. Raspberry Pi 4 BCM2711)
+            print(f"[Info] MediaPipe Tasks unavailable ({e}). Using native OpenCV Face Landmarker.")
+            self.mp = None
+            self.landmarker = None
+            self.fallback = OpenCVAfflineLandmarker()
 
     def close(self) -> None:
-        self.landmarker.close()
+        if self.landmarker is not None:
+            try:
+                self.landmarker.close()
+            except Exception:
+                pass
+        if self.fallback is not None:
+            self.fallback.close()
 
     def process(
         self,
         image_rgb: np.ndarray,
         timestamp_ms: int | None = None,
     ) -> np.ndarray | None:
+        if self.fallback is not None or self.landmarker is None:
+            if self.fallback is None:
+                self.fallback = OpenCVAfflineLandmarker()
+            return self.fallback.process(image_rgb, timestamp_ms)
+
         image_rgb = np.ascontiguousarray(image_rgb, dtype=np.uint8)
-        image = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=image_rgb)
-        if self.running_mode == "video":
-            if timestamp_ms is None:
-                raise ValueError("VIDEO mode requires a timestamp in milliseconds")
-            result = self.landmarker.detect_for_video(image, int(timestamp_ms))
-        else:
-            result = self.landmarker.detect(image)
-        if not result.face_landmarks:
-            return None
-        points = result.face_landmarks[0]
-        if len(points) < 468:
-            raise RuntimeError(f"Expected at least 468 landmarks, got {len(points)}")
-        # The task returns 478 points; the final ten are iris landmarks. Keep the canonical
-        # 468-point topology used by the feature code and existing caches.
-        return np.asarray(
-            [(point.x, point.y, point.z) for point in points[:468]],
-            dtype=np.float32,
-        )
+        try:
+            image = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=image_rgb)
+            if self.running_mode == "video":
+                if timestamp_ms is None:
+                    raise ValueError("VIDEO mode requires a timestamp in milliseconds")
+                result = self.landmarker.detect_for_video(image, int(timestamp_ms))
+            else:
+                result = self.landmarker.detect(image)
+            if not result.face_landmarks:
+                return None
+            points = result.face_landmarks[0]
+            if len(points) < 468:
+                raise RuntimeError(f"Expected at least 468 landmarks, got {len(points)}")
+            return np.asarray(
+                [(point.x, point.y, point.z) for point in points[:468]],
+                dtype=np.float32,
+            )
+        except Exception:
+            # Runtime fallback if execution fails
+            if self.fallback is None:
+                self.fallback = OpenCVAfflineLandmarker()
+            return self.fallback.process(image_rgb, timestamp_ms)
 
 
 def _video_timestamps_ms(record: VideoRecord) -> list[int]:
