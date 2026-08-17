@@ -14,6 +14,11 @@ video -> extracted frame sequence -> landmark face alignment (preprocessing)
 Landmarks are used only to align faces and create the SBI mask. The classifier
 does not contain a geometry or SRM branch.
 
+For a paper-ready visual reference, open
+[`.docs/TextureSBI_ARCHITECTURE.html`](.docs/TextureSBI_ARCHITECTURE.html) in a browser.
+Its companion stylesheet is
+[`.docs/TextureSBI_ARCHITECTURE.css`](.docs/TextureSBI_ARCHITECTURE.css).
+
 ## Environment
 
 Use Python 3.11 and install a CUDA-compatible PyTorch build for the target GPU
