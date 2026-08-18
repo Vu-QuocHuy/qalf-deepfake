@@ -4,8 +4,8 @@
 Strictly follows the canonical QALF / TextureSBI evaluation protocol:
 - 10 FPS temporal sampling
 - 32-frame clip window with 8 distributed texture frames [0, 4, 9, 13, 18, 22, 27, 31]
-- MTCNN 35% margin face localization & MediaPipe 468 3D landmarks
-- Canonical affine alignment (160x160 with eyes horizontal at 0 deg)
+- MTCNN 35% margin face localization to 256x256 canonical face crop
+- 468 landmark affine alignment to 160x160 with eyes horizontal at 0 deg
 - 3 clips per video with Horizontal Flip-TTA and Mean/Top-k Aggregation
 - Auto-loaded calibrated Youden-J threshold from checkpoint / JSON metadata
 - Complete End-to-End Latency Breakdown and Hardware Profiling
@@ -56,7 +56,6 @@ def compute_protocol_frame_indices(
     stride = max(1, int(round(source_fps / target_fps)))
     total_seq_length = 64
     
-    # 64 frames at 10 FPS
     seq_indices = [min(total_video_frames - 1, i * stride) for i in range(total_seq_length)]
     
     if len(seq_indices) <= num_frames:
@@ -111,7 +110,6 @@ def extract_video_frames(
 
     read_elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
-    # Fill any missing frame with nearest available
     if frame_dict:
         fallback = next(iter(frame_dict.values()))
         for idx in indices:
@@ -121,11 +119,37 @@ def extract_video_frames(
     return frame_dict, read_elapsed_ms
 
 
+def crop_face_to_256(image_rgb: np.ndarray, mtcnn_detector=None) -> np.ndarray:
+    """Crop face to square with 35% margin resized to 256x256 matching extract_frames.py."""
+    height, width = image_rgb.shape[:2]
+    if mtcnn_detector is not None:
+        try:
+            boxes, _ = mtcnn_detector.detect(image_rgb)
+            if boxes is not None and len(boxes) > 0 and boxes[0] is not None:
+                box = boxes[0]
+                bx1, by1, bx2, by2 = box
+                bw, bh = bx2 - bx1, by2 - by1
+                cx = bx1 + bw / 2.0
+                cy = by1 + bh / 2.0
+                side = max(bw, bh) * 1.35
+                x1 = max(0, int(round(cx - side / 2.0)))
+                y1 = max(0, int(round(cy - side / 2.0)))
+                x2 = min(width, int(round(cx + side / 2.0)))
+                y2 = min(height, int(round(cy + side / 2.0)))
+                crop = image_rgb[y1:y2, x1:x2]
+                if crop.shape[0] > 16 and crop.shape[1] > 16:
+                    return cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
+        except Exception:
+            pass
+    return cv2.resize(image_rgb, (256, 256), interpolation=cv2.INTER_AREA)
+
+
 def process_video_pipeline(
     video_path: str | Path,
     landmarker: FaceLandmarkerExtractor,
     model: torch.nn.Module | None,
     onnx_session: object | None,
+    mtcnn_detector: object | None = None,
     num_frames: int = 32,
     texture_frames: int = 8,
     target_fps: float = 10.0,
@@ -165,16 +189,17 @@ def process_video_pipeline(
     if not frame_dict:
         raise RuntimeError(f"No frames could be extracted from: {video_path}")
 
-    # 2. Facial Landmark Extraction (MediaPipe 468 3D landmarks)
+    # 2. MTCNN Face Crop & Facial Landmark Extraction
     lm_start = time.perf_counter()
     aligned_map: dict[int, np.ndarray] = {}
 
     for idx in all_indices:
-        frame = frame_dict[idx]
-        pts = landmarker.process(frame)
+        raw_frame = frame_dict[idx]
+        face_256 = crop_face_to_256(raw_frame, mtcnn_detector=mtcnn_detector)
+        pts = landmarker.process(face_256)
         has_lms = pts is not None
         crop, _ = _aligned_full_face(
-            frame,
+            face_256,
             pts if has_lms else np.zeros((468, 3), dtype=np.float32),
             has_lms,
             image_size,
@@ -183,7 +208,7 @@ def process_video_pipeline(
         crop_chw = np.transpose(crop_norm, (2, 0, 1))
         aligned_map[idx] = crop_chw
 
-    timing["2_landmark_extraction_ms"] = (time.perf_counter() - lm_start) * 1000.0
+    timing["2_landmark_and_crop_ms"] = (time.perf_counter() - lm_start) * 1000.0
 
     # 3. Canonical Affine Alignment & Clip Batch Tensor Construction
     align_start = time.perf_counter()
@@ -281,6 +306,7 @@ def main() -> None:
     parser.add_argument("--threshold", type=float, default=None, help="Decision threshold for Real vs Fake (auto-loaded if None)")
     parser.add_argument("--landmark-backend", default="auto", choices=["auto", "mediapipe", "opencv"], help="Landmark backend")
     parser.add_argument("--cpu-threads", type=int, default=4, help="Number of CPU threads to use on Pi 4")
+    parser.add_argument("--use-mtcnn", action="store_true", default=True, help="Use MTCNN for precise 35% margin face cropping")
     parser.add_argument("--output-json", default=None, help="Save timing and prediction report to JSON")
     args = parser.parse_args()
 
@@ -321,9 +347,19 @@ def main() -> None:
             threshold = float(checkpoint.get("threshold", checkpoint.get("optimal_threshold", 0.6712)))
             print(f"[Info] Auto-loaded calibrated optimal threshold: {threshold:.4f} from checkpoint")
 
-    # 2. Setup Face Landmarker
+    # 2. Setup MTCNN Face Detector
+    mtcnn_detector = None
+    if args.use_mtcnn:
+        try:
+            from facenet_pytorch import MTCNN
+            mtcnn_detector = MTCNN(image_size=256, margin=0, keep_all=False, post_process=False, device="cpu")
+        except Exception:
+            mtcnn_detector = None
+
+    # 3. Setup Face Landmarker
+    is_arm = platform.machine().lower() in ("aarch64", "arm64", "armv7l", "armv8l")
     lm_model_path = args.model_task
-    if args.landmark_backend != "opencv":
+    if args.landmark_backend == "mediapipe" or (args.landmark_backend == "auto" and not is_arm):
         lm_model_path = ensure_face_landmarker_model(args.model_task, download=True)
     landmarker = FaceLandmarkerExtractor(
         lm_model_path,
@@ -353,6 +389,7 @@ def main() -> None:
                 landmarker=landmarker,
                 model=model,
                 onnx_session=onnx_session,
+                mtcnn_detector=mtcnn_detector,
                 num_frames=args.num_frames,
                 texture_frames=args.texture_frames,
                 target_fps=args.target_fps,
@@ -402,7 +439,7 @@ def main() -> None:
     else:
         total_latencies = [r["timings_ms"]["total_end_to_end_ms"] for r in reports]
         decode_latencies = [r["timings_ms"]["1_video_decode_ms"] for r in reports]
-        lm_latencies = [r["timings_ms"]["2_landmark_extraction_ms"] for r in reports]
+        lm_latencies = [r["timings_ms"]["2_landmark_and_crop_ms"] for r in reports]
         align_latencies = [r["timings_ms"]["3_face_align_and_preprocess_ms"] for r in reports]
         model_latencies = [r["timings_ms"]["4_model_forward_ms"] for r in reports]
         fps_list = [r["performance"]["end_to_end_fps"] for r in reports]
@@ -424,7 +461,7 @@ def main() -> None:
         print(f"{'Pipeline Stage':<36} | {'Mean ± Std (ms)':<17} | {'P50 (ms)':<8} | {'P95 (ms)':<8}")
         print("-" * 80)
         print(f"{'1. Video Decode & 10 FPS Sampling':<36} | {stats_str(decode_latencies)}")
-        print(f"{'2. Facial Landmark (MediaPipe 468)':<36} | {stats_str(lm_latencies)}")
+        print(f"{'2. Face Localization & Landmarks':<36} | {stats_str(lm_latencies)}")
         print(f"{'3. Canonical Affine Alignment':<36} | {stats_str(align_latencies)}")
         print(f"{'4. Neural Forward (ONNX FP32)':<36} | {stats_str(model_latencies)}")
         print("-" * 80)
