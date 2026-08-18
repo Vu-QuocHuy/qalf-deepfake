@@ -28,10 +28,12 @@ echo "Cấu hình          : 3 clips x 8 frames across 32f @ 10 FPS, MTCNN, Flip
 echo "CPU Threads       : 4"
 echo "=============================================================================="
 
+export PYTHONUNBUFFERED=1
+
 # 1. Quét toàn bộ 340 video Fake (Celeb-synthesis)
 echo ""
 echo ">>> [GIAI ĐOẠN 1/2] Đang quét toàn bộ 340 Video Fake (Celeb-synthesis)..."
-python scripts/infer_video.py \
+python -u scripts/infer_video.py \
     --video-dir "$TEST_DATA_DIR/Celeb-synthesis" \
     --onnx "models/qalf.onnx" \
     --clips 3 \
@@ -41,7 +43,7 @@ python scripts/infer_video.py \
 # 2. Quét toàn bộ video Real (YouTube-real)
 echo ""
 echo ">>> [GIAI ĐOẠN 2/2] Đang quét toàn bộ Video Real (YouTube-real)..."
-python scripts/infer_video.py \
+python -u scripts/infer_video.py \
     --video-dir "$TEST_DATA_DIR/YouTube-real" \
     --onnx "models/qalf.onnx" \
     --clips 3 \

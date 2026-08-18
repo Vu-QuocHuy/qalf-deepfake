@@ -405,9 +405,9 @@ def main() -> None:
             rep["detection"]["threshold"] = round(threshold, 4)
             rep["detection"]["prediction"] = prediction
             reports.append(rep)
-            print(f"[{prediction}] {vpath.name:<25} | Score: {fake_prob*100:5.2f}% | Latency: {rep['timings_ms']['total_end_to_end_ms']:6.1f}ms | FPS: {rep['performance']['end_to_end_fps']:4.1f}")
+            print(f"[{prediction}] {vpath.name:<25} | Score: {fake_prob*100:5.2f}% | Latency: {rep['timings_ms']['total_end_to_end_ms']:6.1f}ms | FPS: {rep['performance']['end_to_end_fps']:4.1f}", flush=True)
         except Exception as e:
-            print(f"[ERROR] Failed processing {vpath.name}: {e}")
+            print(f"[ERROR] Failed processing {vpath.name}: {e}", flush=True)
 
     landmarker.close()
 
