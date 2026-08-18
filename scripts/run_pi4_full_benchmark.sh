@@ -20,8 +20,8 @@ export PYTHONUNBUFFERED=1
 USB_ROOT="/mnt/usb_data"
 EXTRACTED_ROOT="$USB_ROOT/extracted_celebdf"
 MANIFEST="$EXTRACTED_ROOT/manifests/celebdf_test_landmarks.jsonl"
-FRAME_ROOT="$EXTRACTED_ROOT/frames"
-LANDMARK_ROOT="$EXTRACTED_ROOT/landmarks"
+FRAME_ROOT="$EXTRACTED_ROOT"
+LANDMARK_ROOT="$EXTRACTED_ROOT"
 ONNX_MODEL="models/qalf.onnx"
 OUTPUT_DIR="$USB_ROOT/eval_pi4_official"
 
