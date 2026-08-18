@@ -171,12 +171,11 @@ class FaceLandmarkerExtractor:
         self.mp = None
         self.landmarker = None
 
-        is_arm = platform.machine().lower() in ("aarch64", "arm64", "armv7l", "armv8l")
-        if backend == "opencv" or (backend == "auto" and is_arm):
-            # Native OpenCV fallback avoids hardware SIGILL on ARM CPUs lacking AES (e.g. Raspberry Pi 4)
+        if backend == "opencv":
             self.fallback = OpenCVAfflineLandmarker()
             return
 
+        # Attempt to load MediaPipe Tasks FaceLandmarker first
         try:
             import mediapipe as mp
             self.mp = mp

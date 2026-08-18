@@ -322,9 +322,8 @@ def main() -> None:
             print(f"[Info] Auto-loaded calibrated optimal threshold: {threshold:.4f} from checkpoint")
 
     # 2. Setup Face Landmarker
-    is_arm = platform.machine().lower() in ("aarch64", "arm64", "armv7l", "armv8l")
     lm_model_path = args.model_task
-    if args.landmark_backend == "mediapipe" or (args.landmark_backend == "auto" and not is_arm):
+    if args.landmark_backend != "opencv":
         lm_model_path = ensure_face_landmarker_model(args.model_task, download=True)
     landmarker = FaceLandmarkerExtractor(
         lm_model_path,
