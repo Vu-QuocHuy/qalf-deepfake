@@ -383,7 +383,7 @@ def main() -> None:
         video_files.append(Path(args.video))
     elif args.video_dir:
         vdir = Path(args.video_dir)
-        video_files = sorted([f for f in vdir.iterdir() if f.suffix.lower() in {".mp4", ".avi", ".mov", ".mkv"}])
+        video_files = sorted([f for f in vdir.rglob("*") if f.suffix.lower() in {".mp4", ".avi", ".mov", ".mkv"}])
         if not video_files:
             parser.error(f"No video files found in directory: {args.video_dir}")
     else:
