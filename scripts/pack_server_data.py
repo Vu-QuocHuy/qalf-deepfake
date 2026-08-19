@@ -1,19 +1,31 @@
 #!/usr/bin/env python3
 """Package server-extracted Celeb-DF frames + landmarks for transfer to Raspberry Pi 4.
 
-Usage:
+Usage with separate folders:
     python scripts/pack_server_data.py \
-        --extracted-root /path/to/celebdf_extracted \
+        --frame-root "E:/DeepFakeData/data/extracted/celebdf" \
+        --landmark-root "E:/DeepFakeData/data/landmarks/celebdf-landmark" \
+        --output celebdf_server_extracted.tar.gz
+
+Usage with unified folder:
+    python scripts/pack_server_data.py \
+        --extracted-root "/path/to/extracted_celebdf" \
         --output celebdf_server_extracted.tar.gz
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import shutil
 import sys
 import tarfile
 from pathlib import Path
+
+
+def find_files_recursively(root: Path, pattern: str) -> list[Path]:
+    return sorted(root.rglob(pattern))
 
 
 def main() -> None:
@@ -22,106 +34,144 @@ def main() -> None:
     )
     parser.add_argument(
         "--extracted-root",
-        required=True,
-        help="Root directory of extracted data (contains frames/, landmarks/, manifests/)",
+        default=None,
+        help="Unified root directory of extracted data (contains frames/, landmarks/, manifests/)",
+    )
+    parser.add_argument(
+        "--frame-root",
+        default=None,
+        help="Root directory of extracted frames (e.g. E:/DeepFakeData/data/extracted/celebdf)",
+    )
+    parser.add_argument(
+        "--landmark-root",
+        default=None,
+        help="Root directory of extracted landmarks (e.g. E:/DeepFakeData/data/landmarks/celebdf-landmark)",
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Optional path to celebdf_test_landmarks.jsonl (auto-detected if omitted)",
     )
     parser.add_argument(
         "--output",
-        default=None,
-        help="Output tar.gz path (default: celebdf_server_extracted.tar.gz in current dir)",
+        default="celebdf_server_extracted.tar.gz",
+        help="Output tar.gz path (default: celebdf_server_extracted.tar.gz)",
     )
     parser.add_argument(
         "--no-compress",
         action="store_true",
-        help="Create uncompressed .tar instead of .tar.gz (faster, larger)",
+        help="Create uncompressed .tar instead of .tar.gz (faster creation, larger file)",
     )
     args = parser.parse_args()
 
-    root = Path(args.extracted_root).resolve()
-    if not root.is_dir():
-        raise FileNotFoundError(f"Extracted root not found: {root}")
+    # 1. Resolve source paths
+    if args.extracted_root:
+        base_extracted = Path(args.extracted_root).resolve()
+        frame_dir = base_extracted / "frames" if (base_extracted / "frames").is_dir() else base_extracted
+        landmark_dir = base_extracted / "landmarks" if (base_extracted / "landmarks").is_dir() else base_extracted
+        manifest_search_roots = [base_extracted / "manifests", base_extracted]
+    elif args.frame_root and args.landmark_root:
+        frame_dir = Path(args.frame_root).resolve()
+        landmark_dir = Path(args.landmark_root).resolve()
+        manifest_search_roots = [
+            landmark_dir / "manifests",
+            landmark_dir,
+            frame_dir / "manifests",
+            frame_dir,
+        ]
+    else:
+        parser.error("Must provide either --extracted-root OR both --frame-root and --landmark-root")
 
-    required_dirs = ["frames", "landmarks", "manifests"]
-    for name in required_dirs:
-        child = root / name
-        if not child.is_dir():
-            raise FileNotFoundError(f"Required subdirectory not found: {child}")
+    if not frame_dir.is_dir():
+        raise FileNotFoundError(f"Frame root not found: {frame_dir}")
+    if not landmark_dir.is_dir():
+        raise FileNotFoundError(f"Landmark root not found: {landmark_dir}")
 
-    manifest_candidates = list((root / "manifests").glob("*_landmarks.jsonl"))
-    if not manifest_candidates:
-        raise FileNotFoundError("No *_landmarks.jsonl manifest found in manifests/")
+    # 2. Locate Manifests
+    manifest_files: list[Path] = []
+    if args.manifest:
+        m_path = Path(args.manifest).resolve()
+        if not m_path.is_file():
+            raise FileNotFoundError(f"Specified manifest not found: {m_path}")
+        manifest_files.append(m_path)
+    else:
+        for m_root in manifest_search_roots:
+            if m_root.is_dir():
+                for f in m_root.glob("*.jsonl"):
+                    if f not in manifest_files:
+                        manifest_files.append(f)
+                for f in m_root.glob("*.json"):
+                    if f not in manifest_files:
+                        manifest_files.append(f)
 
-    extension = ".tar" if args.no_compress else ".tar.gz"
-    output = Path(args.output) if args.output else Path(f"celebdf_server_extracted{extension}")
-    output = output.resolve()
+    # 3. Locate Frames and Landmarks
+    actual_frame_root = frame_dir / "frames" if (frame_dir / "frames").is_dir() else frame_dir
+    actual_landmark_root = landmark_dir / "landmarks" if (landmark_dir / "landmarks").is_dir() else landmark_dir
+
+    frame_files = find_files_recursively(actual_frame_root, "*.jpg")
+    if not frame_files:
+        frame_files = find_files_recursively(frame_dir, "*.jpg")
+        actual_frame_root = frame_dir
+
+    landmark_files = find_files_recursively(actual_landmark_root, "*.npz")
+    if not landmark_files:
+        landmark_files = find_files_recursively(landmark_dir, "*.npz")
+        actual_landmark_root = landmark_dir
+
+    output = Path(args.output).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-
     mode = "w" if args.no_compress else "w:gz"
 
-    # Count files to pack
-    frame_count = sum(1 for _ in (root / "frames").rglob("*.jpg"))
-    landmark_count = sum(1 for _ in (root / "landmarks").rglob("*.npz"))
-    manifest_count = sum(1 for _ in (root / "manifests").iterdir() if _.is_file())
-
     print("=" * 72)
-    print("  PACK SERVER-EXTRACTED DATA FOR PI4 TRANSFER")
+    print("  PACKING SERVER-EXTRACTED DATA FOR PI4 DEPLOYMENT")
     print("=" * 72)
-    print(f"Source Root  : {root}")
-    print(f"Output       : {output}")
-    print(f"Compression  : {'none' if args.no_compress else 'gzip'}")
-    print(f"Frames       : {frame_count} JPEG files")
-    print(f"Landmarks    : {landmark_count} NPZ files")
-    print(f"Manifests    : {manifest_count} files")
+    print(f"Frame Root       : {actual_frame_root} ({len(frame_files)} JPEGs)")
+    print(f"Landmark Root    : {actual_landmark_root} ({len(landmark_files)} NPZs)")
+    print(f"Manifest Files   : {len(manifest_files)} found")
+    for mf in manifest_files:
+        print(f"  - {mf.name} ({mf.stat().st_size / 1024:.1f} KB)")
+    print(f"Output Archive   : {output}")
+    print(f"Compression      : {'None (.tar)' if args.no_compress else 'Gzip (.tar.gz)'}")
     print("=" * 72)
 
-    if frame_count == 0:
-        raise RuntimeError("No JPEG frames found — nothing to pack")
-    if landmark_count == 0:
-        raise RuntimeError("No NPZ landmark caches found — nothing to pack")
+    if len(frame_files) == 0:
+        raise RuntimeError(f"No .jpg frames found under {frame_dir}")
+    if len(landmark_files) == 0:
+        raise RuntimeError(f"No .npz landmark files found under {landmark_dir}")
 
-    packed = 0
+    packed_count = 0
     with tarfile.open(str(output), mode) as tar:
-        # Pack manifests first (small, needed for verification)
-        for manifest_file in sorted((root / "manifests").iterdir()):
-            if manifest_file.is_file():
-                arcname = str(manifest_file.relative_to(root))
-                tar.add(str(manifest_file), arcname=arcname)
-                packed += 1
+        # 1. Add Manifests under manifests/
+        print("\n[1/3] Packing manifests...", flush=True)
+        for mf in manifest_files:
+            tar.add(str(mf), arcname=f"manifests/{mf.name}")
+            packed_count += 1
 
-        # Pack QC report if present
-        qc_report = root / "frame_extraction_qc.json"
-        if qc_report.is_file():
-            tar.add(str(qc_report), arcname="frame_extraction_qc.json")
-            packed += 1
+        # 2. Add Frames under frames/
+        print(f"\n[2/3] Packing {len(frame_files)} frames...", flush=True)
+        for idx, fp in enumerate(frame_files, 1):
+            rel_p = fp.relative_to(actual_frame_root)
+            tar.add(str(fp), arcname=f"frames/{rel_p.as_posix()}")
+            packed_count += 1
+            if idx % 5000 == 0 or idx == len(frame_files):
+                print(f"  ... {idx}/{len(frame_files)} frames packed", flush=True)
 
-        # Pack frames
-        print(f"\nPacking {frame_count} frames...", flush=True)
-        for idx, frame_path in enumerate(sorted((root / "frames").rglob("*.jpg")), 1):
-            arcname = str(frame_path.relative_to(root))
-            tar.add(str(frame_path), arcname=arcname)
-            packed += 1
-            if idx % 5000 == 0:
-                print(f"  ... {idx}/{frame_count} frames packed", flush=True)
-
-        # Pack landmarks
-        print(f"\nPacking {landmark_count} landmark caches...", flush=True)
-        for landmark_path in sorted((root / "landmarks").rglob("*.npz")):
-            arcname = str(landmark_path.relative_to(root))
-            tar.add(str(landmark_path), arcname=arcname)
-            packed += 1
+        # 3. Add Landmarks under landmarks/
+        print(f"\n[3/3] Packing {len(landmark_files)} landmark caches...", flush=True)
+        for idx, lp in enumerate(landmark_files, 1):
+            rel_p = lp.relative_to(actual_landmark_root)
+            tar.add(str(lp), arcname=f"landmarks/{rel_p.as_posix()}")
+            packed_count += 1
+            if idx % 500 == 0 or idx == len(landmark_files):
+                print(f"  ... {idx}/{len(landmark_files)} landmarks packed", flush=True)
 
     size_mb = output.stat().st_size / (1024 * 1024)
     print(f"\n{'=' * 72}")
-    print(f"[DONE] Packed {packed} files → {output}")
-    print(f"       Archive size: {size_mb:.1f} MB")
+    print(f"[SUCCESS] Packed {packed_count} files into {output}")
+    print(f"          Archive Size: {size_mb:.1f} MB")
     print(f"{'=' * 72}")
-    print(f"\nTransfer to Pi4:")
-    print(f"  scp {output.name} pi@<PI4_IP>:/mnt/usb_data/")
-    print(f"\nOn Pi4:")
-    print(f"  cd /mnt/usb_data")
-    print(f"  mv extracted_celebdf extracted_celebdf_old")
-    print(f"  mkdir extracted_celebdf && cd extracted_celebdf")
-    print(f"  tar x{'z' if not args.no_compress else ''}f ../{output.name}")
+    print("\nNext step on Windows:")
+    print(f"  scp {output.name} pi@100.101.16.32:/mnt/usb_data/")
 
 
 if __name__ == "__main__":
