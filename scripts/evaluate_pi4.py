@@ -93,6 +93,8 @@ def process_video_from_manifest(
     # 1. Load landmark cache (same as QALFVideoDataset.__getitem__ line 294-296)
     lm_start = time.perf_counter()
     landmark_file = landmark_root / str(record.landmark_path)
+    if not landmark_file.is_file() and (landmark_root / "landmarks" / str(record.landmark_path)).is_file():
+        landmark_file = landmark_root / "landmarks" / str(record.landmark_path)
     with np.load(landmark_file) as cache:
         landmarks = cache["landmarks"].copy()
         detected = cache["detected"].copy()
@@ -126,6 +128,8 @@ def process_video_from_manifest(
         for position in texture_positions:
             source_index = int(clip[position])
             frame_path = frame_root / record.frames[source_index]
+            if not frame_path.is_file() and (frame_root / "frames" / record.frames[source_index]).is_file():
+                frame_path = frame_root / "frames" / record.frames[source_index]
             image_bgr = cv2.imread(str(frame_path))
             if image_bgr is None:
                 raise FileNotFoundError(f"Cannot read frame: {frame_path}")
