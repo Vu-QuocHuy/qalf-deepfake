@@ -47,6 +47,35 @@ FORCE_EVAL="${QALF_FFPP_FORCE_EVAL:-0}"
 BOOTSTRAP="${QALF_FFPP_BOOTSTRAP:-1}"
 BOOTSTRAP_REPS="${QALF_FFPP_BOOTSTRAP_REPS:-2000}"
 SUMMARY_ONLY="${QALF_FFPP_SUMMARY_ONLY:-0}"
+ALL_PROFILES=(baseline no_sbi no_ema texture_only no_pretrain no_aug sbi_half)
+PROFILES_RAW="${QALF_FFPP_PROFILES:-${ALL_PROFILES[*]}}"
+read -r -a SELECTED_PROFILES <<< "$PROFILES_RAW"
+if (( ${#SELECTED_PROFILES[@]} == 0 )); then
+    echo "ERROR: QALF_FFPP_PROFILES must contain at least one profile" >&2
+    exit 1
+fi
+profile_enabled() {
+    local requested="$1" selected
+    for selected in "${SELECTED_PROFILES[@]}"; do
+        if [[ "$selected" == "$requested" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+for selected in "${SELECTED_PROFILES[@]}"; do
+    known=0
+    for profile in "${ALL_PROFILES[@]}"; do
+        if [[ "$selected" == "$profile" ]]; then
+            known=1
+            break
+        fi
+    done
+    if (( ! known )); then
+        echo "ERROR: unknown FF++ profile '$selected'; expected one of: ${ALL_PROFILES[*]}" >&2
+        exit 1
+    fi
+done
 if [[ "$FLIP_TTA" == 1 ]]; then
     TTA_SUFFIX="tta"
 else
@@ -101,11 +130,15 @@ for spec in \
     "baseline:$ABLATION_ROOT/baseline_seed" \
     "no_sbi:$ABLATION_ROOT/no_sbi_seed" \
     "no_ema:$ABLATION_ROOT/no_ema_seed" \
+    "texture_only:$ABLATION_ROOT/texture_only_seed" \
     "no_pretrain:$ABLATION_ROOT/no_pretrain_seed" \
     "no_aug:$ABLATION_ROOT/no_aug_seed" \
     "sbi_half:$ABLATION_ROOT/sbi_half_seed"; do
     profile="${spec%%:*}"
     prefix="${spec#*:}"
+    if ! profile_enabled "$profile"; then
+        continue
+    fi
     for seed in "${SEEDS[@]}"; do
         if [[ "$profile" == no_pretrain || "$profile" == no_aug || "$profile" == sbi_half ]] && [[ "$seed" != "42" ]]; then
             continue
@@ -115,6 +148,7 @@ for spec in \
 done
 
 echo "TextureSBI FF++ in-domain ablation evaluation"
+echo "Profiles: ${SELECTED_PROFILES[*]}"
 echo "Target: $TEST_MANIFEST"
 echo "Threshold calibration: $VAL_MANIFEST ($THRESHOLD_SELECTION)"
 echo "Fake methods: ${FAKE_METHODS[*]} (FaceShifter excluded)"

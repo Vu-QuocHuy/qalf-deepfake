@@ -107,17 +107,32 @@ To run the registered comparisons in one resumable job:
 & "C:\Program Files\Git\bin\bash.exe" ./run_ablation_suite.sh
 ```
 
-The suite runs three seeds for the SBI and EMA controls, one seed for the
-pretrained, augmentation, and SBI-mixture controls, then evaluates frame
+The suite runs five seeds for the full SBI/EMA grid (`baseline`, `no_sbi`,
+`no_ema`, and `texture_only`), one seed for the pretrained, augmentation, and
+SBI-mixture controls, then evaluates frame
 count, clip count, aggregation, TTA, and corruption robustness. Existing
 checkpoints and metrics are skipped, so it can safely be restarted. Results
 default to `E:/DeepFakeData/experiments/ablation` with short names such as
-`baseline_seed42`, `no_sbi_seed42`, and `no_ema_seed42`.
+`baseline_seed42`, `no_sbi_seed42`, `no_ema_seed42`, and
+`texture_only_seed42`.
 The core comparisons now default to five seeds: `0 17 42 73 123`. After each
 video-level evaluation the suite writes `bootstrap_ci.json/.md`, using 2,000
 video resamples by default. Set `QALF_BOOTSTRAP_REPS` to change the number of
 resamples; the FF++ validation threshold is held fixed during resampling.
 Use `QALF_ABLATION_MODE=train`, `eval`, or `robustness` to run one phase only.
+Set `QALF_ABLATION_PROFILES="texture_only"` to train/evaluate only the plain
+texture control (`--no-sbi --ema-decay 0 --validation-weights raw`) without
+starting the other profiles. For example:
+
+```powershell
+$env:QALF_ABLATION_PROFILES="texture_only"
+$env:QALF_ABLATION_MODE="train"
+& "C:\Program Files\Git\bin\bash.exe" ./run_ablation_suite.sh
+$env:QALF_ABLATION_MODE="eval"
+& "C:\Program Files\Git\bin\bash.exe" ./run_ablation_suite.sh
+Remove-Item Env:QALF_ABLATION_PROFILES
+Remove-Item Env:QALF_ABLATION_MODE
+```
 
 ### FF++ in-domain evaluation
 
@@ -128,8 +143,8 @@ split, without retraining:
 & "C:\Program Files\Git\bin\bash.exe" ./run_ffpp_indomain_ablation.sh
 ```
 
-The runner evaluates `baseline`, `no_sbi`, `no_ema`, `no_pretrain`, `no_aug`,
-and `sbi_half` using the existing checkpoints under
+The runner evaluates `baseline`, `no_sbi`, `no_ema`, `texture_only`,
+`no_pretrain`, `no_aug`, and `sbi_half` using the existing checkpoints under
 `E:/DeepFakeData/experiments/ablation`. It uses FF++ validation only for
 threshold calibration, evaluates three clips with mean aggregation, and
 explicitly includes only `Deepfakes`, `Face2Face`, `FaceSwap`, and
@@ -142,6 +157,14 @@ EER-threshold report, or set `QALF_FFPP_TEST_MANIFEST` if the official test
 manifest is stored at a different path. If only the FF++ validation manifest
 exists, do not use it as a final in-domain test: it is already used for model
 selection and threshold calibration.
+Set `QALF_FFPP_PROFILES="texture_only"` to evaluate only the new texture-only
+checkpoints on FF++.
+
+```powershell
+$env:QALF_FFPP_PROFILES="texture_only"
+& "C:\Program Files\Git\bin\bash.exe" ./run_ffpp_indomain_ablation.sh
+Remove-Item Env:QALF_FFPP_PROFILES
+```
 
 If FF++ metrics have already been evaluated and only the report must be
 recomputed, use summary-only mode. It discovers existing FF++ `metrics.json`
