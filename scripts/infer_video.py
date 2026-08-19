@@ -146,7 +146,7 @@ def crop_face_to_256(image_rgb: np.ndarray, mtcnn_detector=None) -> np.ndarray:
 
 def process_video_pipeline(
     video_path: str | Path,
-    landmarker: FaceLandmarkerExtractor,
+    landmarker: FaceLandmarkerExtractor | None,
     model: torch.nn.Module | None,
     onnx_session: object | None,
     mtcnn_detector: object | None = None,
@@ -159,6 +159,7 @@ def process_video_pipeline(
     aggregation: str = "mean",
     top_k: int = 1,
     device: torch.device = torch.device("cpu"),
+    no_landmarks: bool = False,
 ) -> dict[str, object]:
     """Run exact end-to-end edge pipeline matching training/testing protocol."""
     timing: dict[str, float] = {}
@@ -196,8 +197,14 @@ def process_video_pipeline(
     for idx in all_indices:
         raw_frame = frame_dict[idx]
         face_256 = crop_face_to_256(raw_frame, mtcnn_detector=mtcnn_detector)
-        pts = landmarker.process(face_256)
-        has_lms = pts is not None
+        
+        if no_landmarks or landmarker is None:
+            has_lms = False
+            pts = None
+        else:
+            pts = landmarker.process(face_256)
+            has_lms = pts is not None
+
         crop, _ = _aligned_full_face(
             face_256,
             pts if has_lms else np.zeros((468, 3), dtype=np.float32),
@@ -299,10 +306,11 @@ def main() -> None:
     parser.add_argument("--texture-frames", type=int, default=8, help="Number of texture frames sampled across window (default 8)")
     parser.add_argument("--target-fps", type=float, default=10.0, help="Target temporal sampling rate (default 10.0 FPS)")
     parser.add_argument("--clips", type=int, default=3, help="Clips per video (default 3 matching paper protocol, 1 for fast edge)")
-    parser.add_argument("--no-flip-tta", action="store_true", help="Disable test-time horizontal flip augmentation")
     parser.add_argument("--aggregation", choices=["mean", "topk"], default="mean", help="Clip score aggregation method")
     parser.add_argument("--top-k", type=int, default=1, help="Top-K clips to aggregate if using topk")
     parser.add_argument("--image-size", type=int, default=160, help="Input resolution (160x160)")
+    parser.add_argument("--no-flip-tta", action="store_true", help="Disable test-time horizontal flip augmentation")
+    parser.add_argument("--no-landmarks", action="store_true", help="Ablation: Disable landmark alignment, only resize face crop (MASSIVELY FASTER)")
     parser.add_argument("--threshold", type=float, default=None, help="Decision threshold for Real vs Fake (auto-loaded if None)")
     parser.add_argument("--landmark-backend", default="auto", choices=["auto", "mediapipe", "opencv"], help="Landmark backend")
     parser.add_argument("--cpu-threads", type=int, default=4, help="Number of CPU threads to use on Pi 4")
@@ -357,16 +365,18 @@ def main() -> None:
             mtcnn_detector = None
 
     # 3. Setup Face Landmarker
-    is_arm = platform.machine().lower() in ("aarch64", "arm64", "armv7l", "armv8l")
-    lm_model_path = args.model_task
-    if args.landmark_backend == "mediapipe" or (args.landmark_backend == "auto" and not is_arm):
-        lm_model_path = ensure_face_landmarker_model(args.model_task, download=True)
-    landmarker = FaceLandmarkerExtractor(
-        lm_model_path,
-        running_mode="image",
-        min_confidence=0.5,
-        backend=args.landmark_backend,
-    )
+    landmarker = None
+    if not args.no_landmarks:
+        is_arm = platform.machine().lower() in ("aarch64", "arm64", "armv7l", "armv8l")
+        lm_model_path = args.model_task
+        if args.landmark_backend == "mediapipe" or (args.landmark_backend == "auto" and not is_arm):
+            lm_model_path = ensure_face_landmarker_model(args.model_task, download=True)
+        landmarker = FaceLandmarkerExtractor(
+            lm_model_path,
+            running_mode="image",
+            min_confidence=0.5,
+            backend=args.landmark_backend,
+        )
 
     video_files = []
     if args.video:
@@ -399,6 +409,7 @@ def main() -> None:
                 aggregation=args.aggregation,
                 top_k=args.top_k,
                 device=torch.device("cpu"),
+                no_landmarks=args.no_landmarks,
             )
             fake_prob = rep["detection"]["fake_probability"]
             prediction = "FAKE" if fake_prob >= threshold else "REAL"
