@@ -84,6 +84,7 @@ def process_video_from_manifest(
     clips_per_video: int,
     flip_tta: bool,
     onnx_session: object,
+    no_landmarks: bool = False,
 ) -> dict[str, object]:
     """Process one video using pre-extracted frames + landmarks, matching server exactly."""
     timing: dict[str, float] = {}
@@ -133,7 +134,7 @@ def process_video_from_manifest(
             canonical, _ = _aligned_full_face(
                 image_rgb,
                 landmarks[source_index],
-                bool(detected[source_index]),
+                False if no_landmarks else bool(detected[source_index]),
                 image_size,
             )
             normalized = canonical.astype(np.float32) / 255.0
@@ -227,6 +228,8 @@ def main() -> None:
                         help="Enable horizontal flip test-time augmentation (default True)")
     parser.add_argument("--no-flip-tta", action="store_true",
                         help="Disable flip TTA")
+    parser.add_argument("--no-landmarks", action="store_true",
+                        help="Ablation: Disable landmark alignment, only resize face crop")
     parser.add_argument("--threshold", type=float, default=None,
                         help="Decision threshold (auto-loaded from ONNX metadata if not set)")
     parser.add_argument("--cpu-threads", type=int, default=4)
@@ -291,6 +294,7 @@ def main() -> None:
                 clips_per_video=args.clips_per_video,
                 flip_tta=flip_tta,
                 onnx_session=onnx_session,
+                no_landmarks=args.no_landmarks,
             )
             agg_score = aggregate_video_scores(
                 result["clip_scores"],
