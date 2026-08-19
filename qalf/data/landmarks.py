@@ -167,6 +167,7 @@ class FaceLandmarkerExtractor:
         if running_mode not in SUPPORTED_RUNNING_MODES:
             raise ValueError(f"Unsupported Face Landmarker running mode: {running_mode}")
         self.running_mode = running_mode
+        self.backend = backend
         self.fallback = None
         self.mp = None
         self.landmarker = None
@@ -195,7 +196,9 @@ class FaceLandmarkerExtractor:
                 output_facial_transformation_matrixes=False,
             )
             self.landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(options)
-        except Exception:
+        except Exception as e:
+            if backend == "mediapipe":
+                raise RuntimeError(f"Explicit mediapipe backend requested but failed to load: {e}")
             self.mp = None
             self.landmarker = None
             self.fallback = OpenCVAfflineLandmarker()
@@ -237,7 +240,9 @@ class FaceLandmarkerExtractor:
                 [(point.x, point.y, point.z) for point in points[:468]],
                 dtype=np.float32,
             )
-        except Exception:
+        except Exception as e:
+            if hasattr(self, "backend") and self.backend == "mediapipe":
+                raise RuntimeError(f"MediaPipe failed during processing: {e}")
             # Runtime fallback if execution fails
             if self.fallback is None:
                 self.fallback = OpenCVAfflineLandmarker()
