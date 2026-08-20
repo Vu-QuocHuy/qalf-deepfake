@@ -187,7 +187,7 @@ def main() -> None:
         lines.append(
             f"| {method} | {len(selected)} | {rendered[0]} | {rendered[1]} | {rendered[2]} | "
             f"{rendered[3]} | {rendered[4]} | {rendered[5]} | {rendered[6]} | {rendered[7]} | "
-            f"{rendered[8]} | {rendered[9]} | {rendered[10]} |"
+            f"{rendered[8]} | {rendered[9]} |"
         )
         grouped.append(grouped_row)
 
