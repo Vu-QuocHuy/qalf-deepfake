@@ -96,7 +96,7 @@ def main():
         
         # 2. Pi4 MTCNN Face Crop
         pi4_crop, pi4_bbox = crop_face_to_256(pi4_raw_rgb, mtcnn)
-        pi4_crop_bgr = cv2.cvtColor(pi4_crop, cv2.RGB2BGR)
+        pi4_crop_bgr = cv2.cvtColor(pi4_crop, cv2.COLOR_RGB2BGR)
         
         # 3. Load Server Crop
         server_crop = cv2.imread(str(server_img_path))
