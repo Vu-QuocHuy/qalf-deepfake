@@ -15,7 +15,7 @@ if [ ! -f "$VENV_PYTHON" ]; then
     exit 1
 fi
 
-DATASET_ROOT="$USB_ROOT/celebdf_v2/test"
+DATASET_ROOT="$USB_ROOT/celebdf_test_518"
 TEST_LIST="$USB_ROOT/celebdf_test.txt"
 OUTPUT_DIR="$USB_ROOT/extracted_celebdf_pi4_true"
 MANIFEST="$OUTPUT_DIR/manifests/celebdf_test.jsonl"

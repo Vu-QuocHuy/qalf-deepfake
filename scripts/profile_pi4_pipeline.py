@@ -50,7 +50,7 @@ def main():
     print("   PI 4 END-TO-END PIPELINE & HARDWARE PROFILER (1 VIDEO)   ")
     print("=" * 70)
     
-    video_path = Path("/mnt/usb_data/celebdf_v2/test/fake/Celeb-synthesis/Celeb-synthesis__id1_id2_0002.mp4")
+    video_path = Path("/mnt/usb_data/celebdf_test_518/Celeb-synthesis/id1_id2_0002.mp4")
     onnx_model = Path("models/qalf.onnx")
     
     if not video_path.exists():

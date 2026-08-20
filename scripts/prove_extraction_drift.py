@@ -49,7 +49,7 @@ def main():
     print("=" * 60)
     
     server_root = Path("/mnt/usb_data/extracted_celebdf_server")
-    video_root = Path("/mnt/usb_data/celebdf_v2/test")
+    video_root = Path("/mnt/usb_data/celebdf_test_518")
     manifest_path = server_root / "manifests" / "celebdf_test_landmarks.jsonl"
     
     if not manifest_path.exists():
@@ -71,7 +71,7 @@ def main():
         rec = records[vid]
         # Reconstruct original MP4 path from video_id (e.g. Celeb-synthesis__id1_id2_0002 -> Celeb-synthesis/id1_id2_0002.mp4)
         vid_rel_path = vid.replace("__", "/") + ".mp4"
-        mp4_path = video_root.parent / vid_rel_path
+        mp4_path = video_root / vid_rel_path
         
         if not mp4_path.exists():
             print(f"Skipping {vid}: MP4 not found at {mp4_path}")
