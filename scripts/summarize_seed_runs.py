@@ -16,6 +16,8 @@ METRIC_KEYS = (
     "eer",
     "balanced_accuracy",
     "accuracy",
+    "precision_fake",
+    "recall_fake",
     "f1_fake",
     "acer",
 )
@@ -85,13 +87,17 @@ def main() -> None:
     markdown_lines = [
         "# TextureSBI baseline multi-seed summary",
         "",
-        "| Seed | Status | Best epoch | FF++ val AUC | Celeb-DF AUC | AP | EER | Balanced acc | Accuracy | F1 fake | ACER |",
-        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "Binary convention: label 1 is the positive/fake class and label 0 is the negative/real class. "
+        "Precision, Recall and F1 below are positive-class metrics.",
+        "",
+        "| Seed | Status | Best epoch | FF++ val AUC | Celeb-DF AUC | AP | EER | Balanced acc | Accuracy | Precision (pos=fake) | Recall (pos=fake) | F1 (pos=fake) | ACER |",
+        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         markdown_lines.append(
             "| {seed} | {status} | {best_epoch} | {ffpp_val_auc} | {auc} | {average_precision} | "
-            "{eer} | {balanced_accuracy} | {accuracy} | {f1_fake} | {acer} |".format(
+            "{eer} | {balanced_accuracy} | {accuracy} | {precision_fake} | {recall_fake} | "
+            "{f1_fake} | {acer} |".format(
                 seed=row["seed"],
                 status=row["status"],
                 best_epoch=row.get("best_epoch", "NA"),
@@ -101,6 +107,8 @@ def main() -> None:
                 eer=_format(row.get("eer")),
                 balanced_accuracy=_format(row.get("balanced_accuracy")),
                 accuracy=_format(row.get("accuracy")),
+                precision_fake=_format(row.get("precision_fake")),
+                recall_fake=_format(row.get("recall_fake")),
                 f1_fake=_format(row.get("f1_fake")),
                 acer=_format(row.get("acer")),
             )
@@ -108,10 +116,15 @@ def main() -> None:
 
     markdown_lines.extend(("", "## Mean ± standard deviation", ""))
     complete_rows = [row for row in rows if row["status"] == "complete"]
+    labels = {
+        "precision_fake": "Precision (pos=fake)",
+        "recall_fake": "Recall (pos=fake)",
+        "f1_fake": "F1 (pos=fake)",
+    }
     for key in ("ffpp_val_auc", *METRIC_KEYS):
         values = [_number(row[key]) for row in complete_rows if row.get(key) is not None]
         mean, std = _summary(values)
-        label = "FF++ val AUC" if key == "ffpp_val_auc" else key
+        label = "FF++ val AUC" if key == "ffpp_val_auc" else labels.get(key, key)
         markdown_lines.append(f"- {label}: {_format(mean)} ± {_format(std)}")
     markdown_lines.extend(("", f"CSV: {output_stem.with_suffix('.csv')}", ""))
     output_stem.with_suffix(".md").write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")

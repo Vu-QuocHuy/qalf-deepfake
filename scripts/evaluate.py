@@ -102,9 +102,9 @@ def main() -> None:
     parser.add_argument("--threshold-clips-per-video", type=int)
     parser.add_argument(
         "--threshold-selection",
-        choices=("youden_j", "eer"),
-        default="youden_j",
-        help="Validation threshold rule; EER means closest finite ROC point.",
+        choices=("eer",),
+        default="eer",
+        help="Validation threshold rule: closest finite ROC point to EER.",
     )
     parser.add_argument("--texture-flip-tta", action="store_true")
     parser.add_argument(
@@ -234,7 +234,7 @@ def main() -> None:
     effective_threshold_selection = (
         args.threshold_selection
         if args.threshold_manifest
-        else str(checkpoint.get("threshold_selection", "youden_j_ffpp_validation"))
+        else str(checkpoint.get("threshold_selection", "eer_ffpp_validation"))
     )
     context = {
         "Model": (
@@ -309,7 +309,7 @@ def main() -> None:
                 f"{args.threshold_selection}_ffpp_validation"
                 if args.threshold_manifest
                 else checkpoint.get(
-                    "threshold_selection", "youden_j_ffpp_validation"
+                    "threshold_selection", "eer_ffpp_validation"
                 )
             ),
         },

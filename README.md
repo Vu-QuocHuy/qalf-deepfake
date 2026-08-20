@@ -52,8 +52,8 @@ weights for FF++ validation, and saves those weights in `best.pt`.
 
 The locked baseline protocol uses FF++ c23, 32-frame clip windows, and 8
 texture frames during both training and evaluation. Evaluation uses three
-clips per video, mean clip aggregation, horizontal-flip TTA, and an FF++
-validation Youden-J threshold. Set `QALF_TEST_TEXTURE_FRAMES=12` only for a
+clips per video, mean clip aggregation, horizontal-flip TTA, and the closest-to-
+EER threshold calibrated on FF++ validation. Set `QALF_TEST_TEXTURE_FRAMES=12` only for a
 separate frame-count ablation.
 
 ### Multi-seed baseline
@@ -85,14 +85,18 @@ ablation. The script uses the clean FF++ validation threshold and never fits
 anything on Celeb-DF. Corruptions are applied after denormalizing RGB tensors
 and normalized again before inference.
 
-The default operating-point rule is Youden-J. To evaluate the alternative
-closest-to-EER threshold without retraining:
+The default operating-point rule is the closest finite ROC threshold to EER.
+Threshold calibration can be repeated without retraining:
 
 ```powershell
 $env:QALF_THRESHOLD_SELECTION="eer"
 & "C:\Program Files\Git\bin\bash.exe" ./run_test.sh
 Remove-Item Env:QALF_THRESHOLD_SELECTION
 ```
+
+Existing checkpoints can be re-evaluated with this rule; the runner recalibrates
+on the FF++ validation manifest and writes a separate `_eer_` output directory.
+Accuracy, Precision, Recall and F1 from older Youden-J reports must not be reused.
 
 Threshold calibration remains restricted to FF++ validation; the selected
 threshold is frozen before Celeb-DF inference. Set the same variable before
@@ -150,10 +154,14 @@ threshold calibration, evaluates three clips with mean aggregation, and
 explicitly includes only `Deepfakes`, `Face2Face`, `FaceSwap`, and
 `NeuralTextures`; `FaceShifter` is excluded. Results are written under
 `E:/DeepFakeData/experiments/ablation/ffpp_test` with a consolidated
-`summary_youden_j.md/.csv`; the report keeps per-seed rows and also writes
-`summary_youden_j_by_method.csv` with method-level mean ± standard deviation.
-Set `QALF_THRESHOLD_SELECTION=eer` for a parallel
-EER-threshold report, or set `QALF_FFPP_TEST_MANIFEST` if the official test
+`summary_eer.md/.csv`; the report keeps per-seed rows and also writes
+`summary_eer_by_method.csv` with method-level mean ± standard deviation.
+The FF++ and Celeb-DF summaries use the same primary metric schema: Accuracy,
+Precision, Recall and F1 for the positive class (`label=1`, fake), plus ROC-AUC,
+AP, EER, balanced accuracy and ACER. Real is the negative class (`label=0`);
+separate real-class Precision/Recall/F1 columns are retained only in raw
+`metrics.json` diagnostics, not in the paper summary table.
+Set `QALF_FFPP_TEST_MANIFEST` if the official test
 manifest is stored at a different path. If only the FF++ validation manifest
 exists, do not use it as a final in-domain test: it is already used for model
 selection and threshold calibration.

@@ -203,9 +203,9 @@ def main() -> None:
     parser.add_argument("--threshold-clips-per-video", type=int, default=3)
     parser.add_argument(
         "--threshold-selection",
-        choices=("youden_j", "eer"),
-        default="youden_j",
-        help="Validation threshold rule; EER means closest finite ROC point.",
+        choices=("eer",),
+        default="eer",
+        help="Validation threshold rule: closest finite ROC point to EER.",
     )
     parser.add_argument("--texture-frames", type=int, default=12)
     parser.add_argument("--clips-per-video", type=int, default=3)

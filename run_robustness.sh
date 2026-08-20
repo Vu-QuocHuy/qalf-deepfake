@@ -17,7 +17,7 @@ FFPP_ROOT="$DATA_ROOT/landmarks/ffpp-landmark"
 CELEBDF_ROOT="$DATA_ROOT/landmarks/celebdf-landmark"
 CHECKPOINT="${QALF_ROBUSTNESS_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema/best.pt}"
 TEXTURE_FRAMES="${QALF_ROBUSTNESS_TEXTURE_FRAMES:-8}"
-THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-youden_j}"
+THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-eer}"
 OUTPUT="${QALF_ROBUSTNESS_OUTPUT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_${TEXTURE_FRAMES}f_${THRESHOLD_SELECTION}_robustness.json}"
 "$PYTHON" scripts/evaluate_robustness.py \
   --checkpoint "$CHECKPOINT" \

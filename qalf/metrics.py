@@ -15,32 +15,35 @@ from sklearn.metrics import (
 def select_threshold(
     labels: np.ndarray,
     scores: np.ndarray,
-    strategy: str = "youden_j",
+    strategy: str = "eer",
 ) -> float:
     """Select a validation threshold without using the target test set.
 
-    ``youden_j`` maximizes TPR-FPR and is the historical project default.
     ``eer`` selects the finite ROC threshold whose FPR and FNR are closest;
     this is a reproducible closest-to-EER operating point for discrete scores.
     """
 
-    if strategy not in {"youden_j", "eer"}:
-        raise ValueError(f"Unsupported threshold strategy: {strategy}")
+    if strategy != "eer":
+        raise ValueError("Only the EER threshold strategy is supported")
     false_positive, true_positive, thresholds = roc_curve(labels, scores)
     finite = np.isfinite(thresholds)
     if not finite.any():
         return 0.5
-    if strategy == "eer":
-        false_negative = 1.0 - true_positive
-        index = int(np.argmin(np.abs(false_positive - false_negative)[finite]))
-    else:
-        index = int(np.argmax((true_positive - false_positive)[finite]))
+    false_negative = 1.0 - true_positive
+    index = int(np.argmin(np.abs(false_positive - false_negative)[finite]))
     return float(thresholds[finite][index])
 
 
 def compute_metrics(
     labels: np.ndarray, scores: np.ndarray, threshold: float
 ) -> dict[str, float | int]:
+    """Compute video-level metrics with ``1=fake`` as the positive label.
+
+    The class-specific keys are kept for auditability, while the generic
+    ``precision``, ``recall`` and ``f1`` aliases all refer to the positive
+    (fake) class.  This matches the binary convention used by the paper tables.
+    """
+
     labels = np.asarray(labels, dtype=np.int64)
     scores = np.asarray(scores, dtype=np.float64)
     predictions = (scores >= threshold).astype(np.int64)
@@ -70,6 +73,8 @@ def compute_metrics(
         "threshold": float(threshold),
         "accuracy": float(accuracy_score(labels, predictions)),
         "balanced_accuracy": float(balanced_accuracy_score(labels, predictions)),
+        "precision": precision_fake,
+        "recall": recall_fake,
         "f1": f1_fake,
         "f1_fake": f1_fake,
         "f1_real": f1_real,

@@ -424,7 +424,7 @@ def main() -> None:
             "ema_decay": ema_decay,
             "label_convention": "real=0,fake=1",
             "score_target": "fake",
-            "threshold_selection": "youden_j_ffpp_validation",
+            "threshold_selection": "eer_ffpp_validation",
             "best_metric": "val_auc",
             "architecture": "texture_sbi",
         }
