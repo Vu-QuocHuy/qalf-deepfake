@@ -16,7 +16,7 @@ if [ ! -f "$VENV_PYTHON" ]; then
 fi
 
 DATASET_ROOT="$USB_ROOT/celebdf_test_518"
-TEST_LIST="$USB_ROOT/celebdf_test.txt"
+TEST_LIST="$USB_ROOT/celebdf_test_518/List_of_testing_videos.txt"
 OUTPUT_DIR="$USB_ROOT/extracted_celebdf_pi4_true"
 MANIFEST="$OUTPUT_DIR/manifests/celebdf_test.jsonl"
 EVAL_DIR="$USB_ROOT/eval_pi4_true_e2e"
