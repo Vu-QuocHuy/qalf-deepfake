@@ -34,8 +34,7 @@ $VENV_PYTHON scripts/extract_frames.py celebdf \
     --test-list "$TEST_LIST" \
     --output-root "$OUTPUT_DIR" \
     --device cpu \
-    --mtcnn-batch-size 1 \
-    --cpu-threads 4
+    --mtcnn-batch-size 1
 
 # 2. Extract Landmarks (MediaPipe 468 points)
 echo -e "\n---> [2/3] Extracting Facial Landmarks using MediaPipe..."
