@@ -93,6 +93,7 @@ def main() -> None:
         "optimal_threshold": threshold,
         "bytes": output.stat().st_size,
         "opset": args.opset,
+        "optimal_threshold": float(checkpoint.get("threshold", 0.5)),
         "verified": False,
     }
 

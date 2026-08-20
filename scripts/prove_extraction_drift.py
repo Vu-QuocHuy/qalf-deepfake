@@ -69,11 +69,13 @@ def main():
     
     for vid in sample_vids:
         rec = records[vid]
-        # Find raw mp4
-        mp4_path = list(video_root.rglob(f"{vid}.mp4"))
-        if not mp4_path:
+        # Reconstruct original MP4 path from video_id (e.g. Celeb-synthesis__id1_id2_0002 -> Celeb-synthesis/id1_id2_0002.mp4)
+        vid_rel_path = vid.replace("__", "/") + ".mp4"
+        mp4_path = video_root.parent / vid_rel_path
+        
+        if not mp4_path.exists():
+            print(f"Skipping {vid}: MP4 not found at {mp4_path}")
             continue
-        mp4_path = mp4_path[0]
         
         # Read the first extracted frame's index (we assume standard 10FPS sampling where frame 0 is frame 0)
         # Note: server manifest lists frames like "frames/.../000000.jpg"
