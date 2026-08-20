@@ -71,7 +71,7 @@ def main():
     print("Loading MediaPipe Landmarker...")
     from qalf.data.landmarks import FaceLandmarkerExtractor, ensure_face_landmarker_model
     lm_model_path = ensure_face_landmarker_model("models/face_landmarker.task", download=True)
-    landmarker = FaceLandmarkerExtractor(lm_model_path, running_mode="image", min_confidence=0.5, backend="mediapipe")
+    landmarker = FaceLandmarkerExtractor(lm_model_path, running_mode="image", min_confidence=0.5, backend="auto")
     
     print(f"\nProcessing video E2E: {video_path.name}")
     print("Starting hardware monitor thread...")

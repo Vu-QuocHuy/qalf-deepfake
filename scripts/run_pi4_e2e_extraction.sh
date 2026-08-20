@@ -42,9 +42,8 @@ echo -e "\n---> [2/3] Extracting Facial Landmarks using MediaPipe..."
 $VENV_PYTHON scripts/extract_landmarks.py \
     --manifest "$MANIFEST" \
     --frame-root "$OUTPUT_DIR" \
-    --output-root "$OUTPUT_DIR/landmarks" \
-    --backend mediapipe \
-    --device cpu
+    --landmark-root "$OUTPUT_DIR/landmarks" \
+    --output-manifest "$OUTPUT_DIR/manifests/celebdf_test_landmarks.jsonl"
 
 # 3. Evaluate Model on the newly extracted E2E data
 echo -e "\n---> [3/3] Evaluating ONNX Model on E2E Data..."
