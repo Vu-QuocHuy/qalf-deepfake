@@ -175,6 +175,7 @@ class FaceLandmarkerExtractor:
         is_arm = platform.machine().lower() in ("aarch64", "arm64", "armv7l", "armv8l")
         if backend == "opencv" or (backend == "auto" and is_arm):
             # Native OpenCV fallback avoids hardware SIGILL on ARM CPUs lacking AES (e.g. Raspberry Pi 4)
+            print(f"[Warning] ARM architecture ({platform.machine()}) detected. MediaPipe SIGILL (AES) avoidance triggered. Falling back to OpenCVAfflineLandmarker (Haar Cascade).", flush=True)
             self.fallback = OpenCVAfflineLandmarker()
             return
         try:

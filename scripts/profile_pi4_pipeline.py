@@ -64,49 +64,65 @@ def main():
     sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     onnx_session = ort.InferenceSession(str(onnx_model), sess_options, providers=["CPUExecutionProvider"])
     
-    print("Loading MTCNN...")
+    print("Initializing MTCNN...")
     from facenet_pytorch import MTCNN
     mtcnn_detector = MTCNN(image_size=256, margin=0, keep_all=False, post_process=False, device="cpu")
     
-    print("Loading MediaPipe Landmarker...")
+    print("Initializing Landmarker Extractor (Auto-backend)...")
     from qalf.data.landmarks import FaceLandmarkerExtractor, ensure_face_landmarker_model
     lm_model_path = ensure_face_landmarker_model("models/face_landmarker.task", download=True)
     landmarker = FaceLandmarkerExtractor(lm_model_path, running_mode="image", min_confidence=0.5, backend="auto")
     
-    print(f"\nProcessing video E2E: {video_path.name}")
+    video_dir = Path("/mnt/usb_data/celebdf_test_518/Celeb-synthesis")
+    video_paths = list(video_dir.glob("*.mp4"))[:5]
+    if not video_paths:
+        print(f"No videos found in {video_dir}")
+        return
+        
+    print(f"\nProcessing {len(video_paths)} videos E2E for stable latency metrics...")
     print("Starting hardware monitor thread...")
     global monitoring_active
     monitor_thread = threading.Thread(target=monitor_hardware)
     monitor_thread.start()
     
+    all_timings = {"1_video_decode_ms": [], "2_landmark_and_crop_ms": [], "3_face_align_and_preprocess_ms": [], "4_model_forward_ms": [], "total_end_to_end_ms": []}
+    
     try:
-        rep = process_video_pipeline(
-            video_path=video_path,
-            landmarker=landmarker,
-            model=None,
-            onnx_session=onnx_session,
-            mtcnn_detector=mtcnn_detector,
-            num_frames=32,
-            texture_frames=8,
-            target_fps=10.0,
-            image_size=160,
-            clips=3,
-            flip_tta=True,
-            aggregation="mean",
-            top_k=1,
-            device=torch.device("cpu"),
-            no_landmarks=False
-        )
+        for idx, video_path in enumerate(video_paths):
+            print(f"  [{idx+1}/{len(video_paths)}] Processing {video_path.name}...")
+            rep = process_video_pipeline(
+                video_path=video_path,
+                landmarker=landmarker,
+                model=None,
+                onnx_session=onnx_session,
+                mtcnn_detector=mtcnn_detector,
+                num_frames=32,
+                texture_frames=8,
+                target_fps=10.0,
+                image_size=160,
+                clips=3,
+                flip_tta=True,
+                aggregation="mean",
+                top_k=1,
+                device=torch.device("cpu"),
+                no_landmarks=False
+            )
+            for k, v in rep["timings_ms"].items():
+                if k in all_timings:
+                    all_timings[k].append(v)
     finally:
         monitoring_active = False
         monitor_thread.join()
         landmarker.close()
 
     print("\n" + "=" * 70)
-    print("                  END-TO-END LATENCY BREAKDOWN                  ")
+    print("             END-TO-END LATENCY BREAKDOWN (Mean of 5 Videos)    ")
     print("=" * 70)
-    for k, v in rep["timings_ms"].items():
-        print(f"  {k:<35}: {v:>8.2f} ms")
+    import statistics
+    for k, v_list in all_timings.items():
+        mean_val = statistics.mean(v_list)
+        std_val = statistics.stdev(v_list) if len(v_list) > 1 else 0.0
+        print(f"  {k:<35}: {mean_val:>8.2f} ms ± {std_val:>5.2f} ms")
         
     print("\n" + "=" * 70)
     print("                  HARDWARE RESOURCE UTILIZATION                 ")
@@ -123,8 +139,6 @@ def main():
     print(f"  CPU Temperature    : Avg: {avg_temp:5.1f}°C | Peak: {max_temp:5.1f}°C")
     
     print("\n" + "=" * 70)
-    print(f"  Final Fake Probability: {rep['detection']['fake_probability']*100:.2f}%")
-    print("=" * 70)
     print("Note: This is the exact End-to-End time (including MP4 decoding and MTCNN).")
     print("Compare this with the Pre-extracted latency to see the preprocessing bottleneck.")
 
