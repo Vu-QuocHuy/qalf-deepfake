@@ -47,15 +47,10 @@ def monitor_hardware():
 
 def main():
     print("=" * 70)
-    print("   PI 4 END-TO-END PIPELINE & HARDWARE PROFILER (1 VIDEO)   ")
+    print("   PI 4 END-TO-END PIPELINE & HARDWARE PROFILER (YuNet DNN)   ")
     print("=" * 70)
     
-    video_path = Path("/mnt/usb_data/celebdf_test_518/Celeb-synthesis/id1_id2_0002.mp4")
     onnx_model = Path("models/qalf.onnx")
-    
-    if not video_path.exists():
-        print(f"Video not found: {video_path}")
-        return
         
     print(f"Loading ONNX model: {onnx_model.name}...")
     import onnxruntime as ort
@@ -64,14 +59,10 @@ def main():
     sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     onnx_session = ort.InferenceSession(str(onnx_model), sess_options, providers=["CPUExecutionProvider"])
     
-    print("Initializing MTCNN...")
-    from facenet_pytorch import MTCNN
-    mtcnn_detector = MTCNN(image_size=256, margin=0, keep_all=False, post_process=False, device="cpu")
-    
-    print("Initializing Landmarker Extractor (Auto-backend)...")
-    from qalf.data.landmarks import FaceLandmarkerExtractor, ensure_face_landmarker_model
-    lm_model_path = ensure_face_landmarker_model("models/face_landmarker.task", download=True)
-    landmarker = FaceLandmarkerExtractor(lm_model_path, running_mode="image", min_confidence=0.5, backend="auto")
+    print("Initializing YuNet DNN Face Detector + Landmarker...")
+    from qalf.data.landmarks import FaceLandmarkerExtractor, OpenCVYuNetLandmarker
+    yunet_detector = OpenCVYuNetLandmarker(score_threshold=0.5)
+    landmarker = FaceLandmarkerExtractor(running_mode="image", min_confidence=0.5, backend="yunet")
     
     video_dir = Path("/mnt/usb_data/celebdf_test_518/Celeb-synthesis")
     video_paths = list(video_dir.glob("*.mp4"))[:5]
@@ -95,7 +86,8 @@ def main():
                 landmarker=landmarker,
                 model=None,
                 onnx_session=onnx_session,
-                mtcnn_detector=mtcnn_detector,
+                mtcnn_detector=None,
+                yunet_detector=yunet_detector,
                 num_frames=32,
                 texture_frames=8,
                 target_fps=10.0,
@@ -139,8 +131,9 @@ def main():
     print(f"  CPU Temperature    : Avg: {avg_temp:5.1f}°C | Peak: {max_temp:5.1f}°C")
     
     print("\n" + "=" * 70)
-    print("Note: This is the exact End-to-End time (including MP4 decoding and MTCNN).")
-    print("Compare this with the Pre-extracted latency to see the preprocessing bottleneck.")
+    print("Note: Pipeline uses YuNet DNN for face detection + landmarks (replaces MTCNN + Haar Cascade).")
+    print("Compare with previous MTCNN+Haar benchmark to see the speed improvement.")
 
 if __name__ == "__main__":
     main()
+

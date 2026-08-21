@@ -29,7 +29,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from qalf.data.dataset import IMAGE_MEAN, IMAGE_STD, _aligned_full_face
-from qalf.data.landmarks import FaceLandmarkerExtractor, ensure_face_landmarker_model
+from qalf.data.landmarks import FaceLandmarkerExtractor, OpenCVYuNetLandmarker, ensure_face_landmarker_model
 
 
 def percentile(values: list[float], fraction: float) -> float:
@@ -119,9 +119,25 @@ def extract_video_frames(
     return frame_dict, read_elapsed_ms
 
 
-def crop_face_to_256(image_rgb: np.ndarray, mtcnn_detector=None) -> np.ndarray:
+def crop_face_to_256(image_rgb: np.ndarray, mtcnn_detector=None, yunet_detector=None) -> np.ndarray:
     """Crop face to square with 35% margin resized to 256x256 matching extract_frames.py."""
     height, width = image_rgb.shape[:2]
+    # Prefer YuNet over MTCNN
+    if yunet_detector is not None:
+        bbox = yunet_detector.detect_bbox(image_rgb)
+        if bbox is not None:
+            bx1, by1, bx2, by2 = bbox
+            bw, bh = bx2 - bx1, by2 - by1
+            cx = bx1 + bw / 2.0
+            cy = by1 + bh / 2.0
+            side = max(bw, bh) * 1.35
+            x1 = max(0, int(round(cx - side / 2.0)))
+            y1 = max(0, int(round(cy - side / 2.0)))
+            x2 = min(width, int(round(cx + side / 2.0)))
+            y2 = min(height, int(round(cy + side / 2.0)))
+            crop = image_rgb[y1:y2, x1:x2]
+            if crop.shape[0] > 16 and crop.shape[1] > 16:
+                return cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
     if mtcnn_detector is not None:
         try:
             boxes, _ = mtcnn_detector.detect(image_rgb)
@@ -150,6 +166,7 @@ def process_video_pipeline(
     model: torch.nn.Module | None,
     onnx_session: object | None,
     mtcnn_detector: object | None = None,
+    yunet_detector: object | None = None,
     num_frames: int = 32,
     texture_frames: int = 8,
     target_fps: float = 10.0,
@@ -196,7 +213,7 @@ def process_video_pipeline(
 
     for idx in all_indices:
         raw_frame = frame_dict[idx]
-        face_256 = crop_face_to_256(raw_frame, mtcnn_detector=mtcnn_detector)
+        face_256 = crop_face_to_256(raw_frame, mtcnn_detector=mtcnn_detector, yunet_detector=yunet_detector)
         
         if no_landmarks or landmarker is None:
             has_lms = False
@@ -312,9 +329,10 @@ def main() -> None:
     parser.add_argument("--no-flip-tta", action="store_true", help="Disable test-time horizontal flip augmentation")
     parser.add_argument("--no-landmarks", action="store_true", help="Ablation: Disable landmark alignment, only resize face crop (MASSIVELY FASTER)")
     parser.add_argument("--threshold", type=float, default=None, help="Decision threshold for Real vs Fake (auto-loaded if None)")
-    parser.add_argument("--landmark-backend", default="auto", choices=["auto", "mediapipe", "opencv"], help="Landmark backend")
+    parser.add_argument("--landmark-backend", default="auto", choices=["auto", "mediapipe", "opencv", "yunet"], help="Landmark backend")
     parser.add_argument("--cpu-threads", type=int, default=4, help="Number of CPU threads to use on Pi 4")
-    parser.add_argument("--use-mtcnn", action="store_true", default=True, help="Use MTCNN for precise 35% margin face cropping")
+    parser.add_argument("--use-mtcnn", action="store_true", default=False, help="Use MTCNN for face cropping (legacy, slower)")
+    parser.add_argument("--use-yunet", action="store_true", default=True, help="Use YuNet DNN for face detection (default, faster)")
     parser.add_argument("--output-json", default=None, help="Save timing and prediction report to JSON")
     args = parser.parse_args()
 
@@ -355,14 +373,17 @@ def main() -> None:
             threshold = float(checkpoint.get("threshold", checkpoint.get("optimal_threshold", 0.6712)))
             print(f"[Info] Auto-loaded calibrated optimal threshold: {threshold:.4f} from checkpoint")
 
-    # 2. Setup MTCNN Face Detector
+    # 2. Setup Face Detector (YuNet preferred over MTCNN)
     mtcnn_detector = None
-    if args.use_mtcnn:
+    yunet_detector = None
+    if args.use_mtcnn and not args.use_yunet:
         try:
             from facenet_pytorch import MTCNN
             mtcnn_detector = MTCNN(image_size=256, margin=0, keep_all=False, post_process=False, device="cpu")
         except Exception:
             mtcnn_detector = None
+    else:
+        yunet_detector = OpenCVYuNetLandmarker(score_threshold=0.5)
 
     # 3. Setup Face Landmarker
     landmarker = None
@@ -400,6 +421,7 @@ def main() -> None:
                 model=model,
                 onnx_session=onnx_session,
                 mtcnn_detector=mtcnn_detector,
+                yunet_detector=yunet_detector,
                 num_frames=args.num_frames,
                 texture_frames=args.texture_frames,
                 target_fps=args.target_fps,

@@ -13,6 +13,12 @@ import numpy as np
 
 from .manifest import VideoRecord, load_manifest, write_manifest
 
+YUNET_MODEL_URL = (
+    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/"
+    "face_detection_yunet_2023mar.onnx"
+)
+YUNET_DEFAULT_PATH = "models/face_detection_yunet_2023mar.onnx"
+
 LANDMARK_IMPLEMENTATION = "mediapipe_tasks_face_landmarker_first_468_v2"
 SUPPORTED_RUNNING_MODES = {"image", "video"}
 FACE_LANDMARKER_MODEL_URL = (
@@ -153,8 +159,94 @@ class OpenCVAfflineLandmarker:
         return pts
 
 
+def _ensure_yunet_model(path: str | Path | None = None) -> Path:
+    """Download the YuNet ONNX model if it doesn't exist."""
+    target = Path(path or YUNET_DEFAULT_PATH)
+    if target.is_file():
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(target.suffix + ".download")
+    try:
+        urllib.request.urlretrieve(YUNET_MODEL_URL, temporary)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return target
+
+
+class OpenCVYuNetLandmarker:
+    """DNN-based face detector + 5-point landmarker using OpenCV YuNet.
+
+    YuNet is a lightweight (~230KB) single-pass DNN that returns both a bounding
+    box AND 5 facial landmarks (right eye, left eye, nose, right mouth corner,
+    left mouth corner) in one forward pass. This replaces both MTCNN (for face
+    detection) and MediaPipe/Haar Cascade (for landmark extraction).
+
+    Output: 5x3 numpy array with normalized (x, y, 0) coordinates, matching the
+    contract expected by _aligned_full_face() when landmarks.shape[0] == 5.
+    """
+
+    def __init__(self, model_path: str | Path | None = None, score_threshold: float = 0.5) -> None:
+        self.model_path = str(_ensure_yunet_model(model_path))
+        self.score_threshold = score_threshold
+        self._detector: object | None = None
+        self._last_input_size: tuple[int, int] | None = None
+
+    def _get_detector(self, width: int, height: int) -> object:
+        size = (width, height)
+        if self._detector is None or self._last_input_size != size:
+            self._detector = cv2.FaceDetectorYN.create(
+                self.model_path, "", size,
+                score_threshold=self.score_threshold,
+                nms_threshold=0.3,
+                top_k=5,
+            )
+            self._last_input_size = size
+        return self._detector
+
+    def close(self) -> None:
+        self._detector = None
+
+    def detect_bbox(self, image_rgb: np.ndarray) -> tuple[float, float, float, float] | None:
+        """Detect the largest face and return (x1, y1, x2, y2) bbox or None."""
+        height, width = image_rgb.shape[:2]
+        if height < 16 or width < 16:
+            return None
+        detector = self._get_detector(width, height)
+        image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+        _, faces = detector.detect(image_bgr)
+        if faces is None or len(faces) == 0:
+            return None
+        # Pick highest confidence face
+        best = max(faces, key=lambda f: f[14])
+        x, y, w, h = best[0], best[1], best[2], best[3]
+        return (float(x), float(y), float(x + w), float(y + h))
+
+    def process(self, image_rgb: np.ndarray, timestamp_ms: int | None = None) -> np.ndarray | None:
+        """Detect face and return 5 normalized landmarks as (5, 3) array."""
+        height, width = image_rgb.shape[:2]
+        if height < 16 or width < 16:
+            return None
+        detector = self._get_detector(width, height)
+        image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+        _, faces = detector.detect(image_bgr)
+        if faces is None or len(faces) == 0:
+            return None
+        # Pick highest confidence face
+        best = max(faces, key=lambda f: f[14])
+        # YuNet output: [x, y, w, h, x_re, y_re, x_le, y_le, x_nose, y_nose, x_rm, y_rm, x_lm, y_lm, score]
+        # Indices: right_eye(4,5), left_eye(6,7), nose(8,9), right_mouth(10,11), left_mouth(12,13)
+        pts = np.zeros((5, 3), dtype=np.float32)
+        pts[0] = [best[4] / width, best[5] / height, 0.0]   # right eye
+        pts[1] = [best[6] / width, best[7] / height, 0.0]   # left eye
+        pts[2] = [best[8] / width, best[9] / height, 0.0]   # nose tip
+        pts[3] = [best[10] / width, best[11] / height, 0.0] # right mouth corner
+        pts[4] = [best[12] / width, best[13] / height, 0.0] # left mouth corner
+        return pts
+
+
 class FaceLandmarkerExtractor:
-    """Thin wrapper around MediaPipe Tasks with automatic OpenCV fallback on ARM."""
+    """Thin wrapper around MediaPipe Tasks with automatic YuNet/OpenCV fallback on ARM."""
 
     def __init__(
         self,
@@ -173,9 +265,13 @@ class FaceLandmarkerExtractor:
         self.landmarker = None
 
         is_arm = platform.machine().lower() in ("aarch64", "arm64", "armv7l", "armv8l")
-        if backend == "opencv" or (backend == "auto" and is_arm):
-            # Native OpenCV fallback avoids hardware SIGILL on ARM CPUs lacking AES (e.g. Raspberry Pi 4)
-            print(f"[Warning] ARM architecture ({platform.machine()}) detected. MediaPipe SIGILL (AES) avoidance triggered. Falling back to OpenCVAfflineLandmarker (Haar Cascade).", flush=True)
+        if backend == "yunet" or (backend == "auto" and is_arm):
+            # YuNet DNN replaces both MTCNN and MediaPipe on ARM — fast, accurate, no AES dependency
+            print(f"[Info] Using OpenCV YuNet DNN landmarker (ARM={is_arm}, backend={backend}).", flush=True)
+            self.fallback = OpenCVYuNetLandmarker(score_threshold=min_confidence)
+            return
+        if backend == "opencv":
+            print(f"[Warning] Using legacy Haar Cascade fallback (backend=opencv).", flush=True)
             self.fallback = OpenCVAfflineLandmarker()
             return
         try:

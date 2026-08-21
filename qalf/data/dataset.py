@@ -79,12 +79,26 @@ def _aligned_full_face(
     output_size: int,
 ) -> tuple[np.ndarray, np.ndarray | None]:
     height, width = image_rgb.shape[:2]
-    if detected and np.isfinite(landmarks).all() and landmarks.shape[0] > 386:
+    if detected and np.isfinite(landmarks).all():
         pixels = landmarks[:, :2] * np.asarray([width, height], dtype=np.float32)
-        left_eye = pixels[[33, 133, 159, 145]].mean(axis=0)
-        right_eye = pixels[[362, 263, 386, 374]].mean(axis=0)
-        mouth = pixels[[13, 14, 61, 291]].mean(axis=0)
-        source = np.float32([left_eye, right_eye, mouth])
+
+        if landmarks.shape[0] == 5:
+            # YuNet 5-point landmarks: [right_eye, left_eye, nose, right_mouth, left_mouth]
+            right_eye = pixels[0]   # maps to "left eye" in canonical alignment coords
+            left_eye = pixels[1]    # maps to "right eye" in canonical alignment coords
+            mouth = (pixels[3] + pixels[4]) / 2.0  # average of mouth corners
+            source = np.float32([right_eye, left_eye, mouth])
+        elif landmarks.shape[0] > 386:
+            # MediaPipe 468-point landmarks
+            left_eye = pixels[[33, 133, 159, 145]].mean(axis=0)
+            right_eye = pixels[[362, 263, 386, 374]].mean(axis=0)
+            mouth = pixels[[13, 14, 61, 291]].mean(axis=0)
+            source = np.float32([left_eye, right_eye, mouth])
+        else:
+            # Unsupported landmark count — fall through to resize
+            canonical = cv2.resize(image_rgb, (output_size, output_size), interpolation=cv2.INTER_AREA)
+            return canonical, None
+
         target = np.float32(
             [
                 [0.32 * output_size, 0.38 * output_size],
