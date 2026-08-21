@@ -1,0 +1,61 @@
+{
+  "seed": 4,
+  "data": {
+    "train_manifest": "data/landmarks/ffpp-landmark-32f-stride2/manifests/ffpp_train_landmarks.jsonl",
+    "val_manifest": "data/landmarks/ffpp-landmark-32f-stride2/manifests/ffpp_val_landmarks.jsonl",
+    "train_frame_root": "/path/to/ffpp_extracted_64f",
+    "train_landmark_root": "/path/to/ffpp_landmarks_32f_stride2",
+    "num_frames": 16,
+    "texture_frames": 8,
+    "image_size": 160,
+    "fake_methods": [
+      "Deepfakes",
+      "Face2Face",
+      "FaceSwap",
+      "NeuralTextures"
+    ],
+    "texture_mode": "full_face",
+    "sbi": {
+      "enabled": true
+    },
+    "texture_augmentation": {
+      "flip_probability": 0.5,
+      "brightness_contrast_probability": 0.6,
+      "gamma_probability": 0.3,
+      "gamma_min": 0.75,
+      "gamma_max": 1.25,
+      "downsample_probability": 0.4,
+      "downsample_min_scale": 0.45,
+      "blur_probability": 0.3,
+      "noise_probability": 0.3,
+      "noise_std": 6.0,
+      "jpeg_probability": 0.5,
+      "jpeg_min_quality": 35,
+      "jpeg_max_quality": 90
+    },
+    "eval_clips_per_video": 3,
+    "video_aggregation": "mean",
+    "top_k": 1
+  },
+  "model": {
+    "embedding_dim": 192,
+    "dropout": 0.3,
+    "texture_pretrained": true,
+    "texture_backbone": "efficientnet_b0"
+  },
+  "training": {
+    "epochs": 50,
+    "batch_size": 8,
+    "num_workers": 4,
+    "learning_rate": 0.0003,
+    "backbone_learning_rate": 0.00003,
+    "weight_decay": 0.0003,
+    "deterministic": true,
+    "balanced_sampler": true,
+    "amp": true,
+    "early_stop_patience": 5,
+    "ema_decay": 0.999,
+    "validation_weights": "ema"
+  },
+  "output_dir": "outputs/qalf_ffpp4_effb0_160_32f5fps_16w_8f_texture_sbi_ema_seed4"
+}

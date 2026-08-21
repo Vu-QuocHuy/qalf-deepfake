@@ -70,6 +70,29 @@ Useful overrides are space-separated `QALF_SEEDS`, `QALF_EPOCHS`,
 Each seed receives its own checkpoint and Celeb-DF evaluation directory; the
 summary is saved as `qalf_ffpp4_effb0_160_8f_texture_sbi_ema_multiseed.csv/.md`.
 
+### 32-frame / seed-4 experiment
+
+This branch includes a deployment-oriented non-inferiority experiment that
+keeps the baseline's eight texture frames and three-clip evaluation while
+halving the stored preprocessing sequence. It derives frames `0, 2, ..., 62`
+from each canonical 64-frame sequence, producing an approximately 5 FPS,
+32-frame view without copying JPEG files. Landmark arrays are subset into
+separate cache roots, so the canonical data remains untouched.
+
+Prepare the derived manifests/caches, train seed `4`, and evaluate Celeb-DF:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" ./run_32f_seed4.sh
+```
+
+The matching protocol is `num_frames=16`, `texture_frames=8`, and three
+evaluation clips with starts `0`, `8`, and `16`. Run individual stages with
+`prepare_32f_data.sh`, `run_train_32f_seed4.sh`, and
+`run_test_32f_seed4.sh`. Set `QALF_SKIP_32F_PREPARE=1` to reuse an already
+prepared derived cache. Direct extraction of future videos should use
+`scripts/extract_frames.py --frames-per-video 32 --target-fps 5`; subsampling
+an already-extracted sequence does not retroactively reduce extraction time.
+
 ### Robustness evaluation
 
 Run the evaluation-only corruption protocol with the trained baseline:
