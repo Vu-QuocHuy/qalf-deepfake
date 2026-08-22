@@ -84,33 +84,41 @@ def _aligned_full_face(
 
         if landmarks.shape[0] == 5:
             # YuNet 5-point landmarks: [right_eye(4,5), left_eye(6,7), nose, right_mouth, left_mouth]
-            # NOTE: MediaPipe 33 (left_eye outer) naturally maps to the right side of the image (x > center).
-            # To match the exact canonical alignment trained on Server (which effectively flips the image),
-            # we MUST map YuNet's left_eye (pixels[1], which has x > center) to Target[0] (left side).
-            # Swapping these fixes the 15% Inverted AUC bug!
-            right_eye = pixels[0]
-            left_eye = pixels[1]
+            right_eye = pixels[0]   # Subject's right eye (left side of image, x < center)
+            left_eye = pixels[1]    # Subject's left eye (right side of image, x > center)
             mouth = (pixels[3] + pixels[4]) / 2.0
-            source = np.float32([left_eye, right_eye, mouth])
+            source = np.float32([right_eye, left_eye, mouth])
+            
+            # CRITICAL FIX for 15% AUC bug: 
+            # MediaPipe uses OUTER eye corners (target=0.32, 0.68). 
+            # YuNet returns PUPILS (Eye Centers). Pupils are much closer together.
+            # If we map YuNet's pupils to MediaPipe's outer corner targets, the Affine transform 
+            # aggressively ZOOMS IN the face by ~20%, pushing facial features out of distribution!
+            # We must use proper pupil target coordinates (0.39, 0.61) to match MediaPipe's zoom scale.
+            target = np.float32([
+                [0.39 * output_size, 0.42 * output_size],
+                [0.61 * output_size, 0.42 * output_size],
+                [0.50 * output_size, 0.74 * output_size],
+            ])
+            transform = cv2.getAffineTransform(source, target)
         elif landmarks.shape[0] > 386:
             # MediaPipe 468-point landmarks
             left_eye = pixels[[33, 133, 159, 145]].mean(axis=0)
             right_eye = pixels[[362, 263, 386, 374]].mean(axis=0)
             mouth = pixels[[13, 14, 61, 291]].mean(axis=0)
             source = np.float32([left_eye, right_eye, mouth])
+            # MediaPipe specific targets (Outer corners)
+            target = np.float32([
+                [0.32 * output_size, 0.38 * output_size],
+                [0.68 * output_size, 0.38 * output_size],
+                [0.50 * output_size, 0.72 * output_size],
+            ])
+            transform = cv2.getAffineTransform(source, target)
         else:
             # Unsupported landmark count — fall through to resize
             canonical = cv2.resize(image_rgb, (output_size, output_size), interpolation=cv2.INTER_AREA)
             return canonical, None
 
-        target = np.float32(
-            [
-                [0.32 * output_size, 0.38 * output_size],
-                [0.68 * output_size, 0.38 * output_size],
-                [0.50 * output_size, 0.72 * output_size],
-            ]
-        )
-        transform = cv2.getAffineTransform(source, target)
         canonical = cv2.warpAffine(
             image_rgb,
             transform,
