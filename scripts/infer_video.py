@@ -15,10 +15,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import statistics
 import sys
+import threading
 import time
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 from pathlib import Path
 
 import cv2
@@ -36,6 +43,66 @@ def percentile(values: list[float], fraction: float) -> float:
     ordered = sorted(values)
     index = min(len(ordered) - 1, int(round((len(ordered) - 1) * fraction)))
     return ordered[index]
+
+
+def compute_auc(y_true: list[int], y_scores: list[float]) -> float:
+    if len(set(y_true)) < 2: return 0.0
+    desc_score_indices = sorted(range(len(y_scores)), key=lambda i: y_scores[i], reverse=True)
+    y_true_sorted = [y_true[i] for i in desc_score_indices]
+    n_pos = sum(y_true)
+    n_neg = len(y_true) - n_pos
+    auc = 0.0
+    tp = 0
+    for y in y_true_sorted:
+        if y == 1:
+            tp += 1
+        else:
+            auc += tp
+    return auc / (n_pos * n_neg)
+
+
+def compute_eer(y_true: list[int], y_scores: list[float]) -> float:
+    if len(set(y_true)) < 2: return 0.0
+    thresholds = sorted(set(y_scores))
+    eer = 1.0
+    for t in thresholds:
+        tp = sum(1 for yt, ys in zip(y_true, y_scores) if yt == 1 and ys >= t)
+        fn = sum(1 for yt, ys in zip(y_true, y_scores) if yt == 1 and ys < t)
+        fp = sum(1 for yt, ys in zip(y_true, y_scores) if yt == 0 and ys >= t)
+        tn = sum(1 for yt, ys in zip(y_true, y_scores) if yt == 0 and ys < t)
+        tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+        fnr = 1 - tpr
+        diff = abs(fnr - fpr)
+        if diff < eer:
+            eer = diff
+    return eer
+
+
+monitor_data = {"cpu": [], "ram": [], "temp": []}
+monitoring_active = True
+
+def get_cpu_temp():
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+            return float(f.read().strip()) / 1000.0
+    except Exception:
+        return 0.0
+
+def monitor_hardware():
+    if not psutil: return
+    process = psutil.Process(os.getpid())
+    while monitoring_active:
+        try:
+            cpu = psutil.cpu_percent(interval=0.1)
+            ram = process.memory_info().rss / (1024 * 1024)
+            temp = get_cpu_temp()
+            monitor_data["cpu"].append(cpu)
+            monitor_data["ram"].append(ram)
+            monitor_data["temp"].append(temp)
+            time.sleep(0.4)
+        except Exception:
+            pass
 
 
 def compute_protocol_frame_indices(
@@ -413,6 +480,10 @@ def main() -> None:
     reports: list[dict[str, object]] = []
     print(f"\nProcessing {len(video_files)} video(s) (Protocol: {args.clips} clips x {args.texture_frames}f across {args.num_frames}f @ {args.target_fps} FPS, Flip-TTA: {flip_tta}, Aggregation: {args.aggregation})...")
 
+    global monitoring_active
+    monitor_thread = threading.Thread(target=monitor_hardware)
+    monitor_thread.start()
+
     for vpath in video_files:
         try:
             rep = process_video_pipeline(
@@ -443,6 +514,9 @@ def main() -> None:
             print(f"[ERROR] Failed processing {vpath.name}: {e}", flush=True)
 
     landmarker.close()
+    
+    monitoring_active = False
+    monitor_thread.join()
 
     if not reports:
         print("No videos processed successfully.")
@@ -476,7 +550,14 @@ def main() -> None:
         align_latencies = [r["timings_ms"]["3_face_align_and_preprocess_ms"] for r in reports]
         model_latencies = [r["timings_ms"]["4_model_forward_ms"] for r in reports]
         fps_list = [r["performance"]["end_to_end_fps"] for r in reports]
-        correct_predictions = sum(1 for r in reports if r["detection"]["prediction"] == ("FAKE" if "synthesis" in str(r["video_info"]["path"]).lower() else "REAL"))
+        
+        y_true = [1 if "synthesis" in str(r["video_info"]["path"]).lower() else 0 for r in reports]
+        y_scores = [r["detection"]["fake_probability"] for r in reports]
+        y_preds = [1 if r["detection"]["prediction"] == "FAKE" else 0 for r in reports]
+        
+        correct_predictions = sum(1 for yt, yp in zip(y_true, y_preds) if yt == yp)
+        auc = compute_auc(y_true, y_scores)
+        eer = compute_eer(y_true, y_scores)
 
         def stats_str(data: list[float]) -> str:
             m = statistics.mean(data)
@@ -502,6 +583,27 @@ def main() -> None:
         print("-" * 80)
         print(f"Throughput (End-to-End) : {statistics.mean(fps_list):.2f} ± {statistics.stdev(fps_list) if len(fps_list)>1 else 0.0:.2f} FPS")
         print(f"Throughput (Model-Only) : {(args.clips * (2 if flip_tta else 1) * args.texture_frames) / (statistics.mean(model_latencies) / 1000.0):.2f} FPS")
+        print("-" * 80)
+        print(f"EVALUATION METRICS (Threshold: {threshold:.4f})")
+        print("-" * 80)
+        print(f"  AUC-ROC                    : {auc * 100:>7.2f} %")
+        print(f"  Equal Error Rate (EER)     : {eer * 100:>7.2f} %")
+        print(f"  Batch Detection Accuracy   : {correct_predictions/len(reports)*100:>7.2f} % ({correct_predictions}/{len(reports)})")
+        print("-" * 80)
+        print("HARDWARE RESOURCE USAGE")
+        print("-" * 80)
+        if monitor_data["cpu"]:
+            avg_cpu = sum(monitor_data["cpu"]) / max(1, len(monitor_data["cpu"]))
+            max_cpu = max(monitor_data["cpu"]) if monitor_data["cpu"] else 0
+            avg_ram = sum(monitor_data["ram"]) / max(1, len(monitor_data["ram"]))
+            max_ram = max(monitor_data["ram"]) if monitor_data["ram"] else 0
+            avg_temp = sum(monitor_data["temp"]) / max(1, len(monitor_data["temp"]))
+            max_temp = max(monitor_data["temp"]) if monitor_data["temp"] else 0
+            print(f"  CPU Usage (System) : Avg: {avg_cpu:5.1f}% | Peak: {max_cpu:5.1f}%")
+            print(f"  RAM Usage (Process): Avg: {avg_ram:5.1f}MB | Peak: {max_ram:5.1f}MB")
+            print(f"  CPU Temperature    : Avg: {avg_temp:5.1f}°C | Peak: {max_temp:5.1f}°C")
+        else:
+            print("  Hardware metrics not available (install psutil on Pi)")
         print("=" * 80 + "\n")
 
     if args.output_json:

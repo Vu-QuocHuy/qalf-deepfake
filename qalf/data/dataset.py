@@ -83,11 +83,15 @@ def _aligned_full_face(
         pixels = landmarks[:, :2] * np.asarray([width, height], dtype=np.float32)
 
         if landmarks.shape[0] == 5:
-            # YuNet 5-point landmarks: [right_eye, left_eye, nose, right_mouth, left_mouth]
-            right_eye = pixels[0]   # maps to "left eye" in canonical alignment coords
-            left_eye = pixels[1]    # maps to "right eye" in canonical alignment coords
-            mouth = (pixels[3] + pixels[4]) / 2.0  # average of mouth corners
-            source = np.float32([right_eye, left_eye, mouth])
+            # YuNet 5-point landmarks: [right_eye(4,5), left_eye(6,7), nose, right_mouth, left_mouth]
+            # NOTE: MediaPipe 33 (left_eye outer) naturally maps to the right side of the image (x > center).
+            # To match the exact canonical alignment trained on Server (which effectively flips the image),
+            # we MUST map YuNet's left_eye (pixels[1], which has x > center) to Target[0] (left side).
+            # Swapping these fixes the 15% Inverted AUC bug!
+            right_eye = pixels[0]
+            left_eye = pixels[1]
+            mouth = (pixels[3] + pixels[4]) / 2.0
+            source = np.float32([left_eye, right_eye, mouth])
         elif landmarks.shape[0] > 386:
             # MediaPipe 468-point landmarks
             left_eye = pixels[[33, 133, 159, 145]].mean(axis=0)
