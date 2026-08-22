@@ -402,7 +402,23 @@ def main() -> None:
     parser.add_argument("--use-mtcnn", action="store_true", default=False, help="Use MTCNN for face cropping (legacy, slower)")
     parser.add_argument("--use-yunet", action="store_true", default=True, help="Use YuNet DNN for face detection (default, faster)")
     parser.add_argument("--output-json", default=None, help="Save timing and prediction report to JSON")
+    parser.add_argument("--output-log", default=None, help="Save stdout logs (hardware, metrics) to a text file")
     args = parser.parse_args()
+
+    if args.output_log:
+        class Logger:
+            def __init__(self, filename):
+                self.terminal = sys.stdout
+                Path(filename).parent.mkdir(parents=True, exist_ok=True)
+                self.log = open(filename, "w", encoding="utf-8")
+            def write(self, message):
+                self.terminal.write(message)
+                self.log.write(message)
+                self.log.flush()
+            def flush(self):
+                self.terminal.flush()
+                self.log.flush()
+        sys.stdout = Logger(args.output_log)
 
     if not args.checkpoint and not args.onnx:
         parser.error("Must provide either --checkpoint (.pt) or --onnx (.onnx)")
