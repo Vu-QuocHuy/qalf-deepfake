@@ -325,7 +325,8 @@ def process_video_pipeline(
         input_name = onnx_session.get_inputs()[0].name
         logits = onnx_session.run(None, {input_name: eval_batch})[0]
         if isinstance(logits, np.ndarray):
-            raw_scores = 1.0 / (1.0 + np.exp(-logits.squeeze(-1) if logits.ndim > 1 else logits))
+            logits_sq = logits.squeeze(-1) if logits.ndim > 1 else logits
+            raw_scores = 1.0 / (1.0 + np.exp(-logits_sq))
     elif model is not None:
         batch_tensor = torch.from_numpy(eval_batch).to(device)
         with torch.inference_mode():
