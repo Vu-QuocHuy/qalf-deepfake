@@ -94,11 +94,11 @@ def _aligned_full_face(
             # YuNet returns PUPILS (Eye Centers). Pupils are much closer together.
             # If we map YuNet's pupils to MediaPipe's outer corner targets, the Affine transform 
             # aggressively ZOOMS IN the face by ~20%, pushing facial features out of distribution!
-            # We must use proper pupil target coordinates (0.39, 0.61) to match MediaPipe's zoom scale.
+            # Empirical calibration matching MediaPipe's exact alignment scale and rotation:
             target = np.float32([
-                [0.39 * output_size, 0.42 * output_size],
-                [0.61 * output_size, 0.42 * output_size],
-                [0.50 * output_size, 0.74 * output_size],
+                [0.336 * output_size, 0.417 * output_size],
+                [0.690 * output_size, 0.418 * output_size],
+                [0.503 * output_size, 0.744 * output_size],
             ])
             transform = cv2.getAffineTransform(source, target)
         elif landmarks.shape[0] > 386:
