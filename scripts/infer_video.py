@@ -513,7 +513,8 @@ def main() -> None:
         except Exception as e:
             print(f"[ERROR] Failed processing {vpath.name}: {e}", flush=True)
 
-    landmarker.close()
+    if landmarker is not None:
+        landmarker.close()
     
     monitoring_active = False
     monitor_thread.join()
