@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 @dataclass
@@ -38,7 +39,7 @@ class VideoRecord:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "VideoRecord":
+    def from_dict(cls, payload: dict[str, Any]) -> VideoRecord:
         allowed = {item.name for item in cls.__dataclass_fields__.values()}
         record = cls(**{key: value for key, value in payload.items() if key in allowed})
         record.validate()

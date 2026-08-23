@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import cv2
 import numpy as np
@@ -148,8 +148,8 @@ def _augment(image: np.ndarray, settings: dict[str, float]) -> np.ndarray:
     if random.random() < settings["downsample_probability"]:
         height, width = output.shape[:2]
         scale = random.uniform(settings["downsample_min_scale"], 0.9)
-        small_width = max(16, int(round(width * scale)))
-        small_height = max(16, int(round(height * scale)))
+        small_width = max(16, round(width * scale))
+        small_height = max(16, round(height * scale))
         output = cv2.resize(output, (small_width, small_height), interpolation=cv2.INTER_AREA)
         output = cv2.resize(output, (width, height), interpolation=cv2.INTER_LINEAR)
     if random.random() < settings["blur_probability"]:
@@ -240,8 +240,6 @@ class QALFVideoDataset(Dataset):
         self.texture_mode = texture_mode
         self.sbi_config = resolve_sbi_config(sbi_config)
         self.sbi_enabled = self.training and bool(self.sbi_config["enabled"])
-        if self.sbi_enabled and self.texture_mode != "full_face":
-            raise ValueError("SBI training currently requires texture_mode=full_face")
         if self.sbi_enabled and not any(record.label == 0 for record in self.records):
             raise ValueError("SBI training requires real records")
         if self.sbi_enabled and not any(record.label == 1 for record in self.records):
@@ -343,9 +341,8 @@ class QALFVideoDataset(Dataset):
             canonical_frames = list(generated)
 
         for canonical in canonical_frames:
-            if self.training:
-                if self.texture_augmentation:
-                    canonical = _augment(canonical, self.texture_augmentation)
+            if self.training and self.texture_augmentation:
+                canonical = _augment(canonical, self.texture_augmentation)
             normalized = canonical.astype(np.float32) / 255.0
             normalized = (normalized - IMAGE_MEAN) / IMAGE_STD
             texture_tensors.append(normalized.transpose(2, 0, 1))

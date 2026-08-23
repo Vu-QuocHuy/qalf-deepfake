@@ -6,8 +6,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 from sklearn.metrics import (
@@ -140,7 +140,9 @@ def main() -> None:
     if metrics_path.is_file():
         with metrics_path.open(encoding="utf-8") as handle:
             metrics_payload = json.load(handle)
-        threshold = float(threshold if threshold is not None else metrics_payload["metrics"]["threshold"])
+        threshold = float(
+            threshold if threshold is not None else metrics_payload["metrics"]["threshold"]
+        )
         protocol = dict(metrics_payload.get("protocol", {}))
     if threshold is None:
         raise ValueError("Provide --threshold or a metrics.json beside predictions.csv")

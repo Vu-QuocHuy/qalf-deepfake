@@ -175,9 +175,7 @@ def main() -> None:
     threshold_metrics = None
     threshold_predictions = None
     if args.threshold_manifest:
-        threshold_clips = int(
-            args.threshold_clips_per_video or data.get("eval_clips_per_video", 1)
-        )
+        threshold_clips = int(args.threshold_clips_per_video or data.get("eval_clips_per_video", 1))
         threshold_dataset = _dataset(
             args.threshold_manifest,
             args.threshold_frame_root,
@@ -308,9 +306,7 @@ def main() -> None:
             "selection": (
                 f"{args.threshold_selection}_ffpp_validation"
                 if args.threshold_manifest
-                else checkpoint.get(
-                    "threshold_selection", "eer_ffpp_validation"
-                )
+                else checkpoint.get("threshold_selection", "eer_ffpp_validation")
             ),
         },
     }

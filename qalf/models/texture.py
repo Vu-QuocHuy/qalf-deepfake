@@ -8,9 +8,7 @@ from torch import nn
 SUPPORTED_TEXTURE_BACKBONES = {"efficientnet_b0"}
 
 
-def _build_backbone(name: str, pretrained: bool) -> tuple[nn.Module, nn.Module, int]:
-    if name != "efficientnet_b0":
-        raise ValueError(f"Unsupported texture backbone: {name}")
+def _build_backbone(pretrained: bool) -> tuple[nn.Module, nn.Module, int]:
     from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
 
     weights = EfficientNet_B0_Weights.DEFAULT if pretrained else None
@@ -30,8 +28,7 @@ class TextureEncoder(nn.Module):
         super().__init__()
         if backbone not in SUPPORTED_TEXTURE_BACKBONES:
             raise ValueError(f"Unsupported texture backbone: {backbone}")
-        self.backbone_name = backbone
-        self.features, self.pool, feature_dim = _build_backbone(backbone, pretrained)
+        self.features, self.pool, feature_dim = _build_backbone(pretrained)
         self.projection = nn.Sequential(
             nn.Linear(feature_dim, embedding_dim),
             nn.LayerNorm(embedding_dim),

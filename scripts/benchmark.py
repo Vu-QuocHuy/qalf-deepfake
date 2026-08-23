@@ -23,7 +23,7 @@ from qalf.models import build_model_from_checkpoint
 
 def percentile(values: list[float], fraction: float) -> float:
     ordered = sorted(values)
-    index = min(len(ordered) - 1, int(round((len(ordered) - 1) * fraction)))
+    index = min(len(ordered) - 1, round((len(ordered) - 1) * fraction))
     return ordered[index]
 
 

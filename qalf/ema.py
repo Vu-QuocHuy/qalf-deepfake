@@ -18,10 +18,7 @@ class ModelEMA:
         if not 0.0 < float(decay) < 1.0:
             raise ValueError("EMA decay must be in (0, 1)")
         self.decay = float(decay)
-        self.shadow = {
-            name: value.detach().clone()
-            for name, value in model.state_dict().items()
-        }
+        self.shadow = {name: value.detach().clone() for name, value in model.state_dict().items()}
 
     @torch.no_grad()
     def update(self, model: nn.Module) -> None:

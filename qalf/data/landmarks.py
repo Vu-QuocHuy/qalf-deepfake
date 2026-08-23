@@ -151,7 +151,7 @@ class FaceLandmarkerExtractor:
 
 def _video_timestamps_ms(record: VideoRecord) -> list[int]:
     raw = (
-        [int(round(value * 1000.0)) for value in record.timestamps_sec]
+        [round(value * 1000.0) for value in record.timestamps_sec]
         if len(record.timestamps_sec) == len(record.frames)
         else list(range(len(record.frames)))
     )

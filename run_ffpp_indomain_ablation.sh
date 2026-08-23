@@ -46,7 +46,6 @@ BATCH_SIZE="${QALF_FFPP_BATCH_SIZE:-8}"
 FORCE_EVAL="${QALF_FFPP_FORCE_EVAL:-0}"
 BOOTSTRAP="${QALF_FFPP_BOOTSTRAP:-1}"
 BOOTSTRAP_REPS="${QALF_FFPP_BOOTSTRAP_REPS:-2000}"
-SUMMARY_ONLY="${QALF_FFPP_SUMMARY_ONLY:-0}"
 ALL_PROFILES=(baseline no_sbi no_ema texture_only no_pretrain no_aug sbi_half)
 PROFILES_RAW="${QALF_FFPP_PROFILES:-${ALL_PROFILES[*]}}"
 read -r -a SELECTED_PROFILES <<< "$PROFILES_RAW"
@@ -82,15 +81,6 @@ else
     TTA_SUFFIX="no_tta"
 fi
 EVAL_SUFFIX="_ffpp_test_${TEXTURE_FRAMES}f_${CLIPS_PER_VIDEO}clips_${AGGREGATION}_${THRESHOLD_SELECTION}_${TTA_SUFFIX}"
-
-if [[ "$SUMMARY_ONLY" == 1 ]]; then
-    echo "Summary-only mode: existing FF++ metrics will be read; no evaluation will run."
-    "$PYTHON" scripts/summarize_in_domain_ablation.py \
-        --discover-root "$OUTPUT_ROOT" \
-        --threshold-selection "$THRESHOLD_SELECTION" \
-        --output-stem "$OUTPUT_ROOT/summary_${THRESHOLD_SELECTION}"
-    exit 0
-fi
 
 FAKE_METHODS=(Deepfakes Face2Face FaceSwap NeuralTextures)
 read -r -a SEEDS <<< "$SEEDS_RAW"
@@ -155,7 +145,6 @@ echo "Fake methods: ${FAKE_METHODS[*]} (FaceShifter excluded)"
 echo "Output: $OUTPUT_ROOT"
 
 mkdir -p "$OUTPUT_ROOT"
-SUMMARY_ARGS=()
 for run in "${RUN_SPECS[@]}"; do
     profile="${run%%:*}"
     rest="${run#*:}"
@@ -163,7 +152,6 @@ for run in "${RUN_SPECS[@]}"; do
     prefix="${rest#*:}"
     checkpoint="${prefix}${seed}/best.pt"
     output_dir="$OUTPUT_ROOT/${profile}_seed${seed}${EVAL_SUFFIX}"
-    SUMMARY_ARGS+=(--run "${profile}_seed${seed}=${output_dir}")
     if [[ ! -f "$checkpoint" ]]; then
         echo "ERROR: checkpoint missing for ${profile}/seed${seed}: $checkpoint" >&2
         exit 1
@@ -215,7 +203,4 @@ for run in "${RUN_SPECS[@]}"; do
     fi
 done
 
-"$PYTHON" scripts/summarize_in_domain_ablation.py \
-    "${SUMMARY_ARGS[@]}" \
-    --output-stem "$OUTPUT_ROOT/summary_${THRESHOLD_SELECTION}"
 echo "FF++ in-domain ablation evaluation complete."

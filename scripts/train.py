@@ -22,8 +22,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from qalf.config import load_config, save_json
 from qalf.data.dataset import TEXTURE_MODES, QALFVideoDataset
 from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
-from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.ema import ModelEMA
+from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
 from qalf.models import SUPPORTED_TEXTURE_BACKBONES, TextureSBIModel
 from qalf.reporting import save_training_history_plot
@@ -163,9 +163,7 @@ def main() -> None:
     parser.add_argument("--embedding-dim", type=int)
     parser.add_argument("--dropout", type=float)
     parser.add_argument("--fake-methods", nargs="+")
-    parser.add_argument(
-        "--texture-backbone", choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES))
-    )
+    parser.add_argument("--texture-backbone", choices=tuple(sorted(SUPPORTED_TEXTURE_BACKBONES)))
     parser.add_argument("--no-texture-augmentation", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--no-balanced-sampler", action="store_true")
@@ -371,9 +369,7 @@ def main() -> None:
         if validation_weights == "ema":
             if ema is None:
                 raise RuntimeError("EMA validation requested without EMA state")
-            raw_state = {
-                name: value.detach().clone() for name, value in model.state_dict().items()
-            }
+            raw_state = {name: value.detach().clone() for name, value in model.state_dict().items()}
             ema.copy_to(model)
         try:
             validation = aggregate_predictions(
@@ -413,9 +409,9 @@ def main() -> None:
         scheduler.step()
         checkpoint = {
             "epoch": epoch,
-            "model": ema.state_dict() if validation_weights == "ema" and ema else {
-                name: value.detach().clone() for name, value in model.state_dict().items()
-            },
+            "model": ema.state_dict()
+            if validation_weights == "ema" and ema
+            else {name: value.detach().clone() for name, value in model.state_dict().items()},
             "optimizer": optimizer.state_dict(),
             "config": config,
             "threshold": threshold,

@@ -208,8 +208,8 @@ def face_mask_from_aligned_landmarks(
         # Alignment places the eyes near y=.38 and mouth near y=.72. This
         # conservative fallback is used only when a sampled texture frame lacks
         # valid landmarks; it never reaches outside the canonical face crop.
-        center = (int(round(0.50 * image_size)), int(round(0.52 * image_size)))
-        axes = (int(round(0.39 * image_size)), int(round(0.47 * image_size)))
+        center = (round(0.50 * image_size), round(0.52 * image_size))
+        axes = (round(0.39 * image_size), round(0.47 * image_size))
         cv2.ellipse(mask, center, axes, 0.0, 0.0, 360.0, 1.0, thickness=-1)
     else:
         hull = cv2.convexHull(np.rint(points).astype(np.int32))
@@ -299,8 +299,8 @@ def _apply_appearance(image: np.ndarray, parameters: SBIParameters) -> np.ndarra
     height, width = output.shape[:2]
     if parameters.downsample_scale < 1.0:
         small = (
-            max(16, int(round(width * parameters.downsample_scale))),
-            max(16, int(round(height * parameters.downsample_scale))),
+            max(16, round(width * parameters.downsample_scale)),
+            max(16, round(height * parameters.downsample_scale)),
         )
         output = cv2.resize(output, small, interpolation=cv2.INTER_AREA)
         output = cv2.resize(output, (width, height), interpolation=cv2.INTER_LINEAR)
@@ -392,7 +392,7 @@ def generate_self_blended_clip(
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=0.0,
     )
-    erosion = int(round(parameters.erode_fraction * min(height, width)))
+    erosion = round(parameters.erode_fraction * min(height, width))
     if erosion > 0:
         kernel_size = max(1, 2 * erosion + 1)
         transformed_mask = cv2.erode(

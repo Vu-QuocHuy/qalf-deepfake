@@ -101,9 +101,7 @@ def compute_metrics(
         false_positive_rate, true_positive_rate, _ = roc_curve(labels, scores)
         false_negative_rate = 1.0 - true_positive_rate
         index = int(np.argmin(np.abs(false_positive_rate - false_negative_rate)))
-        metrics["eer"] = float(
-            (false_positive_rate[index] + false_negative_rate[index]) / 2.0
-        )
+        metrics["eer"] = float((false_positive_rate[index] + false_negative_rate[index]) / 2.0)
     else:
         metrics.update(
             {

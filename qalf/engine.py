@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Iterable, Protocol
+from collections.abc import Iterable
+from typing import Protocol
 
 import numpy as np
 import torch
@@ -125,7 +126,7 @@ def aggregate_predictions(
 
     result: defaultdict[str, list] = defaultdict(list)
     for (dataset, manipulation, video_id), indices in groups.items():
-        labels = {int(round(float(predictions["label"][index]))) for index in indices}
+        labels = {round(float(predictions["label"][index])) for index in indices}
         if len(labels) != 1:
             raise ValueError(f"Inconsistent clip labels for {dataset}/{manipulation}/{video_id}")
         selected = indices

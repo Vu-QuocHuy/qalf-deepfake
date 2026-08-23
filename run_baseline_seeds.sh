@@ -85,16 +85,4 @@ for seed in "${SEEDS[@]}"; do
     fi
 done
 
-SUMMARY_STEM="${QALF_MULTI_SEED_SUMMARY:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_${THRESHOLD_SELECTION}_multiseed}"
-PYTHON="$PROJECT_ROOT/.venv/bin/python"
-if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* || "$(uname -s)" == CYGWIN* ]]; then
-    PYTHON="$PROJECT_ROOT/.venv/Scripts/python.exe"
-fi
-
-"$PYTHON" scripts/summarize_seed_runs.py \
-    --train-prefix "$BASE_PREFIX" \
-    --eval-suffix "$EVAL_SUFFIX" \
-    --seeds "${SEEDS[@]}" \
-    --output-stem "$SUMMARY_STEM"
-
 echo "Multi-seed baseline complete"

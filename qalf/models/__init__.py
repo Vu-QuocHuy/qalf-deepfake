@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from .texture_sbi import TextureSBIModel
 from .texture import SUPPORTED_TEXTURE_BACKBONES
+from .texture_sbi import TextureSBIModel
 
 
 def build_model_from_checkpoint(
@@ -24,7 +24,7 @@ def build_model_from_checkpoint(
 
 
 __all__ = [
-    "TextureSBIModel",
     "SUPPORTED_TEXTURE_BACKBONES",
+    "TextureSBIModel",
     "build_model_from_checkpoint",
 ]

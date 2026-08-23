@@ -6,9 +6,9 @@ import hashlib
 import json
 import math
 import shutil
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import cv2
 import numpy as np
@@ -400,11 +400,11 @@ def _interpolate_boxes(boxes: Sequence[np.ndarray | None]) -> tuple[list[np.ndar
 def _square_crop(frame: np.ndarray, box: np.ndarray, margin: float, min_side: int) -> np.ndarray:
     height, width = frame.shape[:2]
     x1, y1, x2, y2 = (float(value) for value in box)
-    side = int(math.ceil(max(x2 - x1, y2 - y1) * (1.0 + margin)))
+    side = math.ceil(max(x2 - x1, y2 - y1) * (1.0 + margin))
     if side < min_side:
         raise RuntimeError(f"Face crop is too small: {side}px")
     center_x, center_y = (x1 + x2) / 2.0, (y1 + y2) / 2.0
-    left, top = int(round(center_x - side / 2)), int(round(center_y - side / 2))
+    left, top = round(center_x - side / 2), round(center_y - side / 2)
     right, bottom = left + side, top + side
     pad_left, pad_top = max(0, -left), max(0, -top)
     pad_right, pad_bottom = max(0, right - width), max(0, bottom - height)

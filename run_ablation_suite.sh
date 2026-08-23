@@ -181,18 +181,6 @@ bootstrap_profile() {
         --seed 0
 }
 
-summarize_profile() {
-    local profile="$1"
-    local prefix="$2"
-    shift 2
-    local summary_stem="$ABLATION_ROOT/${profile}_summary"
-    "$PYTHON" scripts/summarize_seed_runs.py \
-        --train-prefix "$prefix" \
-        --eval-suffix "$EVAL_SUFFIX" \
-        --seeds "$@" \
-        --output-stem "$summary_stem"
-}
-
 run_profile_seed() {
     local profile="$1"
     local seed="$2"
@@ -250,16 +238,6 @@ fi
 if profile_enabled sbi_half; then
     run_profile_seed sbi_half "$CONTROL_SEED" "$ABLATION_ROOT/sbi_half_seed" \
         --sbi --sbi-mixture 0.25 0.25 0.50 --ema-decay 0.999 --validation-weights ema
-fi
-
-if (( DO_EVAL )); then
-    profile_enabled baseline && summarize_profile baseline "$BASELINE_PREFIX" "${CORE_SEEDS[@]}"
-    profile_enabled no_sbi && summarize_profile no_sbi "$ABLATION_ROOT/no_sbi_seed" "${CORE_SEEDS[@]}"
-    profile_enabled no_ema && summarize_profile no_ema "$ABLATION_ROOT/no_ema_seed" "${CORE_SEEDS[@]}"
-    profile_enabled texture_only && summarize_profile texture_only "$ABLATION_ROOT/texture_only_seed" "${CORE_SEEDS[@]}"
-    profile_enabled no_pretrain && summarize_profile no_pretrain "$ABLATION_ROOT/no_pretrain_seed" "$CONTROL_SEED"
-    profile_enabled no_aug && summarize_profile no_aug "$ABLATION_ROOT/no_aug_seed" "$CONTROL_SEED"
-    profile_enabled sbi_half && summarize_profile sbi_half "$ABLATION_ROOT/sbi_half_seed" "$CONTROL_SEED"
 fi
 
 if (( DO_EVAL )) && (( ! PROFILE_FILTERED )); then

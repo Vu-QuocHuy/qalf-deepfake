@@ -58,8 +58,7 @@ separate frame-count ablation.
 
 ### Multi-seed baseline
 
-Run the same baseline independently with seeds `17`, `42`, and `73`, then
-write per-seed and mean ± standard-deviation reports:
+Run the same baseline independently with seeds `17`, `42`, and `73`:
 
 ```powershell
 & "C:\Program Files\Git\bin\bash.exe" ./run_baseline_seeds.sh
@@ -68,7 +67,7 @@ write per-seed and mean ± standard-deviation reports:
 Useful overrides are space-separated `QALF_SEEDS`, `QALF_EPOCHS`,
 `QALF_TEST_TEXTURE_FRAMES`, `QALF_FORCE_TRAIN=1`, and `QALF_FORCE_TEST=1`.
 Each seed receives its own checkpoint and Celeb-DF evaluation directory; the
-summary is saved as `qalf_ffpp4_effb0_160_8f_texture_sbi_ema_multiseed.csv/.md`.
+metrics remain in that seed's evaluation directory.
 
 ### Robustness evaluation
 
@@ -153,14 +152,8 @@ The runner evaluates `baseline`, `no_sbi`, `no_ema`, `texture_only`,
 threshold calibration, evaluates three clips with mean aggregation, and
 explicitly includes only `Deepfakes`, `Face2Face`, `FaceSwap`, and
 `NeuralTextures`; `FaceShifter` is excluded. Results are written under
-`E:/DeepFakeData/experiments/ablation/ffpp_test` with a consolidated
-`summary_eer.md/.csv`; the report keeps per-seed rows and also writes
-`summary_eer_by_method.csv` with method-level mean ± standard deviation.
-The FF++ and Celeb-DF summaries use the same primary metric schema: Accuracy,
-Precision, Recall and F1 for the positive class (`label=1`, fake), plus ROC-AUC,
-AP, EER, balanced accuracy and ACER. Real is the negative class (`label=0`);
-separate real-class Precision/Recall/F1 columns are retained only in raw
-`metrics.json` diagnostics, not in the paper summary table.
+`E:/DeepFakeData/experiments/ablation/ffpp_test`; each run retains its own
+`metrics.json` and prediction files.
 Set `QALF_FFPP_TEST_MANIFEST` if the official test
 manifest is stored at a different path. If only the FF++ validation manifest
 exists, do not use it as a final in-domain test: it is already used for model
@@ -172,18 +165,6 @@ checkpoints on FF++.
 $env:QALF_FFPP_PROFILES="texture_only"
 & "C:\Program Files\Git\bin\bash.exe" ./run_ffpp_indomain_ablation.sh
 Remove-Item Env:QALF_FFPP_PROFILES
-```
-
-If FF++ metrics have already been evaluated and only the report must be
-recomputed, use summary-only mode. It discovers existing FF++ `metrics.json`
-files and never calls the evaluator:
-
-```powershell
-$env:QALF_FFPP_SUMMARY_ONLY="1"
-$env:QALF_THRESHOLD_SELECTION="eer"
-& "C:\Program Files\Git\bin\bash.exe" ./run_ffpp_indomain_ablation.sh
-Remove-Item Env:QALF_FFPP_SUMMARY_ONLY
-Remove-Item Env:QALF_THRESHOLD_SELECTION
 ```
 
 ## Outputs

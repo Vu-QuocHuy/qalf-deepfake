@@ -126,8 +126,12 @@ def predict_condition(
 ) -> dict[str, object]:
     model.eval()
     result: dict[str, list] = {
-        "label": [], "score": [], "clip_index": [],
-        "video_id": [], "method": [], "dataset": [],
+        "label": [],
+        "score": [],
+        "clip_index": [],
+        "video_id": [],
+        "method": [],
+        "dataset": [],
     }
     for batch in loader:
         batch = dict(batch)
@@ -155,28 +159,43 @@ def _dataset(
     fake_methods: object | None = None,
 ) -> QALFVideoDataset:
     return QALFVideoDataset(
-        manifest, frame_root, landmark_root,
-        num_frames=int(data["num_frames"]), texture_frames=frames,
-        image_size=int(data["image_size"]), texture_mode=str(data.get("texture_mode", "full_face")),
-        training=False, clips_per_video=clips, fake_methods=fake_methods,
+        manifest,
+        frame_root,
+        landmark_root,
+        num_frames=int(data["num_frames"]),
+        texture_frames=frames,
+        image_size=int(data["image_size"]),
+        texture_mode=str(data.get("texture_mode", "full_face")),
+        training=False,
+        clips_per_video=clips,
+        fake_methods=fake_methods,
     )
 
 
 def _loader(dataset: QALFVideoDataset, batch_size: int, workers: int) -> DataLoader:
-    return DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=workers,
-                      pin_memory=torch.cuda.is_available(), persistent_workers=workers > 0)
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=workers > 0,
+    )
 
 
 def _write_markdown(path: Path, rows: list[dict[str, object]], protocol: dict[str, object]) -> None:
     clean_auc = float(rows[0]["auc"])
     lines = [
-        "# TextureSBI robustness evaluation", "",
+        "# TextureSBI robustness evaluation",
+        "",
         "Corruptions are applied after RGB denormalization. The threshold is "
-        "selected on clean FF++ validation only.", "",
+        "selected on clean FF++ validation only.",
+        "",
         f"- checkpoint: `{protocol['checkpoint']}`",
         f"- texture frames: `{protocol['texture_frames']}`",
         f"- clips/video: `{protocol['clips_per_video']}`",
-        f"- aggregation: `{protocol['aggregation']}`", "",
+        f"- aggregation: `{protocol['aggregation']}`",
+        "",
         "| Condition | AUC | AP | EER | Balanced accuracy | ACER | AUC drop |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
@@ -217,7 +236,11 @@ def main() -> None:
     parser.add_argument("--texture-flip-tta", action="store_true")
     args = parser.parse_args()
 
-    threshold_paths = (args.threshold_manifest, args.threshold_frame_root, args.threshold_landmark_root)
+    threshold_paths = (
+        args.threshold_manifest,
+        args.threshold_frame_root,
+        args.threshold_landmark_root,
+    )
     if any(threshold_paths) and not all(threshold_paths):
         parser.error("threshold manifest, frame root, and landmark root must be provided together")
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
@@ -225,12 +248,18 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     print(
-        f"Robustness evaluation started: device={device} "
-        f"checkpoint={args.checkpoint}",
+        f"Robustness evaluation started: device={device} checkpoint={args.checkpoint}",
         flush=True,
     )
     data = checkpoint["config"]["data"]
-    dataset = _dataset(args.manifest, args.frame_root, args.landmark_root, data, args.texture_frames, args.clips_per_video)
+    dataset = _dataset(
+        args.manifest,
+        args.frame_root,
+        args.landmark_root,
+        data,
+        args.texture_frames,
+        args.clips_per_video,
+    )
     loader = _loader(dataset, args.batch_size, args.num_workers)
     threshold = float(checkpoint.get("threshold", 0.5))
     threshold_source = "checkpoint"
@@ -246,8 +275,16 @@ def main() -> None:
             fake_methods=data.get("fake_methods"),
         )
         threshold_predictions = aggregate_predictions(
-            predict_condition(model, _loader(threshold_dataset, args.batch_size, args.num_workers), device, None, args.texture_flip_tta),
-            method=args.aggregation, top_k=args.top_k)
+            predict_condition(
+                model,
+                _loader(threshold_dataset, args.batch_size, args.num_workers),
+                device,
+                None,
+                args.texture_flip_tta,
+            ),
+            method=args.aggregation,
+            top_k=args.top_k,
+        )
         threshold = select_threshold(
             np.asarray(threshold_predictions["label"], dtype=np.int64),
             np.asarray(threshold_predictions["score"], dtype=np.float64),
@@ -262,7 +299,9 @@ def main() -> None:
         print(f"[{index}/{len(suite)}] evaluating {condition}...", flush=True)
         predictions = aggregate_predictions(
             predict_condition(model, loader, device, corruption, args.texture_flip_tta),
-            method=args.aggregation, top_k=args.top_k)
+            method=args.aggregation,
+            top_k=args.top_k,
+        )
         labels = np.asarray(predictions["label"], dtype=np.int64)
         scores = np.asarray(predictions["score"], dtype=np.float64)
         metrics = compute_metrics(labels, scores, threshold)
@@ -276,15 +315,21 @@ def main() -> None:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     protocol = {
-        "checkpoint": str(args.checkpoint), "manifest": str(args.manifest),
-        "texture_frames": args.texture_frames, "clips_per_video": args.clips_per_video,
-        "aggregation": args.aggregation, "top_k": args.top_k,
-        "texture_flip_tta": args.texture_flip_tta, "threshold": threshold,
+        "checkpoint": str(args.checkpoint),
+        "manifest": str(args.manifest),
+        "texture_frames": args.texture_frames,
+        "clips_per_video": args.clips_per_video,
+        "aggregation": args.aggregation,
+        "top_k": args.top_k,
+        "texture_flip_tta": args.texture_flip_tta,
+        "threshold": threshold,
         "threshold_source": threshold_source,
         "threshold_selection": args.threshold_selection,
         "corruption_seed": args.seed,
     }
-    output.write_text(json.dumps({"protocol": protocol, "results": rows}, indent=2), encoding="utf-8")
+    output.write_text(
+        json.dumps({"protocol": protocol, "results": rows}, indent=2), encoding="utf-8"
+    )
     _write_markdown(output.with_suffix(".md"), rows, protocol)
     print(f"Robustness results: {output}")
     print(f"Markdown summary: {output.with_suffix('.md')}")
