@@ -6,6 +6,9 @@ from pathlib import Path
 import numpy as np
 import cv2
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 try:
     from facenet_pytorch import MTCNN
 except ImportError:
