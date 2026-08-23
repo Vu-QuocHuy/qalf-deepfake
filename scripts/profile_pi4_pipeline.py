@@ -45,9 +45,17 @@ def monitor_hardware():
         monitor_data["temp"].append(temp)
         time.sleep(0.4)
 
+import argparse
+
 def main():
+    parser = argparse.ArgumentParser(description="Profile Pi4 Pipeline")
+    parser.add_argument("--clips", type=int, default=3, help="Number of clips per video")
+    parser.add_argument("--n-videos", type=int, default=5, help="Number of videos to process")
+    parser.add_argument("--backend", type=str, default="yunet", help="Face detector backend")
+    args = parser.parse_args()
+
     print("=" * 70)
-    print("   PI 4 END-TO-END PIPELINE & HARDWARE PROFILER (YuNet DNN)   ")
+    print(f"   PI 4 END-TO-END PIPELINE & HARDWARE PROFILER ({args.backend.upper()})   ")
     print("=" * 70)
     
     onnx_model = Path("models/qalf.onnx")
@@ -59,18 +67,18 @@ def main():
     sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     onnx_session = ort.InferenceSession(str(onnx_model), sess_options, providers=["CPUExecutionProvider"])
     
-    print("Initializing YuNet DNN Face Detector + Landmarker...")
+    print(f"Initializing {args.backend.upper()} Face Detector + Landmarker...")
     from qalf.data.landmarks import FaceLandmarkerExtractor, OpenCVYuNetLandmarker
-    yunet_detector = OpenCVYuNetLandmarker(score_threshold=0.5)
-    landmarker = FaceLandmarkerExtractor(running_mode="image", min_confidence=0.5, backend="yunet")
+    yunet_detector = OpenCVYuNetLandmarker(score_threshold=0.5) if args.backend == "yunet" else None
+    landmarker = FaceLandmarkerExtractor(running_mode="image", min_confidence=0.5, backend=args.backend)
     
     video_dir = Path("/mnt/usb_data/celebdf_test_518/Celeb-synthesis")
-    video_paths = list(video_dir.glob("*.mp4"))[:5]
+    video_paths = list(video_dir.glob("*.mp4"))[:args.n_videos]
     if not video_paths:
         print(f"No videos found in {video_dir}")
         return
         
-    print(f"\nProcessing {len(video_paths)} videos E2E for stable latency metrics...")
+    print(f"\nProcessing {len(video_paths)} videos E2E for stable latency metrics (Clips={args.clips})...")
     print("Starting hardware monitor thread...")
     global monitoring_active
     monitor_thread = threading.Thread(target=monitor_hardware)
@@ -92,7 +100,7 @@ def main():
                 texture_frames=8,
                 target_fps=10.0,
                 image_size=160,
-                clips=3,
+                clips=args.clips,
                 flip_tta=True,
                 aggregation="mean",
                 top_k=1,
@@ -100,8 +108,9 @@ def main():
                 no_landmarks=False
             )
             for k, v in rep["timings_ms"].items():
-                if k in all_timings:
-                    all_timings[k].append(v)
+                if k not in all_timings:
+                    all_timings[k] = []
+                all_timings[k].append(v)
     finally:
         monitoring_active = False
         monitor_thread.join()

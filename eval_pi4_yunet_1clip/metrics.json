@@ -1,0 +1,37 @@
+{
+    "protocol": {
+        "checkpoint": "models/qalf.onnx",
+        "threshold": 0.671156,
+        "videos_processed": 518,
+        "errors": 0,
+        "face_detector": "yunet",
+        "clips": 1
+    },
+    "metrics": {
+        "threshold": 0.671156,
+        "accuracy": 0.749034749034749,
+        "balanced_accuracy": 0.6749834765366821,
+        "f1": 0.8266666666666665,
+        "f1_fake": 0.8266666666666665,
+        "f1_real": 0.5454545454545454,
+        "f1_macro": 0.686060606060606,
+        "precision_fake": 0.7560975609756098,
+        "precision_real": 0.7222222222222222,
+        "recall_fake": 0.9117647058823529,
+        "recall_real": 0.43820224719101125,
+        "specificity": 0.43820224719101125,
+        "apcer": 0.08823529411764708,
+        "bpcer": 0.5617977528089888,
+        "acer": 0.32501652346331794,
+        "true_negative": 78,
+        "false_positive": 100,
+        "false_negative": 30,
+        "true_positive": 310,
+        "real_count": 178,
+        "fake_count": 340,
+        "sample_count": 518,
+        "auc": 0.7968027098479842,
+        "average_precision": 0.8484958206548754,
+        "eer": 0.2528750826173166
+    }
+}
