@@ -167,6 +167,18 @@ $env:QALF_FFPP_PROFILES="texture_only"
 Remove-Item Env:QALF_FFPP_PROFILES
 ```
 
+After the `baseline`, `sbi_frame`, and `no_sbi` runs are complete on both
+Celeb-DF and FF++, create the paired five-seed SBI summary with:
+
+```powershell
+& .\.venv\Scripts\python.exe scripts\summarize_sbi_ablation.py --ablation-root E:/DeepFakeData/experiments/ablation
+```
+
+The command checks that all three profiles and all five seeds are present. It
+writes publication-oriented Markdown, JSON, CSV, per-seed rows, and paired
+deltas under `E:/DeepFakeData/experiments/ablation/sbi_summary`. Use
+`--allow-missing` only for an explicitly incomplete draft.
+
 ## Outputs
 
 Training writes `best.pt`, configuration, history, logs, and a training plot.
