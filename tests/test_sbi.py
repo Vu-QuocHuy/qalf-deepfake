@@ -12,6 +12,8 @@ from qalf.data.sbi import (
     SAMPLE_ORIGINAL_FAKE,
     SAMPLE_REAL,
     SAMPLE_SBI,
+    SBI_COHERENCE_CLIP,
+    SBI_COHERENCE_FRAME,
     face_mask_from_aligned_landmarks,
     generate_self_blended_clip,
     resolve_sbi_config,
@@ -28,6 +30,16 @@ class SBIConfigTests(unittest.TestCase):
             config["mixture"],
             {SAMPLE_REAL: 0.5, SAMPLE_ORIGINAL_FAKE: 0.25, SAMPLE_SBI: 0.25},
         )
+        self.assertEqual(config["temporal_coherence"], SBI_COHERENCE_CLIP)
+
+    def test_frame_independent_mode_is_supported(self) -> None:
+        config = resolve_sbi_config({"enabled": True, "temporal_coherence": SBI_COHERENCE_FRAME})
+
+        self.assertEqual(config["temporal_coherence"], SBI_COHERENCE_FRAME)
+
+    def test_invalid_temporal_coherence_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_sbi_config({"enabled": True, "temporal_coherence": "video"})
 
     def test_invalid_mixture_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -86,6 +98,37 @@ class SBIGeneratorTests(unittest.TestCase):
         np.testing.assert_array_equal(first_masks[0], first_masks[1])
         self.assertGreater(float(first_masks.max()), 0.0)
         self.assertLessEqual(float(first_masks.max()), 1.0)
+        self.assertGreater(int(np.count_nonzero(first != frames)), 0)
+
+    def test_frame_independent_generation_is_deterministic_and_varied(self) -> None:
+        image_size = 64
+        x = np.linspace(20, 230, image_size, dtype=np.uint8)
+        frame = np.repeat(x[None, :, None], image_size, axis=0)
+        frame = np.concatenate([frame, np.flip(frame, axis=1), frame], axis=2)
+        frames = np.repeat(frame[None, :, :, :], 3, axis=0)
+        face_mask = face_mask_from_aligned_landmarks(None, image_size)
+        config = {"enabled": True, "temporal_coherence": SBI_COHERENCE_FRAME}
+
+        first, first_masks, first_parameters = generate_self_blended_clip(
+            frames,
+            face_mask,
+            config,
+            rng=np.random.default_rng(123),
+        )
+        second, second_masks, second_parameters = generate_self_blended_clip(
+            frames,
+            face_mask,
+            config,
+            rng=np.random.default_rng(123),
+        )
+
+        np.testing.assert_array_equal(first, second)
+        np.testing.assert_array_equal(first_masks, second_masks)
+        self.assertEqual(first_parameters, second_parameters)
+        self.assertIsInstance(first_parameters, tuple)
+        self.assertEqual(len(first_parameters), len(frames))
+        self.assertTrue(any(first_parameters[0] != value for value in first_parameters[1:]))
+        self.assertTrue(any(not np.array_equal(first_masks[0], mask) for mask in first_masks[1:]))
         self.assertGreater(int(np.count_nonzero(first != frames)), 0)
 
     def test_mask_is_non_empty_and_does_not_cover_the_image(self) -> None:

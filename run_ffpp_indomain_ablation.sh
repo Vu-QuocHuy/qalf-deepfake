@@ -46,7 +46,7 @@ BATCH_SIZE="${QALF_FFPP_BATCH_SIZE:-8}"
 FORCE_EVAL="${QALF_FFPP_FORCE_EVAL:-0}"
 BOOTSTRAP="${QALF_FFPP_BOOTSTRAP:-1}"
 BOOTSTRAP_REPS="${QALF_FFPP_BOOTSTRAP_REPS:-2000}"
-ALL_PROFILES=(baseline no_sbi no_ema texture_only no_pretrain no_aug sbi_half)
+ALL_PROFILES=(baseline sbi_frame no_sbi no_ema texture_only no_pretrain no_aug sbi_half)
 PROFILES_RAW="${QALF_FFPP_PROFILES:-${ALL_PROFILES[*]}}"
 read -r -a SELECTED_PROFILES <<< "$PROFILES_RAW"
 if (( ${#SELECTED_PROFILES[@]} == 0 )); then
@@ -118,6 +118,7 @@ PY
 declare -a RUN_SPECS=()
 for spec in \
     "baseline:$ABLATION_ROOT/baseline_seed" \
+    "sbi_frame:$ABLATION_ROOT/sbi_frame_seed" \
     "no_sbi:$ABLATION_ROOT/no_sbi_seed" \
     "no_ema:$ABLATION_ROOT/no_ema_seed" \
     "texture_only:$ABLATION_ROOT/texture_only_seed" \

@@ -1,10 +1,9 @@
-"""Training-only, temporally coherent Self-Blended Image generation.
+"""Training-only Self-Blended Image generation for temporal-coherence ablations.
 
 The implementation follows the data-generation idea from Self-Blended Images
 (Shiohara and Yamasaki, CVPR 2022) while remaining native to the project's OpenCV and
-NumPy input pipeline. It deliberately operates on an aligned clip, not on
-independent frames, so the synthetic artifact cannot become a temporal-flicker
-shortcut.
+NumPy input pipeline. Clip-shared generation is the default method, while
+frame-independent generation provides its controlled experimental baseline.
 """
 
 from __future__ import annotations
@@ -20,6 +19,9 @@ SAMPLE_REAL = "real"
 SAMPLE_ORIGINAL_FAKE = "original_fake"
 SAMPLE_SBI = "sbi"
 SBI_SAMPLE_TYPES = (SAMPLE_REAL, SAMPLE_ORIGINAL_FAKE, SAMPLE_SBI)
+SBI_COHERENCE_CLIP = "clip"
+SBI_COHERENCE_FRAME = "frame"
+SBI_TEMPORAL_COHERENCE_MODES = (SBI_COHERENCE_CLIP, SBI_COHERENCE_FRAME)
 
 # Ordered MediaPipe Face Mesh points around the outer face oval.
 FACE_OVAL_INDICES = (
@@ -90,7 +92,7 @@ DEFAULT_SBI_CONFIG: dict[str, object] = {
     "blur_sigma_max": 1.20,
     "sharpen_probability": 0.25,
     "sharpen_amount_max": 0.75,
-    "temporal_coherence": "clip",
+    "temporal_coherence": SBI_COHERENCE_CLIP,
 }
 
 
@@ -165,8 +167,11 @@ def resolve_sbi_config(config: Mapping[str, object] | None = None) -> dict[str, 
         raise ValueError("SBI elastic_grid_size must be at least two")
     if resolved["mask_blur_fraction_min"] > resolved["mask_blur_fraction_max"]:
         raise ValueError("SBI mask blur range is invalid")
-    if resolved["temporal_coherence"] != "clip":
-        raise ValueError("Only clip-coherent SBI generation is supported")
+    resolved["temporal_coherence"] = str(resolved["temporal_coherence"])
+    if resolved["temporal_coherence"] not in SBI_TEMPORAL_COHERENCE_MODES:
+        raise ValueError(
+            f"SBI temporal_coherence must be one of {list(SBI_TEMPORAL_COHERENCE_MODES)}"
+        )
     return resolved
 
 
@@ -335,13 +340,100 @@ def _elastic_maps(
     return grid_x + strength * displacement_x, grid_y + strength * displacement_y
 
 
+def _spatial_transform(
+    mask: np.ndarray,
+    height: int,
+    width: int,
+    config: Mapping[str, object],
+    parameters: SBIParameters,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Build the spatial transform and soft alpha mask for one SBI sample."""
+
+    center = (0.5 * (width - 1), 0.5 * (height - 1))
+    affine = cv2.getRotationMatrix2D(center, parameters.angle_degrees, parameters.scale)
+    affine[0, 2] += parameters.translate_x_fraction * width
+    affine[1, 2] += parameters.translate_y_fraction * height
+    affine_mask = cv2.warpAffine(
+        mask,
+        affine,
+        (width, height),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0.0,
+    )
+    map_x, map_y = _elastic_maps(height, width, config, parameters)
+    transformed_mask = cv2.remap(
+        affine_mask,
+        map_x,
+        map_y,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0.0,
+    )
+    erosion = round(parameters.erode_fraction * min(height, width))
+    if erosion > 0:
+        kernel_size = max(1, 2 * erosion + 1)
+        transformed_mask = cv2.erode(
+            transformed_mask,
+            np.ones((kernel_size, kernel_size), dtype=np.uint8),
+        )
+    sigma = max(0.1, parameters.blur_fraction * min(height, width))
+    transformed_mask = cv2.GaussianBlur(transformed_mask, (0, 0), sigmaX=sigma)
+    maximum = float(transformed_mask.max())
+    if maximum <= 1e-6:
+        raise ValueError("SBI transform produced an empty blend mask")
+    alpha = np.clip(transformed_mask / maximum, 0.0, 1.0)
+    alpha = (alpha * parameters.blend_strength).astype(np.float32)
+    return affine, map_x, map_y, alpha
+
+
+def _blend_frame(
+    frame: np.ndarray,
+    affine: np.ndarray,
+    map_x: np.ndarray,
+    map_y: np.ndarray,
+    alpha: np.ndarray,
+    parameters: SBIParameters,
+) -> np.ndarray:
+    """Apply one sampled SBI transform to one RGB frame."""
+
+    height, width = frame.shape[:2]
+    target = frame.astype(np.float32)
+    source = target.copy()
+    if parameters.alter_source:
+        source = _apply_appearance(source, parameters)
+    else:
+        target = _apply_appearance(target, parameters)
+    source = cv2.warpAffine(
+        source,
+        affine,
+        (width, height),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT_101,
+    )
+    source = cv2.remap(
+        source,
+        map_x,
+        map_y,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT_101,
+    )
+    alpha_3d = alpha[:, :, None]
+    blended = alpha_3d * source + (1.0 - alpha_3d) * target
+    return np.clip(blended, 0.0, 255.0).astype(np.uint8)
+
+
 def generate_self_blended_clip(
     frames: np.ndarray,
     face_mask: np.ndarray,
     config: Mapping[str, object] | None = None,
     rng: np.random.Generator | None = None,
-) -> tuple[np.ndarray, np.ndarray, SBIParameters]:
-    """Generate an SBI clip and its coherent alpha masks.
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    SBIParameters | tuple[SBIParameters, ...],
+]:
+    """Generate an SBI clip with clip-shared or frame-independent parameters.
 
     Args:
         frames: uint8 RGB array with shape ``[T, H, W, 3]``.
@@ -366,71 +458,25 @@ def generate_self_blended_clip(
 
     if rng is None:
         # The process-wide NumPy RNG is seeded per DataLoader worker. Drawing one
-        # seed here provides deterministic clip-level parameters without sharing
-        # mutable generator state across frames.
+        # seed here provides deterministic SBI parameters without sharing mutable
+        # generator state across samples.
         rng = np.random.default_rng(int(np.random.randint(0, 2**31 - 1)))
-    parameters = _sample_parameters(resolved, rng)
-
-    center = (0.5 * (width - 1), 0.5 * (height - 1))
-    affine = cv2.getRotationMatrix2D(center, parameters.angle_degrees, parameters.scale)
-    affine[0, 2] += parameters.translate_x_fraction * width
-    affine[1, 2] += parameters.translate_y_fraction * height
-    affine_mask = cv2.warpAffine(
-        mask,
-        affine,
-        (width, height),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=0.0,
-    )
-    map_x, map_y = _elastic_maps(height, width, resolved, parameters)
-    transformed_mask = cv2.remap(
-        affine_mask,
-        map_x,
-        map_y,
-        interpolation=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=0.0,
-    )
-    erosion = round(parameters.erode_fraction * min(height, width))
-    if erosion > 0:
-        kernel_size = max(1, 2 * erosion + 1)
-        transformed_mask = cv2.erode(
-            transformed_mask,
-            np.ones((kernel_size, kernel_size), dtype=np.uint8),
-        )
-    sigma = max(0.1, parameters.blur_fraction * min(height, width))
-    transformed_mask = cv2.GaussianBlur(transformed_mask, (0, 0), sigmaX=sigma)
-    maximum = float(transformed_mask.max())
-    if maximum <= 1e-6:
-        raise ValueError("SBI transform produced an empty blend mask")
-    alpha = np.clip(transformed_mask / maximum, 0.0, 1.0)
-    alpha = (alpha * parameters.blend_strength).astype(np.float32)
-
     outputs: list[np.ndarray] = []
-    alpha_3d = alpha[:, :, None]
+    masks: list[np.ndarray] = []
+    coherence = str(resolved["temporal_coherence"])
+    if coherence == SBI_COHERENCE_CLIP:
+        parameters = _sample_parameters(resolved, rng)
+        affine, map_x, map_y, alpha = _spatial_transform(mask, height, width, resolved, parameters)
+        for frame in clip:
+            outputs.append(_blend_frame(frame, affine, map_x, map_y, alpha, parameters))
+        repeated_masks = np.repeat(alpha[None, :, :], len(outputs), axis=0)
+        return np.stack(outputs), repeated_masks, parameters
+
+    frame_parameters: list[SBIParameters] = []
     for frame in clip:
-        target = frame.astype(np.float32)
-        source = target.copy()
-        if parameters.alter_source:
-            source = _apply_appearance(source, parameters)
-        else:
-            target = _apply_appearance(target, parameters)
-        source = cv2.warpAffine(
-            source,
-            affine,
-            (width, height),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REFLECT_101,
-        )
-        source = cv2.remap(
-            source,
-            map_x,
-            map_y,
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REFLECT_101,
-        )
-        blended = alpha_3d * source + (1.0 - alpha_3d) * target
-        outputs.append(np.clip(blended, 0.0, 255.0).astype(np.uint8))
-    masks = np.repeat(alpha[None, :, :], len(outputs), axis=0)
-    return np.stack(outputs), masks, parameters
+        parameters = _sample_parameters(resolved, rng)
+        affine, map_x, map_y, alpha = _spatial_transform(mask, height, width, resolved, parameters)
+        outputs.append(_blend_frame(frame, affine, map_x, map_y, alpha, parameters))
+        masks.append(alpha)
+        frame_parameters.append(parameters)
+    return np.stack(outputs), np.stack(masks), tuple(frame_parameters)

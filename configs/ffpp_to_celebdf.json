@@ -16,7 +16,8 @@
     ],
     "texture_mode": "full_face",
     "sbi": {
-      "enabled": true
+      "enabled": true,
+      "temporal_coherence": "clip"
     },
     "texture_augmentation": {
       "flip_probability": 0.5,

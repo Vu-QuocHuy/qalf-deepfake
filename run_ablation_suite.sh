@@ -49,7 +49,7 @@ BOOTSTRAP_REPS="${QALF_BOOTSTRAP_REPS:-2000}"
 TEXTURE_FRAMES=8
 THRESHOLD_SELECTION="${QALF_THRESHOLD_SELECTION:-eer}"
 EVAL_SUFFIX="_to_celebdf_8f_3clips_mean_${THRESHOLD_SELECTION}_tta_ffpp_threshold"
-ALL_PROFILES=(baseline no_sbi no_ema texture_only no_pretrain no_aug sbi_half)
+ALL_PROFILES=(baseline sbi_frame no_sbi no_ema texture_only no_pretrain no_aug sbi_half)
 PROFILES_RAW="${QALF_ABLATION_PROFILES:-${ALL_PROFILES[*]}}"
 PROFILE_FILTERED=0
 if [[ -n "${QALF_ABLATION_PROFILES:-}" ]]; then
@@ -203,10 +203,17 @@ echo "Control seed: $CONTROL_SEED"
 echo "Epochs: $EPOCHS"
 echo "Output root: $ABLATION_ROOT"
 
-# Core five-seed comparisons forming the complete SBI x EMA grid.
+# Core five-seed comparisons forming the SBI x EMA grid and SBI coherence control.
 if profile_enabled baseline; then
     for seed in "${CORE_SEEDS[@]}"; do
-        run_profile_seed baseline "$seed" "$BASELINE_PREFIX" --sbi --ema-decay 0.999 --validation-weights ema
+        run_profile_seed baseline "$seed" "$BASELINE_PREFIX" \
+            --sbi --sbi-temporal-coherence clip --ema-decay 0.999 --validation-weights ema
+    done
+fi
+if profile_enabled sbi_frame; then
+    for seed in "${CORE_SEEDS[@]}"; do
+        run_profile_seed sbi_frame "$seed" "$ABLATION_ROOT/sbi_frame_seed" \
+            --sbi --sbi-temporal-coherence frame --ema-decay 0.999 --validation-weights ema
     done
 fi
 if profile_enabled no_sbi; then

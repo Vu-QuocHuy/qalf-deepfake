@@ -21,7 +21,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from qalf.config import load_config, save_json
 from qalf.data.dataset import TEXTURE_MODES, QALFVideoDataset
-from qalf.data.sbi import resolve_sbi_config, stratum_sampling_weights
+from qalf.data.sbi import (
+    SBI_TEMPORAL_COHERENCE_MODES,
+    resolve_sbi_config,
+    stratum_sampling_weights,
+)
 from qalf.ema import ModelEMA
 from qalf.engine import aggregate_predictions, predict, train_epoch
 from qalf.metrics import compute_metrics, select_threshold
@@ -170,6 +174,11 @@ def main() -> None:
     parser.add_argument("--sbi", action="store_true")
     parser.add_argument("--no-sbi", action="store_true")
     parser.add_argument(
+        "--sbi-temporal-coherence",
+        choices=SBI_TEMPORAL_COHERENCE_MODES,
+        help="Use clip-shared or frame-independent SBI parameters during training.",
+    )
+    parser.add_argument(
         "--sbi-mixture",
         nargs=3,
         type=float,
@@ -218,6 +227,13 @@ def main() -> None:
         sbi_config["mixture"] = dict(
             zip(("real", "original_fake", "sbi"), args.sbi_mixture, strict=True)
         )
+        data["sbi"] = sbi_config
+    if args.sbi_temporal_coherence is not None:
+        if args.no_sbi:
+            parser.error("--sbi-temporal-coherence cannot be combined with --no-sbi")
+        sbi_config = dict(data.get("sbi", {}))
+        sbi_config["enabled"] = True
+        sbi_config["temporal_coherence"] = args.sbi_temporal_coherence
         data["sbi"] = sbi_config
     for key, value in {
         "num_frames": args.num_frames,

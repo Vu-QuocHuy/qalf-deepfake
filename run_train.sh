@@ -67,4 +67,5 @@ export CUBLAS_WORKSPACE_CONFIG=':4096:8'
     --embedding-dim 192 \
     --dropout 0.3 \
     --sbi \
+    --sbi-temporal-coherence clip \
     --deterministic
