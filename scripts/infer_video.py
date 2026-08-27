@@ -7,7 +7,7 @@ Strictly follows the canonical QALF / TextureSBI evaluation protocol:
 - MTCNN 35% margin face localization to 256x256 canonical face crop
 - 468 landmark affine alignment to 160x160 with eyes horizontal at 0 deg
 - 3 clips per video with Horizontal Flip-TTA and Mean/Top-k Aggregation
-- Auto-loaded calibrated Youden-J threshold from checkpoint / JSON metadata
+- Auto-loaded calibrated EER threshold from checkpoint / JSON metadata
 - Complete End-to-End Latency Breakdown and Hardware Profiling
 """
 
@@ -370,8 +370,8 @@ def process_video_pipeline(
             "model_forward_fps": round((clips * (2 if flip_tta else 1) * texture_frames) / (timing["4_model_forward_ms"] / 1000.0), 2),
         },
         "detection": {
-            "fake_probability": round(final_score, 4),
-            "clip_scores": [round(float(s), 4) for s in clip_scores],
+            "fake_probability": float(final_score),
+            "clip_scores": [float(s) for s in clip_scores],
             "clips": clips,
             "texture_frames": texture_frames,
             "flip_tta": flip_tta,
@@ -443,7 +443,7 @@ def main() -> None:
                     with open(json_meta_path, "r", encoding="utf-8") as f:
                         meta = json.load(f)
                     threshold = float(meta.get("optimal_threshold", 0.6712))
-                    print(f"[Info] Auto-loaded calibrated Youden-J optimal threshold: {threshold:.4f} from {json_meta_path.name}")
+                    print(f"[Info] Auto-loaded EER optimal threshold: {threshold:.6f} from {json_meta_path.name}")
                 except Exception:
                     threshold = 0.6712
             else:
@@ -455,7 +455,7 @@ def main() -> None:
         model = build_model_from_checkpoint(checkpoint).eval()
         if threshold is None:
             threshold = float(checkpoint.get("threshold", checkpoint.get("optimal_threshold", 0.6712)))
-            print(f"[Info] Auto-loaded calibrated optimal threshold: {threshold:.4f} from checkpoint")
+            print(f"[Info] Auto-loaded EER optimal threshold: {threshold:.6f} from checkpoint")
 
     # 2. Setup Face Detector (YuNet preferred over MTCNN)
     mtcnn_detector = None
