@@ -32,7 +32,7 @@ VIDEO_ROOT="${QALF_TEST_VIDEO_ROOT:-$STORAGE_ROOT/datasets/celeb-df-v2}"
 
 # Tham số mô hình
 SEED="${QALF_SEED:-42}"
-CHECKPOINT="${QALF_TEST_CHECKPOINT:-$STORAGE_ROOT/experiments/qalf_ffpp4_effb0_160_8f_texture_sbi_ema_seed${SEED}/best.pt}"
+CHECKPOINT="${QALF_TEST_CHECKPOINT:-$STORAGE_ROOT/experiments/ablation/baseline_seed${SEED}/best.pt}"
 
 # Thư mục đầu ra
 OUTPUT_DIR_GPU="${QALF_TEST_OUTPUT_DIR:-$STORAGE_ROOT/experiments/qalf_server_yunet_seed${SEED}_gpu}"

@@ -24,7 +24,7 @@ $VideoRoot = if ($env:QALF_TEST_VIDEO_ROOT) { $env:QALF_TEST_VIDEO_ROOT } else {
 
 # Tham số mô hình
 $Seed = if ($env:QALF_SEED) { $env:QALF_SEED } else { "42" }
-$Checkpoint = if ($env:QALF_TEST_CHECKPOINT) { $env:QALF_TEST_CHECKPOINT } else { "$StorageRoot\experiments\qalf_ffpp4_effb0_160_8f_texture_sbi_ema_seed${Seed}\best.pt" }
+$Checkpoint = if ($env:QALF_TEST_CHECKPOINT) { $env:QALF_TEST_CHECKPOINT } else { "$StorageRoot\experiments\ablation\baseline_seed${Seed}\best.pt" }
 
 # Thư mục đầu ra
 $OutputDirGpu = if ($env:QALF_TEST_OUTPUT_DIR) { $env:QALF_TEST_OUTPUT_DIR } else { "$StorageRoot\experiments\qalf_server_yunet_seed${Seed}_gpu" }
