@@ -332,7 +332,9 @@ def process_video_pipeline(
         with torch.inference_mode():
             out = model({"texture": batch_tensor})
             logits = out["logit"]
-            raw_scores = torch.sigmoid(logits).cpu().numpy().squeeze(-1)
+            raw_scores = torch.sigmoid(logits).cpu().numpy()
+            if raw_scores.ndim > 1 and raw_scores.shape[-1] == 1:
+                raw_scores = raw_scores.squeeze(-1)
     else:
         raise RuntimeError("Neither PyTorch model nor ONNX session was provided")
 
