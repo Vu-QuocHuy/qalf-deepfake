@@ -95,7 +95,7 @@ def main() -> None:
         lm_model_path,
         running_mode="image",
         min_confidence=0.5,
-        backend="auto",
+        backend="yunet",
     )
 
     # Load Manifest
