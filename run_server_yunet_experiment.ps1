@@ -19,8 +19,8 @@ if (-Not (Test-Path $Python)) {
 }
 
 # Đường dẫn đến dữ liệu Celeb-DF-v2
-$Manifest = if ($env:QALF_TEST_MANIFEST) { $env:QALF_TEST_MANIFEST } else { "$StorageRoot\datasets\celeb-df-v2\manifest_test_518.jsonl" }
-$VideoRoot = if ($env:QALF_TEST_VIDEO_ROOT) { $env:QALF_TEST_VIDEO_ROOT } else { "$StorageRoot\datasets\celeb-df-v2" }
+$Manifest = if ($env:QALF_TEST_MANIFEST) { $env:QALF_TEST_MANIFEST } else { "F:\DeepFakedata\Celeb_DFv2\List_of_testing_videos.txt" }
+$VideoRoot = if ($env:QALF_TEST_VIDEO_ROOT) { $env:QALF_TEST_VIDEO_ROOT } else { "F:\DeepFakedata\Celeb_DFv2" }
 
 # Tham số mô hình
 $Seed = if ($env:QALF_SEED) { $env:QALF_SEED } else { "42" }

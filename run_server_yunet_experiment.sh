@@ -27,8 +27,8 @@ case "$(uname -s)" in
 esac
 
 # Đường dẫn đến dữ liệu Celeb-DF-v2
-MANIFEST="${QALF_TEST_MANIFEST:-$STORAGE_ROOT/datasets/celeb-df-v2/manifest_test_518.jsonl}"
-VIDEO_ROOT="${QALF_TEST_VIDEO_ROOT:-$STORAGE_ROOT/datasets/celeb-df-v2}"
+MANIFEST="${QALF_TEST_MANIFEST:-F:/DeepFakedata/Celeb_DFv2/List_of_testing_videos.txt}"
+VIDEO_ROOT="${QALF_TEST_VIDEO_ROOT:-F:/DeepFakedata/Celeb_DFv2}"
 
 # Tham số mô hình
 SEED="${QALF_SEED:-42}"

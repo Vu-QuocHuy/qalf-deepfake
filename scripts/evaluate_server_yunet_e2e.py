@@ -99,7 +99,37 @@ def main() -> None:
     )
 
     # Load Manifest
-    records = load_manifest(args.manifest)
+    if str(args.manifest).endswith(".txt"):
+        print(f"[Info] Detected .txt manifest. Parsing as Celeb-DF List_of_testing_videos format...")
+        records = []
+        with open(args.manifest, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line: continue
+                parts = line.split(" ", 1)
+                if len(parts) == 2:
+                    # e.g., "1 Celeb-synthesis/id0_id16_0000.mp4"
+                    # "1" is FAKE, "0" or "0" might be REAL. But wait, in Celeb-DF txt:
+                    # 1 means FAKE, 0 means REAL, usually, or vice-versa? Wait!
+                    # In Celeb-DF: 1 means Real? Wait, NO. Usually Synthesis is fake.
+                    # Let's map it explicitly by folder name to be safe.
+                    vid_path = parts[1]
+                    if "synthesis" in vid_path.lower() or "fake" in vid_path.lower():
+                        lbl = 1
+                    else:
+                        lbl = 0
+                    rec = VideoRecord(
+                        dataset="celeb-df-v2",
+                        split="test",
+                        video_id=vid_path,
+                        label=lbl,
+                        method="unknown",
+                        source_video="unknown"
+                    )
+                    records.append(rec)
+    else:
+        records = load_manifest(args.manifest)
+        
     print(f"[Info] Loaded manifest with {len(records)} videos.")
     
     all_results: list[dict[str, object]] = []
