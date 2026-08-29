@@ -290,14 +290,58 @@ def process_video_pipeline(
         raw_frame = frame_dict[idx]
         
         # Optimize YuNet: Single pass on raw frame if YuNet is the landmarker
-        # This resolves the performance bottleneck (YuNet running twice) and crop distortion.
+        # This resolves the performance bottleneck (YuNet running twice).
+        # We MUST perform the 256x256 intermediate crop using INTER_AREA to prevent aliasing.
         is_yunet_lm = isinstance(landmarker, OpenCVYuNetLandmarker) or getattr(landmarker, "backend", "") == "yunet"
         
         if is_yunet_lm and yunet_detector is not None:
-            pts = yunet_detector.process(raw_frame)
+            # 1. Single YuNet pass
+            bbox, pts = yunet_detector.process_with_bbox(raw_frame)
             has_lms = pts is not None
+            
+            # 2. Crop to 256x256 with padding (using bbox)
+            if bbox is not None:
+                bx1, by1, bx2, by2 = bbox
+                bw, bh = bx2 - bx1, by2 - by1
+                cx, cy = bx1 + bw / 2.0, by1 + bh / 2.0
+                side = max(bw, bh) * 1.35
+                
+                # We need to compute x1, y1 for mapping the landmarks
+                x1_ideal = cx - side / 2.0
+                y1_ideal = cy - side / 2.0
+                
+                height, width = raw_frame.shape[:2]
+                pad_left, pad_top = max(0, int(round(-x1_ideal))), max(0, int(round(-y1_ideal)))
+                pad_right, pad_bottom = max(0, int(round(x1_ideal + side - width))), max(0, int(round(y1_ideal + side - height)))
+
+                x1, y1 = max(0, int(round(x1_ideal))), max(0, int(round(y1_ideal)))
+                x2, y2 = min(width, int(round(x1_ideal + side))), min(height, int(round(y1_ideal + side)))
+
+                crop = raw_frame[y1:y2, x1:x2]
+                if pad_top > 0 or pad_bottom > 0 or pad_left > 0 or pad_right > 0:
+                    crop = cv2.copyMakeBorder(crop, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_REFLECT)
+                
+                face_256 = cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
+                
+                # 3. Map normalized landmarks from raw_frame to the new face_256 image
+                if has_lms:
+                    # Un-normalize from raw_frame, subtract x1_ideal/y1_ideal, and re-normalize to 256x256
+                    mapped_pts = np.zeros_like(pts)
+                    for i in range(5):
+                        px_raw = pts[i, 0] * width
+                        py_raw = pts[i, 1] * height
+                        px_256 = (px_raw - x1_ideal) * (256.0 / side)
+                        py_256 = (py_raw - y1_ideal) * (256.0 / side)
+                        mapped_pts[i, 0] = px_256 / 256.0
+                        mapped_pts[i, 1] = py_256 / 256.0
+                    pts = mapped_pts
+            else:
+                face_256 = cv2.resize(raw_frame, (256, 256), interpolation=cv2.INTER_AREA)
+                pts = np.zeros((5, 3), dtype=np.float32)
+                has_lms = False
+                
             crop, _ = _aligned_full_face(
-                raw_frame,
+                face_256,
                 pts if has_lms else np.zeros((5, 3), dtype=np.float32),
                 detected=has_lms,
                 output_size=image_size,

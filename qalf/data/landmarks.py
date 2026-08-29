@@ -222,26 +222,34 @@ class OpenCVYuNetLandmarker:
         x, y, w, h = best[0], best[1], best[2], best[3]
         return (float(x), float(y), float(x + w), float(y + h))
 
-    def process(self, image_rgb: np.ndarray, timestamp_ms: int | None = None) -> np.ndarray | None:
-        """Detect face and return 5 normalized landmarks as (5, 3) array."""
+    def process_with_bbox(self, image_rgb: np.ndarray) -> tuple[tuple[float, float, float, float] | None, np.ndarray | None]:
         height, width = image_rgb.shape[:2]
         if height < 16 or width < 16:
-            return None
+            return None, None
         detector = self._get_detector(width, height)
         image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
         _, faces = detector.detect(image_bgr)
         if faces is None or len(faces) == 0:
-            return None
-        # Pick highest confidence face
+            return None, None
         best = max(faces, key=lambda f: f[14])
-        # YuNet output: [x, y, w, h, x_re, y_re, x_le, y_le, x_nose, y_nose, x_rm, y_rm, x_lm, y_lm, score]
-        # Indices: right_eye(4,5), left_eye(6,7), nose(8,9), right_mouth(10,11), left_mouth(12,13)
+        
+        # Bbox
+        x, y, w, h = best[0], best[1], best[2], best[3]
+        bbox = (float(x), float(y), float(x + w), float(y + h))
+        
+        # Landmarks
         pts = np.zeros((5, 3), dtype=np.float32)
-        pts[0] = [best[4] / width, best[5] / height, 0.0]   # right eye
-        pts[1] = [best[6] / width, best[7] / height, 0.0]   # left eye
-        pts[2] = [best[8] / width, best[9] / height, 0.0]   # nose tip
-        pts[3] = [best[10] / width, best[11] / height, 0.0] # right mouth corner
-        pts[4] = [best[12] / width, best[13] / height, 0.0] # left mouth corner
+        pts[0] = [best[4] / width, best[5] / height, 0.0]
+        pts[1] = [best[6] / width, best[7] / height, 0.0]
+        pts[2] = [best[8] / width, best[9] / height, 0.0]
+        pts[3] = [best[10] / width, best[11] / height, 0.0]
+        pts[4] = [best[12] / width, best[13] / height, 0.0]
+        
+        return bbox, pts
+
+    def process(self, image_rgb: np.ndarray, timestamp_ms: int | None = None) -> np.ndarray | None:
+        """Detect face and return 5 normalized landmarks as (5, 3) array."""
+        _, pts = self.process_with_bbox(image_rgb)
         return pts
 
 
