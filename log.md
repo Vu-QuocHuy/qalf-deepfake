@@ -41,6 +41,6 @@ Dưới đây là thống kê chi tiết các lần chạy thử nghiệm nhằm
   - Chấp nhận giữ nguyên cơ chế **2-pass YuNet** (Toán học bắt buộc để giữ chuẩn toạ độ landmark).
   - Chỉ giữ lại bản vá lỗi hụt frame (tránh đắp frame rác).
 - **Kết quả:**
-  - Server: Trở về AUC ổn định chuẩn mực.
-  - Pi 4: Chạy trơn tru, tốc độ tối ưu nhất có thể cho một pipeline bảo toàn phân phối huấn luyện.
+  - Server: Trở về AUC ổn định chuẩn mực **81.61%** (Khớp tuyệt đối với mức baseline của kiến trúc YuNet trên GPU).
+  - Pi 4: Đang chạy trơn tru, dự kiến sẽ cho kết quả gần sát hoặc tương đương với Server, tốc độ tối ưu nhất có thể cho một pipeline bảo toàn phân phối huấn luyện.
 - **Kết luận:** Quy trình 2-pass YuNet và cách crop gốc là **Mathematical Necessity (Sự cần thiết về mặt toán học)**. Mọi nỗ lực "tối ưu hoá" thay đổi không gian ảnh đều sẽ phá huỷ ma trận Affine mà mạng EfficientNet đã học thuộc lòng.
