@@ -193,45 +193,43 @@ def extract_video_frames(
 def crop_face_to_256(image_rgb: np.ndarray, mtcnn_detector=None, yunet_detector=None) -> np.ndarray:
     """Crop face to square with 35% margin resized to 256x256 matching extract_frames.py."""
     height, width = image_rgb.shape[:2]
-    
-    def _crop_and_pad(bx1, by1, bx2, by2):
-        bw, bh = bx2 - bx1, by2 - by1
-        cx, cy = bx1 + bw / 2.0, by1 + bh / 2.0
-        side = max(bw, bh) * 1.35
-        
-        x1_ideal, y1_ideal = int(round(cx - side / 2.0)), int(round(cy - side / 2.0))
-        x2_ideal, y2_ideal = int(round(cx + side / 2.0)), int(round(cy + side / 2.0))
-
-        pad_left, pad_top = max(0, -x1_ideal), max(0, -y1_ideal)
-        pad_right, pad_bottom = max(0, x2_ideal - width), max(0, y2_ideal - height)
-
-        x1, y1 = max(0, x1_ideal), max(0, y1_ideal)
-        x2, y2 = min(width, x2_ideal), min(height, y2_ideal)
-
-        crop = image_rgb[y1:y2, x1:x2]
-        if pad_top > 0 or pad_bottom > 0 or pad_left > 0 or pad_right > 0:
-            crop = cv2.copyMakeBorder(crop, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_REFLECT)
-        
-        if crop.shape[0] > 16 and crop.shape[1] > 16:
-            return cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
-        return None
-
     # Prefer YuNet over MTCNN
     if yunet_detector is not None:
         bbox = yunet_detector.detect_bbox(image_rgb)
         if bbox is not None:
-            res = _crop_and_pad(*bbox)
-            if res is not None: return res
+            bx1, by1, bx2, by2 = bbox
+            bw, bh = bx2 - bx1, by2 - by1
+            cx = bx1 + bw / 2.0
+            cy = by1 + bh / 2.0
+            side = max(bw, bh) * 1.35
+            x1 = max(0, int(round(cx - side / 2.0)))
+            y1 = max(0, int(round(cy - side / 2.0)))
+            x2 = min(width, int(round(cx + side / 2.0)))
+            y2 = min(height, int(round(cy + side / 2.0)))
+            crop = image_rgb[y1:y2, x1:x2]
+            if crop.shape[0] > 16 and crop.shape[1] > 16:
+                return cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
 
     if mtcnn_detector is not None:
         try:
             boxes, _ = mtcnn_detector.detect(image_rgb)
             if boxes is not None and len(boxes) > 0 and boxes[0] is not None:
-                res = _crop_and_pad(*boxes[0])
-                if res is not None: return res
+                box = boxes[0]
+                bx1, by1, bx2, by2 = box
+                bw, bh = bx2 - bx1, by2 - by1
+                cx = bx1 + bw / 2.0
+                cy = by1 + bh / 2.0
+                side = max(bw, bh) * 1.35
+                x1 = max(0, int(round(cx - side / 2.0)))
+                y1 = max(0, int(round(cy - side / 2.0)))
+                x2 = min(width, int(round(cx + side / 2.0)))
+                y2 = min(height, int(round(cy + side / 2.0)))
+                crop = image_rgb[y1:y2, x1:x2]
+                if crop.shape[0] > 16 and crop.shape[1] > 16:
+                    return cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
         except Exception:
             pass
-            
+
     return cv2.resize(image_rgb, (256, 256), interpolation=cv2.INTER_AREA)
 
 
