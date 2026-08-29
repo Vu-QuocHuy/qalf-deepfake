@@ -13,7 +13,7 @@ Outputs:
 Usage (50 samples):
     python scripts/verify_onnx_parity.py \\
         --checkpoint path/to/best.pt \\
-        --onnx models/qalf.onnx \\
+        --onnx models/model.onnx \\
         --manifest path/to/celebdf_test_landmarks.jsonl \\
         --frame-root path/to/extracted/ \\
         --landmark-root path/to/landmarks/ \\
@@ -24,7 +24,7 @@ Usage (50 samples):
 Usage (all videos):
     python scripts/verify_onnx_parity.py \\
         --checkpoint path/to/best.pt \\
-        --onnx models/qalf.onnx \\
+        --onnx models/model.onnx \\
         --manifest path/to/celebdf_test_landmarks.jsonl \\
         --frame-root path/to/extracted/ \\
         --landmark-root path/to/landmarks/ \\

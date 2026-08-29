@@ -79,7 +79,7 @@ def compute_eer(y_true: list[int], y_scores: list[float]) -> float:
     return eer
 
 
-monitor_data = {"cpu": [], "ram": [], "temp": []}
+monitor_data = {"time_ms": [], "cpu": [], "ram": [], "temp": [], "power_w": []}
 monitoring_active = True
 
 def get_cpu_temp():
@@ -92,14 +92,20 @@ def get_cpu_temp():
 def monitor_hardware():
     if not psutil: return
     process = psutil.Process(os.getpid())
+    start_time = time.time()
     while monitoring_active:
         try:
             cpu = psutil.cpu_percent(interval=0.1)
             ram = process.memory_info().rss / (1024 * 1024)
             temp = get_cpu_temp()
+            # Pi 4 estimated power model: 2.7W idle, 6.4W full load
+            estimated_power = 2.7 + ((6.4 - 2.7) * (cpu / 100.0))
+            
+            monitor_data["time_ms"].append(int((time.time() - start_time) * 1000))
             monitor_data["cpu"].append(cpu)
             monitor_data["ram"].append(ram)
             monitor_data["temp"].append(temp)
+            monitor_data["power_w"].append(estimated_power)
             time.sleep(0.4)
         except Exception:
             pass
@@ -177,11 +183,9 @@ def extract_video_frames(
 
     read_elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
-    if frame_dict:
-        fallback = next(iter(frame_dict.values()))
-        for idx in indices:
-            if idx not in frame_dict:
-                frame_dict[idx] = fallback
+    if len(frame_dict) < len(idx_set):
+        missing = [idx for idx in indices if idx not in frame_dict]
+        raise RuntimeError(f"Failed to extract {len(missing)} target frames. Missing: {missing}")
 
     return frame_dict, read_elapsed_ms
 
@@ -189,41 +193,45 @@ def extract_video_frames(
 def crop_face_to_256(image_rgb: np.ndarray, mtcnn_detector=None, yunet_detector=None) -> np.ndarray:
     """Crop face to square with 35% margin resized to 256x256 matching extract_frames.py."""
     height, width = image_rgb.shape[:2]
+    
+    def _crop_and_pad(bx1, by1, bx2, by2):
+        bw, bh = bx2 - bx1, by2 - by1
+        cx, cy = bx1 + bw / 2.0, by1 + bh / 2.0
+        side = max(bw, bh) * 1.35
+        
+        x1_ideal, y1_ideal = int(round(cx - side / 2.0)), int(round(cy - side / 2.0))
+        x2_ideal, y2_ideal = int(round(cx + side / 2.0)), int(round(cy + side / 2.0))
+
+        pad_left, pad_top = max(0, -x1_ideal), max(0, -y1_ideal)
+        pad_right, pad_bottom = max(0, x2_ideal - width), max(0, y2_ideal - height)
+
+        x1, y1 = max(0, x1_ideal), max(0, y1_ideal)
+        x2, y2 = min(width, x2_ideal), min(height, y2_ideal)
+
+        crop = image_rgb[y1:y2, x1:x2]
+        if pad_top > 0 or pad_bottom > 0 or pad_left > 0 or pad_right > 0:
+            crop = cv2.copyMakeBorder(crop, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_REFLECT)
+        
+        if crop.shape[0] > 16 and crop.shape[1] > 16:
+            return cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
+        return None
+
     # Prefer YuNet over MTCNN
     if yunet_detector is not None:
         bbox = yunet_detector.detect_bbox(image_rgb)
         if bbox is not None:
-            bx1, by1, bx2, by2 = bbox
-            bw, bh = bx2 - bx1, by2 - by1
-            cx = bx1 + bw / 2.0
-            cy = by1 + bh / 2.0
-            side = max(bw, bh) * 1.35
-            x1 = max(0, int(round(cx - side / 2.0)))
-            y1 = max(0, int(round(cy - side / 2.0)))
-            x2 = min(width, int(round(cx + side / 2.0)))
-            y2 = min(height, int(round(cy + side / 2.0)))
-            crop = image_rgb[y1:y2, x1:x2]
-            if crop.shape[0] > 16 and crop.shape[1] > 16:
-                return cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
+            res = _crop_and_pad(*bbox)
+            if res is not None: return res
+
     if mtcnn_detector is not None:
         try:
             boxes, _ = mtcnn_detector.detect(image_rgb)
             if boxes is not None and len(boxes) > 0 and boxes[0] is not None:
-                box = boxes[0]
-                bx1, by1, bx2, by2 = box
-                bw, bh = bx2 - bx1, by2 - by1
-                cx = bx1 + bw / 2.0
-                cy = by1 + bh / 2.0
-                side = max(bw, bh) * 1.35
-                x1 = max(0, int(round(cx - side / 2.0)))
-                y1 = max(0, int(round(cy - side / 2.0)))
-                x2 = min(width, int(round(cx + side / 2.0)))
-                y2 = min(height, int(round(cy + side / 2.0)))
-                crop = image_rgb[y1:y2, x1:x2]
-                if crop.shape[0] > 16 and crop.shape[1] > 16:
-                    return cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
+                res = _crop_and_pad(*boxes[0])
+                if res is not None: return res
         except Exception:
             pass
+            
     return cv2.resize(image_rgb, (256, 256), interpolation=cv2.INTER_AREA)
 
 
@@ -280,21 +288,37 @@ def process_video_pipeline(
 
     for idx in all_indices:
         raw_frame = frame_dict[idx]
-        face_256 = crop_face_to_256(raw_frame, mtcnn_detector=mtcnn_detector, yunet_detector=yunet_detector)
         
-        if no_landmarks or landmarker is None:
-            has_lms = False
-            pts = None
-        else:
-            pts = landmarker.process(face_256)
+        # Optimize YuNet: Single pass on raw frame if YuNet is the landmarker
+        # This resolves the performance bottleneck (YuNet running twice) and crop distortion.
+        is_yunet_lm = isinstance(landmarker, OpenCVYuNetLandmarker) or getattr(landmarker, "backend", "") == "yunet"
+        
+        if is_yunet_lm and yunet_detector is not None:
+            pts = yunet_detector.process(raw_frame)
             has_lms = pts is not None
+            crop, _ = _aligned_full_face(
+                raw_frame,
+                pts if has_lms else np.zeros((5, 3), dtype=np.float32),
+                detected=has_lms,
+                output_size=image_size,
+            )
+        else:
+            # Legacy MTCNN + MediaPipe (or mixed) two-stage pipeline
+            face_256 = crop_face_to_256(raw_frame, mtcnn_detector=mtcnn_detector, yunet_detector=yunet_detector)
+            
+            if no_landmarks or landmarker is None:
+                has_lms = False
+                pts = None
+            else:
+                pts = landmarker.process(face_256)
+                has_lms = pts is not None
 
-        crop, _ = _aligned_full_face(
-            face_256,
-            pts if has_lms else np.zeros((468, 3), dtype=np.float32),
-            has_lms,
-            image_size,
-        )
+            crop, _ = _aligned_full_face(
+                face_256,
+                pts if has_lms else np.zeros((468, 3), dtype=np.float32),
+                detected=has_lms,
+                output_size=image_size,
+            )
         crop_norm = (crop.astype(np.float32) / 255.0 - IMAGE_MEAN) / IMAGE_STD
         crop_chw = np.transpose(crop_norm, (2, 0, 1))
         aligned_map[idx] = crop_chw
@@ -537,6 +561,25 @@ def main() -> None:
     
     monitoring_active = False
     monitor_thread.join()
+
+    # Save telemetry data to CSV
+    try:
+        import csv
+        telemetry_path = Path("hardware_telemetry.csv")
+        with open(telemetry_path, mode="w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["time_ms", "cpu_percent", "ram_mb", "temp_c", "power_w"])
+            for i in range(len(monitor_data["time_ms"])):
+                writer.writerow([
+                    monitor_data["time_ms"][i],
+                    monitor_data["cpu"][i],
+                    monitor_data["ram"][i],
+                    monitor_data["temp"][i],
+                    monitor_data["power_w"][i]
+                ])
+        print(f"\n[+] Hardware telemetry saved to {telemetry_path.absolute()}")
+    except Exception as e:
+        print(f"[!] Failed to save hardware telemetry: {e}")
 
     if not reports:
         print("No videos processed successfully.")

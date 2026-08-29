@@ -15,7 +15,7 @@ Improvements over the original profiler:
 
 Usage (minimal — 50 balanced videos):
     python scripts/profile_pi4_pipeline.py \\
-        --onnx models/qalf.onnx \\
+        --onnx models/model.onnx \\
         --video-root /mnt/usb_data/celebdf_test_518 \\
         --balanced --n-videos 50 --seed 42 \\
         --warmup-videos 5 --clips 3 --backend yunet \\
@@ -23,7 +23,7 @@ Usage (minimal — 50 balanced videos):
 
 Usage (full — all 518 videos):
     python scripts/profile_pi4_pipeline.py \\
-        --onnx models/qalf.onnx \\
+        --onnx models/model.onnx \\
         --video-root /mnt/usb_data/celebdf_test_518 \\
         --n-videos 0 --warmup-videos 5 --clips 3 --backend yunet \\
         --output-dir eval_pi4_profile_yunet_3clip_all
