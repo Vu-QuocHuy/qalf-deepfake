@@ -183,6 +183,13 @@ def _select_videos(
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
+            
+            # Handle Celeb-DF format: "1 Celeb-real/0000.mp4" or "0 Celeb-synthesis/id..."
+            if " " in line:
+                parts = line.split(" ", 1)
+                if parts[0] in ("0", "1"):
+                    line = parts[1]
+                    
             path = video_root / line
             label = 0 if "real" in path.parent.name.lower() else 1
             entries.append((path, label))
