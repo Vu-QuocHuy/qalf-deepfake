@@ -15,7 +15,13 @@ from typing import Any, Iterable
 import numpy as np
 from scipy import stats
 
-DEFAULT_PROFILES = ("baseline", "sbi_frame", "no_sbi", "no_ema")
+DEFAULT_PROFILES = (
+    "baseline",
+    "sbi_frame",
+    "no_sbi",
+    "no_ema",
+    "texture_only",
+)
 DEFAULT_SEEDS = (0, 17, 42, 73, 123)
 METRICS = (
     "auc",
@@ -33,6 +39,7 @@ PROFILE_LABELS = {
     "sbi_frame": "Frame-independent SBI",
     "no_sbi": "No SBI",
     "no_ema": "SBI without EMA",
+    "texture_only": "Texture only (no SBI, no EMA)",
 }
 DATASET_LABELS = {"celebdf": "Celeb-DF-v2", "ffpp": "FF++ c23"}
 

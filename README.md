@@ -110,8 +110,8 @@ To run the registered comparisons in one resumable job:
 & "C:\Program Files\Git\bin\bash.exe" ./run_ablation_suite.sh
 ```
 
-The suite runs five seeds for the full SBI/EMA grid (`baseline`, `no_sbi`,
-`no_ema`, and `texture_only`), one seed for the pretrained, augmentation, and
+The suite runs five seeds for the full SBI/EMA grid (`baseline`, `sbi_frame`,
+`no_sbi`, `no_ema`, and `texture_only`), one seed for the pretrained, augmentation, and
 SBI-mixture controls, then evaluates frame
 count, clip count, aggregation, TTA, and corruption robustness. Existing
 checkpoints and metrics are skipped, so it can safely be restarted. Results
@@ -167,14 +167,15 @@ $env:QALF_FFPP_PROFILES="texture_only"
 Remove-Item Env:QALF_FFPP_PROFILES
 ```
 
-After the `baseline`, `sbi_frame`, and `no_sbi` runs are complete on both
-Celeb-DF and FF++, create the paired five-seed SBI summary with:
+After the five profiles (`baseline`, `sbi_frame`, `no_sbi`, `no_ema`, and
+`texture_only`) are complete on both Celeb-DF and FF++, create the paired
+five-seed SBI summary with:
 
 ```powershell
 & .\.venv\Scripts\python.exe scripts\summarize_sbi_ablation.py --ablation-root E:/DeepFakeData/experiments/ablation
 ```
 
-The command checks that all three profiles and all five seeds are present. It
+The command checks that all five profiles and all five seeds are present. It
 writes publication-oriented Markdown, JSON, CSV, per-seed rows, and paired
 deltas under `E:/DeepFakeData/experiments/ablation/sbi_summary`. The report
 also runs two-sided paired t-tests and a 95% bootstrap CI over the paired
