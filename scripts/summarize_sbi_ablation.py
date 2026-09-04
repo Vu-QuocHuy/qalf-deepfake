@@ -12,7 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-DEFAULT_PROFILES = ("baseline", "sbi_frame", "no_sbi")
+import numpy as np
+from scipy import stats
+
+DEFAULT_PROFILES = ("baseline", "sbi_frame", "no_sbi", "no_ema")
 DEFAULT_SEEDS = (0, 17, 42, 73, 123)
 METRICS = (
     "auc",
@@ -29,6 +32,7 @@ PROFILE_LABELS = {
     "baseline": "Clip-coherent SBI",
     "sbi_frame": "Frame-independent SBI",
     "no_sbi": "No SBI",
+    "no_ema": "SBI without EMA",
 }
 DATASET_LABELS = {"celebdf": "Celeb-DF-v2", "ffpp": "FF++ c23"}
 
@@ -243,6 +247,55 @@ def paired_differences(
     return details, summary
 
 
+def paired_statistics(
+    paired_details: list[dict[str, Any]],
+    *,
+    metrics: Iterable[str] = PRIMARY_METRICS,
+    bootstrap_repetitions: int = 10000,
+    bootstrap_seed: int = 2025,
+) -> list[dict[str, Any]]:
+    """Test paired seed deltas and bootstrap a CI over those paired deltas."""
+    if bootstrap_repetitions < 100:
+        raise ValueError("bootstrap_repetitions must be at least 100")
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in paired_details:
+        grouped[(str(row["dataset"]), str(row["comparison"]))].append(row)
+
+    rng = np.random.default_rng(bootstrap_seed)
+    result: list[dict[str, Any]] = []
+    for (dataset, comparison), rows in sorted(grouped.items()):
+        rows.sort(key=lambda row: int(row["seed"]))
+        item: dict[str, Any] = {
+            "dataset": dataset,
+            "comparison": comparison,
+            "candidate": rows[0]["candidate"],
+            "reference": rows[0]["reference"],
+            "n_paired_seeds": len(rows),
+            "seeds": [int(row["seed"]) for row in rows],
+            "bootstrap_repetitions": bootstrap_repetitions,
+            "bootstrap_seed": bootstrap_seed,
+        }
+        for metric in metrics:
+            values = np.array(
+                [float(row[f"{metric}_delta"]) for row in rows], dtype=float
+            )
+            test = stats.ttest_1samp(values, popmean=0.0) if len(values) > 1 else None
+            indices = rng.integers(0, len(values), size=(bootstrap_repetitions, len(values)))
+            bootstrap_means = values[indices].mean(axis=1)
+            ci_low, ci_high = np.percentile(bootstrap_means, [2.5, 97.5])
+            item.update(
+                {
+                    f"{metric}_delta_mean": float(values.mean()),
+                    f"{metric}_t_stat": float(test.statistic) if test else float("nan"),
+                    f"{metric}_p_value": float(test.pvalue) if test else float("nan"),
+                    f"{metric}_ci95_low": float(ci_low),
+                    f"{metric}_ci95_high": float(ci_high),
+                }
+            )
+        result.append(item)
+    return result
+
+
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     if not rows:
         return
@@ -266,6 +319,7 @@ def _percent_mean_std(mean: float, std: float, *, signed: bool = False) -> str:
 def render_markdown(
     summary: list[dict[str, Any]],
     paired_summary: list[dict[str, Any]],
+    paired_stats: list[dict[str, Any]],
     missing: list[str],
 ) -> str:
     lines = [
@@ -343,6 +397,32 @@ def render_markdown(
 
     lines.extend(
         [
+            "## Statistical tests across paired training seeds",
+            "",
+            "Two-sided paired t-tests use per-seed deltas. The 95% bootstrap CI resamples paired seeds, so it quantifies training-seed uncertainty rather than video-sampling uncertainty.",
+            "",
+            "| Dataset | Comparison | n | ΔAUC (pp) | 95% CI (pp) | p-value |",
+            "| --- | --- | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in paired_stats:
+        lines.append(
+            "| {dataset} | {comparison} | {n} | {delta:.2f} | [{low:.2f}, {high:.2f}] | {p:.4f} |".format(
+                dataset=DATASET_LABELS.get(str(row["dataset"]), str(row["dataset"])),
+                comparison=(
+                    f'{PROFILE_LABELS.get(str(row["candidate"]), row["candidate"])} − '
+                    f'{PROFILE_LABELS.get(str(row["reference"]), row["reference"])}'
+                ),
+                n=row["n_paired_seeds"],
+                delta=100.0 * row["auc_delta_mean"],
+                low=100.0 * row["auc_ci95_low"],
+                high=100.0 * row["auc_ci95_high"],
+                p=row["auc_p_value"],
+            )
+        )
+    lines.extend(
+        [
+            "",
             "## Interpretation notes",
             "",
             "- Positive ΔAUC, ΔAccuracy, and ΔMacro-F1 favor the candidate profile.",
@@ -416,11 +496,13 @@ def main() -> None:
 
     summary = summarize_runs(runs)
     paired_details, paired_summary = paired_differences(runs, reference="baseline")
+    paired_stats = paired_statistics(paired_details)
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_csv(output_dir / "runs.csv", runs)
     _write_csv(output_dir / "summary.csv", summary)
     _write_csv(output_dir / "paired_deltas.csv", paired_details)
     _write_csv(output_dir / "paired_delta_summary.csv", paired_summary)
+    _write_csv(output_dir / "paired_statistics.csv", paired_stats)
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "protocol": {
@@ -435,6 +517,7 @@ def main() -> None:
         },
         "summary": summary,
         "paired_delta_summary": paired_summary,
+        "paired_statistics": paired_stats,
         "runs": runs,
         "paired_deltas": paired_details,
         "missing": missing,
@@ -443,7 +526,7 @@ def main() -> None:
         json.dumps(payload, indent=2), encoding="utf-8"
     )
     (output_dir / "summary.md").write_text(
-        render_markdown(summary, paired_summary, missing), encoding="utf-8"
+        render_markdown(summary, paired_summary, paired_stats, missing), encoding="utf-8"
     )
 
     print(f"SBI summary runs: {len(runs)}")
@@ -455,6 +538,7 @@ def main() -> None:
         "runs.csv",
         "paired_delta_summary.csv",
         "paired_deltas.csv",
+        "paired_statistics.csv",
     ):
         print(f"  - {output_dir / filename}")
 

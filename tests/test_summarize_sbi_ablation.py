@@ -8,6 +8,7 @@ from pathlib import Path
 from scripts.summarize_sbi_ablation import (
     collect_runs,
     paired_differences,
+    paired_statistics,
     summarize_runs,
 )
 
@@ -89,6 +90,13 @@ class SbiAblationSummaryTests(unittest.TestCase):
             celeb_delta = next(row for row in paired if row["dataset"] == "celebdf")
             self.assertEqual(celeb_delta["n_paired_seeds"], 2)
             self.assertAlmostEqual(celeb_delta["auc_delta_mean"], 0.01)
+
+            statistics_rows = paired_statistics(details, bootstrap_repetitions=500)
+            celeb_stats = next(row for row in statistics_rows if row["dataset"] == "celebdf")
+            self.assertEqual(celeb_stats["n_paired_seeds"], 2)
+            self.assertAlmostEqual(celeb_stats["auc_delta_mean"], 0.01)
+            self.assertLessEqual(celeb_stats["auc_ci95_low"], 0.01)
+            self.assertGreaterEqual(celeb_stats["auc_ci95_high"], 0.01)
 
     def test_missing_runs_are_rejected_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

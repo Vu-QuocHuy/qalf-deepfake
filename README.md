@@ -176,7 +176,10 @@ Celeb-DF and FF++, create the paired five-seed SBI summary with:
 
 The command checks that all three profiles and all five seeds are present. It
 writes publication-oriented Markdown, JSON, CSV, per-seed rows, and paired
-deltas under `E:/DeepFakeData/experiments/ablation/sbi_summary`. Use
+deltas under `E:/DeepFakeData/experiments/ablation/sbi_summary`. The report
+also runs two-sided paired t-tests and a 95% bootstrap CI over the paired
+training-seed deltas, including the `baseline` vs `no_ema` EMA comparison;
+these are post-processing only and do not retrain or reevaluate models. Use
 `--allow-missing` only for an explicitly incomplete draft.
 
 ## Outputs
