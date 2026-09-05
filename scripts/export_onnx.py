@@ -32,6 +32,27 @@ def build_model(checkpoint: dict[str, object]) -> QALFModel:
     return build_model_from_checkpoint(checkpoint).eval()
 
 
+def _metadata(
+    checkpoint: dict[str, object], output: Path, *, bytes_size: int, opset: int, verified: bool
+) -> dict[str, object]:
+    config = checkpoint.get("config", {})
+    data_cfg = config.get("data", {})
+    model_cfg = config.get("model", {})
+    return {
+        "architecture": "TextureSBIModel",
+        "checkpoint": str(checkpoint.get("checkpoint_path", "")),
+        "output_onnx": str(output),
+        "texture_backbone": model_cfg.get("texture_backbone", "efficientnet_b0"),
+        "texture_frames": int(data_cfg.get("texture_frames", 8)),
+        "image_size": int(data_cfg.get("image_size", 160)),
+        "target_fps": float(data_cfg.get("target_fps", 10.0)),
+        "optimal_threshold": float(checkpoint.get("threshold", checkpoint.get("optimal_threshold", 0.5))),
+        "bytes": bytes_size,
+        "opset": opset,
+        "verified": verified,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export TextureSBI checkpoint to ONNX with metadata")
     parser.add_argument("--checkpoint", required=True, help="Path to PyTorch checkpoint (.pt)")
@@ -43,13 +64,10 @@ def main() -> None:
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
     config = checkpoint.get("config", {})
     data_cfg = config.get("data", {})
-    model_cfg = config.get("model", {})
 
     image_size = int(data_cfg.get("image_size", 160))
     texture_frames = int(data_cfg.get("texture_frames", 8))
     target_fps = float(data_cfg.get("target_fps", 10.0))
-    threshold = float(checkpoint.get("threshold", checkpoint.get("optimal_threshold", 0.5)))
-    backbone = model_cfg.get("texture_backbone", "efficientnet_b0")
 
     wrapper = ONNXTextureSBIWrapper(build_model(checkpoint)).eval()
     example = torch.zeros(1, texture_frames, 3, image_size, image_size, dtype=torch.float32)
@@ -82,34 +100,23 @@ def main() -> None:
             do_constant_folding=True,
         )
 
-    metadata = {
-        "architecture": "TextureSBIModel",
-        "checkpoint": str(args.checkpoint),
-        "output_onnx": str(output),
-        "texture_backbone": backbone,
-        "texture_frames": texture_frames,
-        "image_size": image_size,
-        "target_fps": target_fps,
-        "optimal_threshold": threshold,
-        "bytes": output.stat().st_size,
-        "opset": args.opset,
-        "optimal_threshold": float(checkpoint.get("threshold", 0.5)),
-        "verified": False,
-    }
-
-    # Save companion metadata JSON alongside ONNX file (e.g. models/qalf.json)
-    json_path = output.with_suffix(".json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
-
+    verified = False
     if args.verify:
         try:
             import onnx
             exported = onnx.load(str(output))
             onnx.checker.check_model(exported)
-            metadata["verified"] = True
+            verified = True
         except Exception as e:
             print(f"[Warning] ONNX check skipped/failed: {e}")
+
+    metadata = _metadata(
+        checkpoint, output, bytes_size=output.stat().st_size, opset=args.opset, verified=verified
+    )
+    metadata["checkpoint"] = str(args.checkpoint)
+    json_path = output.with_suffix(".json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
 
     print(f"[+] Successfully exported ONNX model to: {output}")
     print(f"[+] Metadata and optimal threshold saved to: {json_path}")

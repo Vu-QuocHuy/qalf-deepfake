@@ -70,6 +70,17 @@ def percentile(values: list[float], fraction: float) -> float:
     return ordered[index]
 
 
+def _require_complete_results(processed: int, expected: int, errors: list[str]) -> None:
+    """Prevent reporting an AUC from a subset of the locked test protocol."""
+    if processed == expected:
+        return
+    preview = "; ".join(errors[:3]) if errors else "unknown processing error"
+    raise RuntimeError(
+        f"Evaluation incomplete: processed {processed} / {expected} videos. "
+        f"Refusing to report partial metrics. First errors: {preview}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Core: process one video exactly like QALFVideoDataset.__getitem__()
 # ---------------------------------------------------------------------------
@@ -328,6 +339,8 @@ def main() -> None:
     if not all_results:
         print("No videos processed successfully.", flush=True)
         return
+
+    _require_complete_results(len(all_results), len(records), errors)
 
     # Compute metrics using the EXACT same function as server
     labels = np.asarray([r["label"] for r in all_results], dtype=np.int64)
