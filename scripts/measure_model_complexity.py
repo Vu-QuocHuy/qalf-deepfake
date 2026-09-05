@@ -31,7 +31,8 @@ class _TextureWrapper(nn.Module):
 
 
 def _gmacs_from_flops(flops: float) -> float:
-    return flops / 2_000_000_000
+    # fvcore calls one fused multiply-add one flop, i.e. this is a MAC count.
+    return flops / 1_000_000_000
 
 
 def main() -> None:
@@ -57,9 +58,11 @@ def main() -> None:
     report = {
         "checkpoint": str(args.checkpoint), "batch_size": 1,
         "texture_frames": texture_frames, "image_size": image_size,
-        "flops_per_clip": flops, "gflops_per_clip": flops / 1_000_000_000,
+        "fvcore_fma_ops_per_clip": flops,
+        "flops_per_clip": 2 * flops, "gflops_per_clip": 2 * flops / 1_000_000_000,
         "gmacs_per_clip": _gmacs_from_flops(flops),
         "scope": "one neural forward pass; excludes preprocessing, clip aggregation, and flip TTA",
+        "counting_convention": "fvcore counts one fused multiply-add as one operation; mathematical FLOPs = 2 × fvcore count",
     }
     print(json.dumps(report, indent=2))
     print("\nPer-module table:")
